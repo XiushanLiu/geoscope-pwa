@@ -1,0 +1,41 @@
+{
+  "app": "GeoScope",
+  "version": "1.0.0",
+  "generatedAt": 1791654978396,
+  "networkType": "cellular",
+  "effectiveType": "4g",
+  "downlink": 10,
+  "online": true,
+  "samples": 3,
+  "warmup": true,
+  "userAgent": "Mozilla/5.0 (Linux; Android 16; PKC110 Build/BP2A.250605.015; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/150.0.7871.189 Mobile Safari/537.36 XWEB/1500145 MMWEBSDK/20260901 MMWEBID/2049 MicroMessenger/8.0.78.3180(0x28004E3A) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64 miniProgram/wx907c65e5e107ddcf",
+  "results": [
+    {"sourceId":"weather","label":"天气（Open-Meteo Forecast）","status":"ok","latencyP50":177,"latencyMin":173,"latencyMax":272,"latencyAvg":207,"samplesMs":[177,272,173],"successCount":3,"attemptCount":3,"httpStatus":200,"error":null},
+    {"sourceId":"air","label":"空气质量（Open-Meteo Air Quality）","status":"ok","latencyP50":316,"latencyMin":262,"latencyMax":319,"latencyAvg":299,"samplesMs":[262,319,316],"successCount":3,"attemptCount":3,"httpStatus":200,"error":null},
+    {"sourceId":"geocode","label":"地名搜索（Open-Meteo Geocoding）","status":"ok","latencyP50":309,"latencyMin":269,"latencyMax":425,"latencyAvg":334,"samplesMs":[425,309,269],"successCount":3,"attemptCount":3,"httpStatus":200,"error":null},
+    {"sourceId":"elevation","label":"海拔（Open-Meteo Elevation）","status":"ok","latencyP50":305,"latencyMin":182,"latencyMax":312,"latencyAvg":266,"samplesMs":[182,305,312],"successCount":3,"attemptCount":3,"httpStatus":200,"error":null},
+    {"sourceId":"reverse","label":"逆地理反查（Photon）","status":"ok","latencyP50":1265,"latencyMin":967,"latencyMax":1282,"latencyAvg":1171,"samplesMs":[1282,1265,967],"successCount":3,"attemptCount":3,"httpStatus":200,"error":null}
+  ],
+  "tiles": [
+    {"styleId":"street","z":12,"x":3372,"y":1552,"ok":true,"httpStatus":200,"latencyMs":1050,"bytes":42959,"fp":"f9aa37f8ae4c8d5d"},
+    {"styleId":"street","z":12,"x":3374,"y":1549,"ok":true,"httpStatus":200,"latencyMs":534,"bytes":30226,"fp":"0ac211a05c76227c"},
+    {"styleId":"street","z":12,"x":3370,"y":1554,"ok":true,"httpStatus":200,"latencyMs":298,"bytes":21595,"fp":"e6edb16673621231"},
+    {"styleId":"imagery","z":12,"x":3372,"y":1552,"ok":true,"httpStatus":200,"latencyMs":302,"bytes":21130,"fp":"a2cc015fa85364e6"},
+    {"styleId":"imagery","z":12,"x":3374,"y":1549,"ok":true,"httpStatus":200,"latencyMs":310,"bytes":21526,"fp":"211adc689f88e550"},
+    {"styleId":"imagery","z":12,"x":3370,"y":1554,"ok":true,"httpStatus":200,"latencyMs":305,"bytes":18642,"fp":"b919edea7ad76429"},
+    {"styleId":"dark","z":12,"x":3372,"y":1552,"ok":true,"httpStatus":200,"latencyMs":331,"bytes":10755,"fp":"9e9ffcc9c2d53925"},
+    {"styleId":"dark","z":12,"x":3374,"y":1549,"ok":true,"httpStatus":200,"latencyMs":325,"bytes":7594,"fp":"a70241dfbf1fe19d"},
+    {"styleId":"dark","z":12,"x":3370,"y":1554,"ok":true,"httpStatus":200,"latencyMs":311,"bytes":5338,"fp":"62bbd26fac475e7f"}
+  ],
+  "tileDedupe": {
+    "total": 9,
+    "unique": 9,
+    "verdict": "real",
+    "byStyle": {
+      "street":  {"total":3,"unique":3,"verdict":"real","fps":["f9aa37f8ae4c8d5d","0ac211a05c76227c","e6edb16673621231"]},
+      "imagery": {"total":3,"unique":3,"verdict":"real","fps":["a2cc015fa85364e6","211adc689f88e550","b919edea7ad76429"]},
+      "dark":    {"total":3,"unique":3,"verdict":"real","fps":["9e9ffcc9c2d53925","a70241dfbf1fe19d","62bbd26fac475e7f"]}
+    }
+  },
+  "verdict": "all-ok"
+}

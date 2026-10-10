@@ -1,0 +1,64 @@
+[
+  {
+    "app": "GeoScope",
+    "version": "1.0.0",
+    "generatedAt": 1791656367485,
+    "networkType": "cellular",
+    "effectiveType": "4g",
+    "downlink": 10,
+    "online": true,
+    "samples": 3,
+    "warmup": true,
+    "results": [
+      {"sourceId":"weather","status":"ok","latencyP50":665,"latencyMin":607,"latencyMax":1278,"samplesMs":[1278,665,607],"successCount":3,"httpStatus":200},
+      {"sourceId":"air","status":"ok","latencyP50":338,"latencyMin":335,"latencyMax":583,"samplesMs":[335,338,583],"successCount":3,"httpStatus":200},
+      {"sourceId":"geocode","status":"ok","latencyP50":309,"latencyMin":302,"latencyMax":312,"samplesMs":[302,309,312],"successCount":3,"httpStatus":200},
+      {"sourceId":"elevation","status":"ok","latencyP50":318,"latencyMin":189,"latencyMax":320,"samplesMs":[318,320,189],"successCount":3,"httpStatus":200},
+      {"sourceId":"reverse","status":"ok","latencyP50":1034,"latencyMin":856,"latencyMax":1100,"samplesMs":[1100,856,1034],"successCount":3,"httpStatus":200}
+    ],
+    "tiles": [
+      {"styleId":"street","z":12,"x":3372,"y":1552,"ok":true,"latencyMs":3054,"bytes":42959,"fp":"f9aa37f8ae4c8d5d"},
+      {"styleId":"street","z":12,"x":3374,"y":1549,"ok":true,"latencyMs":2126,"bytes":30226,"fp":"0ac211a05c76227c"},
+      {"styleId":"street","z":12,"x":3370,"y":1554,"ok":true,"latencyMs":1513,"bytes":21595,"fp":"e6edb16673621231"},
+      {"styleId":"imagery","z":12,"x":3372,"y":1552,"ok":true,"latencyMs":955,"bytes":21130,"fp":"a2cc015fa85364e6"},
+      {"styleId":"imagery","z":12,"x":3374,"y":1549,"ok":true,"latencyMs":3198,"bytes":21526,"fp":"211adc689f88e550"},
+      {"styleId":"imagery","z":12,"x":3370,"y":1554,"ok":true,"latencyMs":3146,"bytes":18642,"fp":"b919edea7ad76429"},
+      {"styleId":"dark","z":12,"x":3372,"y":1552,"ok":true,"latencyMs":693,"bytes":10755,"fp":"9e9ffcc9c2d53925"},
+      {"styleId":"dark","z":12,"x":3374,"y":1549,"ok":true,"latencyMs":2883,"bytes":7594,"fp":"a70241dfbf1fe19d"},
+      {"styleId":"dark","z":12,"x":3370,"y":1554,"ok":true,"latencyMs":279,"bytes":5338,"fp":"62bbd26fac475e7f"}
+    ],
+    "tileDedupe": {"total":9,"unique":9,"verdict":"real","byStyle":{"street":{"total":3,"unique":3,"verdict":"real"},"imagery":{"total":3,"unique":3,"verdict":"real"},"dark":{"total":3,"unique":3,"verdict":"real"}}},
+    "verdict": "all-ok"
+  },
+  {
+    "app": "GeoScope",
+    "version": "1.0.0",
+    "generatedAt": 1791656444194,
+    "networkType": "wifi",
+    "effectiveType": "4g",
+    "downlink": 10,
+    "online": true,
+    "samples": 3,
+    "warmup": true,
+    "results": [
+      {"sourceId":"weather","status":"ok","latencyP50":157,"latencyMin":156,"latencyMax":166,"samplesMs":[156,157,166],"successCount":3,"httpStatus":200},
+      {"sourceId":"air","status":"ok","latencyP50":330,"latencyMin":319,"latencyMax":374,"samplesMs":[330,319,374],"successCount":3,"httpStatus":200},
+      {"sourceId":"geocode","status":"ok","latencyP50":406,"latencyMin":303,"latencyMax":425,"samplesMs":[303,425,406],"successCount":3,"httpStatus":200},
+      {"sourceId":"elevation","status":"ok","latencyP50":163,"latencyMin":161,"latencyMax":232,"samplesMs":[232,163,161],"successCount":3,"httpStatus":200},
+      {"sourceId":"reverse","status":"ok","latencyP50":930,"latencyMin":895,"latencyMax":991,"samplesMs":[991,930,895],"successCount":3,"httpStatus":200}
+    ],
+    "tiles": [
+      {"styleId":"street","z":12,"x":3372,"y":1552,"ok":true,"latencyMs":1817,"bytes":42959,"fp":"f9aa37f8ae4c8d5d"},
+      {"styleId":"street","z":12,"x":3374,"y":1549,"ok":true,"latencyMs":1276,"bytes":30226,"fp":"0ac211a05c76227c"},
+      {"styleId":"street","z":12,"x":3370,"y":1554,"ok":true,"latencyMs":960,"bytes":21595,"fp":"e6edb16673621231"},
+      {"styleId":"imagery","z":12,"x":3372,"y":1552,"ok":true,"latencyMs":1283,"bytes":21130,"fp":"a2cc015fa85364e6"},
+      {"styleId":"imagery","z":12,"x":3374,"y":1549,"ok":true,"latencyMs":693,"bytes":21526,"fp":"211adc689f88e550"},
+      {"styleId":"imagery","z":12,"x":3370,"y":1554,"ok":true,"latencyMs":582,"bytes":18642,"fp":"b919edea7ad76429"},
+      {"styleId":"dark","z":12,"x":3372,"y":1552,"ok":true,"latencyMs":1596,"bytes":10755,"fp":"9e9ffcc9c2d53925"},
+      {"styleId":"dark","z":12,"x":3374,"y":1549,"ok":true,"latencyMs":1347,"bytes":7594,"fp":"a70241dfbf1fe19d"},
+      {"styleId":"dark","z":12,"x":3370,"y":1554,"ok":true,"latencyMs":752,"bytes":5338,"fp":"62bbd26fac475e7f"}
+    ],
+    "tileDedupe": {"total":9,"unique":9,"verdict":"real","byStyle":{"street":{"total":3,"unique":3,"verdict":"real"},"imagery":{"total":3,"unique":3,"verdict":"real"},"dark":{"total":3,"unique":3,"verdict":"real"}}},
+    "verdict": "all-ok"
+  }
+]

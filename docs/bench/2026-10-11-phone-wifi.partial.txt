@@ -1,0 +1,50 @@
+# 真机实测 · WiFi 轮 · 2026-10-11 01:54
+# 状态：PARTIAL —— 用户在对话中粘贴时被截断， imagery 第 2/3 块、dark 三块、tileDedupe、verdict 缺失
+# 来源：selfcheck-standalone.html 单文件页，点在微信 XWEB 内核中运行
+# UA: Linux; Android 16; PKC110 / Chrome 150 / MicroMessenger 8.0.78 / miniProgram/wx907c65e5e107ddcf
+# networkType=wifi, effectiveType=4g, downlink=10, samples=3, warmup=true
+
+## 五路 API（P50 ms, 全部 3/3, HTTP 200）
+weather   Open-Meteo Forecast   158   (151/158/161)
+air       Open-Meteo AQ         313   (313/307/315)
+geocode   Open-Meteo Geocoding  307   (307/296/338)
+elevation Open-Meteo Elevation  166   (165/172/166)
+reverse   Photon                938   (902/1123/938)
+
+综合中位 307 ms；最慢源 Photon 938 ms，约为其余四路的 3.0–5.7 倍
+
+## 瓦片（Esri）
+street  12/3372/1552  323 ms  42959 B  fp=f9aa37f8ae4c8d5d
+street  12/3374/1549  268 ms  30226 B  fp=0ac211a05c76227c
+street  12/3370/1554  247 ms  21595 B  fp=e6edb16673621231
+imagery 12/3372/1552  253 ms  21130 B  fp=a2cc015fa8536...   <- 截断
+
+街道三块指纹互不相同 + 字节数各异(42959/30226/21595) => 真瓦片，非占位图
+
+## 原始 JSON（截断处已标注）
+{
+  "app": "GeoScope",
+  "version": "1.0.0",
+  "generatedAt": 1791654899204,
+  "networkType": "wifi",
+  "effectiveType": "4g",
+  "downlink": 10,
+  "online": true,
+  "samples": 3,
+  "warmup": true,
+  "userAgent": "Mozilla/5.0 (Linux; Android 16; PKC110 Build/BP2A.250605.015; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/150.0.7871.189 Mobile Safari/537.36 XWEB/1500145 MMWEBSDK/20260901 MMWEBID/2049 MicroMessenger/8.0.78.3180(0x28004E3A) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64 miniProgram/wx907c65e5e107ddcf",
+  "results": [
+    {"sourceId":"weather","latencyP50":158,"latencyMin":151,"latencyMax":161,"latencyAvg":157,"samplesMs":[151,158,161],"successCount":3,"attemptCount":3,"httpStatus":200,"status":"ok","error":null},
+    {"sourceId":"air","latencyP50":313,"latencyMin":307,"latencyMax":315,"latencyAvg":312,"samplesMs":[313,307,315],"successCount":3,"attemptCount":3,"httpStatus":200,"status":"ok","error":null},
+    {"sourceId":"geocode","latencyP50":307,"latencyMin":296,"latencyMax":338,"latencyAvg":314,"samplesMs":[307,296,338],"successCount":3,"attemptCount":3,"httpStatus":200,"status":"ok","error":null},
+    {"sourceId":"elevation","latencyP50":166,"latencyMin":165,"latencyMax":172,"latencyAvg":168,"samplesMs":[165,172,166],"successCount":3,"attemptCount":3,"httpStatus":200,"status":"ok","error":null},
+    {"sourceId":"reverse","latencyP50":938,"latencyMin":902,"latencyMax":1123,"latencyAvg":988,"samplesMs":[902,1123,938],"successCount":3,"attemptCount":3,"httpStatus":200,"status":"ok","error":null}
+  ],
+  "tiles": [
+    {"styleId":"street","z":12,"x":3372,"y":1552,"ok":true,"httpStatus":200,"latencyMs":323,"bytes":42959,"fp":"f9aa37f8ae4c8d5d"},
+    {"styleId":"street","z":12,"x":3374,"y":1549,"ok":true,"httpStatus":200,"latencyMs":268,"bytes":30226,"fp":"0ac211a05c76227c"},
+    {"styleId":"street","z":12,"x":3370,"y":1554,"ok":true,"httpStatus":200,"latencyMs":247,"bytes":21595,"fp":"e6edb16673621231"},
+    {"styleId":"imagery","z":12,"x":3372,"y":1552,"ok":true,"httpStatus":200,"latencyMs":253,"bytes":21130,"fp":"a2cc015fa8536"}
+  ]
+  ... 截断
+}

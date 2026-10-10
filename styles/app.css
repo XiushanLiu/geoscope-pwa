@@ -1,0 +1,753 @@
+/**
+ * 全局与组件样式
+ *
+ * 职责：把 tokens.css 的令牌落成真实组件 —— 屏渐变背景、玻璃卡、胶囊 Tab、状态徽标、
+ * 溯源气泡、降级横幅、自检页表格与分段控件。所有颜色/间距/圆角均取自 CSS 变量。
+ *
+ * 约束：
+ *   - 交互元素最小 44×44（--touch-min）；
+ *   - 手机 390 宽为基准，容器最大 640 居中；
+ *   - 无任何外链资源（字体/图标/背景图一律不用 URL）。
+ */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--ff-sans);
+  font-size: var(--fs-md);
+  color: var(--c-text-2);
+  background:
+    radial-gradient(120% 80% at 50% 0%, var(--c-screen-b) 0%, var(--c-screen-a) 62%) fixed,
+    var(--c-screen-a);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* 底部 Tab 高度 + 安全区 */
+  padding-bottom: calc(var(--sp-12) + var(--sp-6) + env(safe-area-inset-bottom, 0px));
+}
+
+/* 数字与拉丁走 Geist，等宽数字走 Geist Mono（缺失时回退系统字体，不外链） */
+.num { font-family: var(--ff-mono); font-variant-numeric: tabular-nums; }
+
+/* ---------------- 布局容器 ---------------- */
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--sp-4) var(--sp-4) var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.skeleton-note {
+  color: var(--c-text-3);
+  font-size: var(--fs-sm);
+  padding: var(--sp-6) 0;
+  text-align: center;
+}
+
+/* ---------------- 顶部标题 ---------------- */
+
+.hd {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-1) var(--sp-1);
+}
+
+.hd-place {
+  font-size: var(--fs-lg);
+  color: var(--c-text-1);
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.hd-coord {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  margin: var(--sp-1) 0 0;
+}
+
+.hd-time {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------------- 卡片 ---------------- */
+
+.card {
+  background: var(--c-card-fill);
+  border: 1px solid var(--c-card-stroke);
+  border-radius: var(--r-card);
+  box-shadow: var(--sh-card);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.card--hero {
+  padding: var(--sp-5);
+  gap: var(--sp-3);
+}
+
+.card-title {
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+  margin: 0;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.card--row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 天气英雄区 */
+.hero {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.hero-temp {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-hero);
+  line-height: 1;
+  color: var(--c-text-1);
+  font-weight: 500;
+}
+
+.hero-temp .unit {
+  font-size: var(--fs-xl);
+  color: var(--c-text-3);
+  margin-left: 2px;
+}
+
+.hero-desc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.hero-wmo {
+  font-size: var(--fs-lg);
+  color: var(--c-text-1);
+  font-weight: 500;
+}
+
+.hero-sub {
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+}
+
+/* 键值网格 */
+.kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.kv-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kv-k {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.kv-v {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-md);
+  color: var(--c-text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kv-v--hot { color: var(--c-hot); }
+.kv-v--cold { color: var(--c-cold); }
+/* 告警红不作文字色，只作底纹与边框：红字压深底实测仅 3.04:1（浅色 4.22:1），
+   双双低于 WCAG 4.5:1 小字门槛 —— 越需要被看见的颜色越看不清，传达效果是负的。
+   改走 --c-text-1（随主题翻转）后：深色 12.80:1 / 浅色 17.97:1。
+   注：本条当前无调用方（_kv() 从未传过 'alert'），改它不影响任何画面；
+   将来若接上，告警语义请用红色底纹承载，不要改回红字。 */
+.kv-v--alert { color: var(--c-text-1); }
+
+/* ---------------- 徽标 / 胶囊 ---------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 24px;
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-chip);
+  background: var(--c-card-stroke);
+  color: var(--c-text-2);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+/* 状态色只做填充与徽点，**不做文字色**。
+   旧写法把状态色同时当文字色，实测（基底口径：chip 坐在**卡片表面**上，不是直接叠在屏渐变上）
+   全部低于 WCAG 4.5:1 小字门槛 —— ok 2.82/2.65、stale 3.86/1.90、degraded 3.86/1.90、
+   offline 3.14/2.79、failed 2.50/3.18（深色/浅色）。
+   文字统一改 --c-text-1（随主题翻转）后全部 ≥ 8.6:1，且不新增 token、不需要按主题分别取值。
+   告警语义不丢：填充仍是 22% 状态色，此刻屏的 chip 内还有一颗同色徽点。 */
+.chip--ok { background: color-mix(in srgb, var(--c-state-ok) 22%, transparent); color: var(--c-text-1); }
+.chip--stale { background: color-mix(in srgb, var(--c-state-stale) 22%, transparent); color: var(--c-text-1); }
+/* 告警红不作文字色，只留在填充上：红字压 22% 红纹实测仅 2.50:1（浅色 3.18:1），
+   远低于 4.5:1。文字改走 --c-text-1 后：深色 10.55:1 / 浅色 13.57:1。
+   告警语义不丢 —— 填充仍是 22% 告警红，chip 内还有一颗 --c-state-failed 的徽点。 */
+.chip--failed { background: color-mix(in srgb, var(--c-state-failed) 22%, transparent); color: var(--c-text-1); }
+.chip--offline { background: color-mix(in srgb, var(--c-state-offline) 22%, transparent); color: var(--c-text-1); }
+.chip--degraded { background: color-mix(in srgb, var(--c-warn) 22%, transparent); color: var(--c-text-1); }
+
+/* .chip--idle：**先补信号，再改文字色**（顺序不能反，反过来会把语义抹掉）。
+   旧状态的病根：填充 --c-card-stroke 与基础 .chip 的底色完全同色（实测两底只差 1.03:1、
+   通道差 3，肉眼分不开），而自检页渲染 chip 时根本不插徽点 —— 于是文字色是它唯一的语义信号。
+   第一步补信号：填充换成 38% 的 --c-state-idle（＝ --c-text-3，**已有中性 token，未新增**），
+   与基础 chip 底拉开到 1.33:1（通道差 19，浅色 Δ28），视觉上分得开。
+   第二步才改文字：--c-text-1，实测深色 7.06:1 / 浅色 11.88:1（旧值 3.23:1 / 2.92:1）。
+   不补 .badge--idle：自检页那四处根本不插徽点，补了是死规则。
+   基础 .chip 没有 border，所以不涉及「边框同步加深」。 */
+.chip--idle { background: color-mix(in srgb, var(--c-state-idle) 38%, transparent); color: var(--c-text-1); }
+
+.badge {
+  display: inline-block;
+  min-width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--c-state-idle);
+}
+.badge--ok { background: var(--c-state-ok); }
+.badge--stale { background: var(--c-state-stale); }
+.badge--failed { background: var(--c-state-failed); }
+.badge--offline { background: var(--c-state-offline); }
+.badge--degraded { background: var(--c-state-stale); }
+
+/* ---------------- 降级横幅 ---------------- */
+
+.banner {
+  max-width: 640px;
+  margin: var(--sp-3) auto 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-card-sm);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.banner--stale { border-color: color-mix(in srgb, var(--c-warn) 40%, transparent); }
+.banner--offline { border-color: color-mix(in srgb, var(--c-text-3) 40%, transparent); }
+.banner--failed { border-color: color-mix(in srgb, var(--c-alert) 45%, transparent); }
+.banner--no-map { border-color: color-mix(in srgb, var(--c-text-3) 30%, transparent); }
+
+/* grid：底图半残（部分瓦片没取到，已降为网格）——琥珀色，与徽点 --c-state-stale 同源。
+   不能只描一圈边框：底色也要带一点琥珀，否则和「数据源失败」的 partial 撞脸。
+   填充比例压得很低（14%），是为了不抢五张数据卡的视觉权重 —— 底图只是少了瓦片。 */
+.banner--grid {
+  border-color: color-mix(in srgb, var(--c-warn) 55%, transparent);
+  background: color-mix(in srgb, var(--c-warn) 14%, var(--c-card-fill));
+  color: var(--c-text-1);
+}
+
+/* partial：非关键 API 源失败（数据本身缺一块）。
+   比 grid 轻（填充 7%）、比基础横幅强（正文升到 --c-text-1），边框偏中性带一点琥珀：
+   它说的是「数据不全」，不是「底图不全」，不该和 grid 用同一个色阶。 */
+.banner--partial {
+  border-color: color-mix(in srgb, var(--c-warn) 28%, var(--c-card-stroke));
+  background: color-mix(in srgb, var(--c-warn) 7%, var(--c-card-fill));
+  color: var(--c-text-1);
+}
+
+/* empty：关键源全部彻底失败且无缓存 —— 一个数据都没有，是最重的一档。
+   红系告警色 --c-alert（#c9584b，深浅同值），填充 20% 压过 grid 的 14% 与 partial 的 7%。
+   文字一律用 --c-text-1：它本身随主题翻转（深色 #fff / 浅色 #0f181d），
+   告警红只做低透明度底纹，绝不当文字色 —— 否则深色屏下红字压深底会掉到 4.5:1 以下。
+   实测对比度：深色屏最差 10.76:1、浅色屏 13.93:1（fill 20%，叠在屏渐变两端各算一次）。 */
+.banner--empty {
+  border-color: color-mix(in srgb, var(--c-alert) 60%, transparent);
+  background: color-mix(in srgb, var(--c-alert) 20%, var(--c-card-fill));
+  color: var(--c-text-1);
+}
+
+/* ---------------- 溯源气泡 ---------------- */
+
+.prov {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.prov-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 28px;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.prov-item:hover .prov-url,
+.prov-item:focus-within .prov-url { color: var(--c-text-2); }
+
+.prov-url {
+  font-family: var(--ff-mono);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------- 关于 ---------------- */
+
+.about {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--sp-4) var(--sp-5) var(--sp-6);
+  color: var(--c-text-3);
+  font-size: var(--fs-sm);
+}
+
+.about-title {
+  font-size: var(--fs-md);
+  color: var(--c-text-2);
+  margin: 0 0 var(--sp-2);
+  font-weight: 600;
+}
+
+.about-list {
+  margin: 0;
+  padding-left: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.about-list strong { color: var(--c-text-2); }
+
+.about-note {
+  margin: var(--sp-3) 0 0;
+  line-height: 1.6;
+}
+
+/* ---------------- 底部胶囊 Tab ---------------- */
+
+.tabbar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--sp-3) + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--glass-stroke);
+  background: var(--glass-fill);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: var(--sh-pill);
+  z-index: 20;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  min-height: var(--touch-min);
+  padding: 0 var(--sp-5);
+  border-radius: var(--r-pill);
+  color: var(--c-text-3);
+  font-size: var(--fs-md);
+  text-decoration: none;
+}
+
+.tab--active {
+  background: var(--c-brand);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ---------------- 按钮 / 分段控件 ---------------- */
+
+.btn {
+  min-height: var(--touch-min);
+  min-width: var(--touch-min);
+  padding: 0 var(--sp-5);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  color: var(--c-text-1);
+  font-family: inherit;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+
+.btn:disabled { opacity: 0.45; cursor: default; }
+
+.btn--primary {
+  background: var(--c-brand);
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.seg {
+  display: inline-flex;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+}
+
+.seg-btn {
+  min-height: 36px;
+  min-width: var(--touch-min);
+  padding: 0 var(--sp-3);
+  border: none;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--c-text-3);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.seg-btn--active {
+  background: var(--c-brand);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ---------------- 自检页 ---------------- */
+
+.sc-head {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-5) var(--sp-2);
+}
+
+.sc-title {
+  margin: 0;
+  font-size: var(--fs-xl);
+  color: var(--c-text-1);
+  font-weight: 600;
+}
+
+.sc-sub {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+  line-height: 1.6;
+}
+
+.panel {
+  max-width: 640px;
+  margin: 0 auto var(--sp-4);
+  padding: var(--sp-4);
+  border-radius: var(--r-card);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.field--row { gap: var(--sp-2); }
+
+.field-label {
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+}
+
+.sc-section {
+  max-width: 640px;
+  margin: 0 auto var(--sp-5);
+  padding: 0 var(--sp-4);
+}
+
+.sc-h2 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-md);
+  color: var(--c-text-2);
+  font-weight: 600;
+}
+
+.sc-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.sc-row {
+  border-radius: var(--r-card-sm);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.sc-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.sc-row-name {
+  color: var(--c-text-1);
+  font-size: var(--fs-md);
+  font-weight: 500;
+}
+
+.sc-row-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.sc-row-url {
+  font-family: var(--ff-mono);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.sc-summary {
+  max-width: 640px;
+  margin: 0 auto var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-card-sm);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  color: var(--c-text-1);
+  font-size: var(--fs-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.sc-dedupe {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.sc-log {
+  margin: 0;
+  padding: var(--sp-3);
+  border-radius: var(--r-card-sm);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  font-family: var(--ff-mono);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 260px;
+  overflow: auto;
+}
+
+/* ---------------- 空态 / 骨架 ---------------- */
+
+.empty {
+  border-radius: var(--r-card);
+  border: 1px dashed var(--c-card-stroke);
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--c-text-3);
+  font-size: var(--fs-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  align-items: center;
+}
+
+.sk {
+  border-radius: var(--r-card);
+  border: 1px solid var(--c-card-stroke);
+  background: linear-gradient(90deg, var(--c-card-fill) 25%, var(--c-divider) 50%, var(--c-card-fill) 75%);
+  background-size: 200% 100%;
+  animation: sk-sweep 1.4s ease-in-out infinite;
+  height: 96px;
+}
+
+@keyframes sk-sweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk { animation: none; }
+}
+
+/* ---------------- 方位屏（磁偏角 / 罗盘） ---------------- */
+
+/* 卡内补充说明：与 .card-title 同级（次一级文字），不抢数值的视觉权重 */
+.card-note {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* 超期/告警态：数值**照常显示**（用户仍需要一个近似值），只把信任等级降下来。
+   红只描边框、不进文字也不铺底 —— 状态色作文字色会掉到 4.5:1 以下（见 chip 那条注释），
+   铺底又会盖住卡片本身，这里一层红边框 + 卡内那枚 .chip--failed 已足够传达。 */
+.card--alert {
+  border-color: color-mix(in srgb, var(--c-alert) 45%, transparent);
+  color: var(--c-text-1);
+}
+
+/* 磁偏角读法：大号是「西偏 7.49°」，小号跟一个原始有符号值，方向信息不丢 */
+.compass-hero {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.compass-hero-num {
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  color: var(--c-text-1);
+  line-height: 1.2;
+}
+.compass-hero-signed {
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+}
+
+.compass-heading {
+  font-size: var(--fs-md);
+  color: var(--c-text-1);
+  margin: 0;
+}
+
+/* 罗盘盘面：盘面整体转 −heading，真北针再相对磁北针转一个磁偏角 */
+.compass-dial {
+  position: relative;
+  width: 176px;
+  height: 176px;
+  margin: var(--sp-2) auto;
+  border-radius: 999px;
+  border: 1px solid var(--c-card-stroke);
+  background: color-mix(in srgb, var(--c-brand) 8%, var(--c-card-fill));
+}
+
+.compass-mark {
+  position: absolute;
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+.compass-mark--n { top: 8px; left: 50%; transform: translateX(-50%); }
+.compass-mark--s { bottom: 8px; left: 50%; transform: translateX(-50%); }
+.compass-mark--w { left: 8px; top: 50%; transform: translateY(-50%); }
+.compass-mark--e { right: 8px; top: 50%; transform: translateY(-50%); }
+
+.compass-rose {
+  position: absolute;
+  inset: 0;
+  transition: transform 120ms linear;
+}
+
+.compass-needle {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  width: 3px;
+  height: 40%;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  transform-origin: 50% 100%;
+}
+/* 磁北针红、真北针青：两支针都在盘面上，颜色差是唯一的区分手段。
+   红只作填充（不是文字色），符合「状态色只做填充与徽点」的红线。 */
+.compass-needle--mag { background: var(--c-state-failed); }
+.compass-needle--true { background: var(--c-brand); }
+
+/* 真/磁方位换算：手动输入，双向，不依赖传感器 */
+.compass-row {
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.compass-input {
+  min-height: var(--touch-min);
+  width: 128px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-chip);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  color: var(--c-text-1);
+  font-size: var(--fs-md);
+}
+
+.compass-out {
+  font-size: var(--fs-md);
+  color: var(--c-text-1);
+  min-width: 64px;
+}
+
+.compass-arrow {
+  color: var(--c-text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compass-rose { transition: none; }
+}
+
+/* ---------------- 小屏微调 ---------------- */
+
+@media (max-width: 360px) {
+  .hero-temp { font-size: var(--fs-hero-sm); }
+  .kv { grid-template-columns: 1fr; }
+}

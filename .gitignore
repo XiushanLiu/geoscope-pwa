@@ -1,0 +1,11 @@
+# 本项目是零构建原生 PWA：没有 npm 依赖、没有构建产物目录，
+# 唯一的运行时临时目录是下面这一个（由 tools/verify-standalone.mjs 生成）。
+#
+# 说明：该脚本正常结束时会自己 rmSync 掉它；只有中途报错（模块解析失败等）
+# 才会残留。忽略它，避免把一堆落盘的模块副本误当源码提交。
+.tmp-standalone-verify/
+
+# ★下面这些**故意不忽略**，别顺手加上：
+#   - selfcheck-standalone.html —— 虽然是生成产物，但它是发到手机真机验证的那一份，留档省事；
+#   - docs/data/WMM2025.COF 与 docs/data/WMM2025_TEST_VALUES.txt —— 官方系数与官方测试值，是模型的溯源依据；
+#   - docs/bench/*.json / *.txt —— 四轮真机实测归档，bench 结论的原始数据。

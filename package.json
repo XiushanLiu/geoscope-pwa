@@ -1,0 +1,14 @@
+{
+  "name": "geoscope-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "地候 GeoScope · 零构建原生 PWA（阶段一）。此文件仅供 Node 直接加载浏览器 ES Module 时判定模块类型，不含任何依赖、不需要 npm install。",
+  "type": "module",
+  "scripts": {
+    "serve": "node tools/serve.mjs",
+    "smoke": "node tools/smoke.mjs",
+    "check": "node tools/check.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

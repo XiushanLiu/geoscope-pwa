@@ -1,0 +1,121 @@
+/**
+ * 设计令牌（Design Tokens）
+ *
+ * 职责：集中定义「地候 GeoScope」的视觉基线 —— 品牌色、屏渐变、文本层级、8pt 栅格、
+ * 字号阶梯、圆角、阴影、玻璃材质。深浅双主题在此成对定义，业务样式一律只引用变量，
+ * 不允许在 app.css 里再写死颜色。
+ *
+ * 命名：'--c-*' 颜色 / '--sp-*' 间距 / '--fs-*' 字号 / '--r-*' 圆角 / '--sh-*' 阴影。
+ * 字体：只允许 font-family 声明，禁止任何字体外链（隐私红线：不向字体 CDN 发请求）。
+ */
+
+:root {
+  /* ---------- 品牌 ---------- */
+  --c-brand: #1e9c8c;          /* 晨曦青（亮态） */
+  --c-brand-dark: #2bb6a3;     /* 晨曦青（暗态） */
+  --c-hot: #e08a3c;            /* 温度高 */
+  --c-cold: #4a93b8;           /* 温度低 */
+  --c-alert: #c9584b;          /* 告警红 */
+  --c-ok: var(--c-brand);
+  --c-warn: #e0a13c;
+
+  /* ---------- 字体 ---------- */
+  --ff-sans: 'Noto Sans SC', 'Geist', system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', 'Hiragino Sans GB', sans-serif;
+  --ff-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* ---------- 字号阶梯 ---------- */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+  --fs-hero: 56px;   /* 此刻温度 */
+  --fs-hero-sm: 40px;
+
+  /* ---------- 8pt 栅格 ---------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* ---------- 圆角 ---------- */
+  --r-card: 20px;    /* 卡片 18–20 */
+  --r-card-sm: 18px;
+  --r-pill: 36px;    /* 胶囊 */
+  --r-chip: 12px;
+
+  /* ---------- 触达 ---------- */
+  --touch-min: 44px;
+
+  /* ---------- 玻璃材质 ---------- */
+  --glass-fill: rgba(255, 255, 255, 0.07);
+  --glass-stroke: rgba(255, 255, 255, 0.1);
+
+  /* ---------- 深色屏（默认） ---------- */
+  --c-screen-a: #0a0f17;
+  --c-screen-b: #0f262e;
+  --c-text-1: #ffffff;   /* 标题 */
+  --c-text-2: #e6edf0;   /* 正文 */
+  --c-text-3: #8a9aa3;   /* 次要 */
+  --c-card-fill: rgba(255, 255, 255, 0.07);
+  --c-card-stroke: rgba(255, 255, 255, 0.1);
+  --c-divider: rgba(255, 255, 255, 0.08);
+
+  --sh-card: 0 8px 28px rgba(0, 0, 0, 0.32);
+  --sh-pill: 0 6px 20px rgba(0, 0, 0, 0.36);
+
+  color-scheme: dark light;
+}
+
+/* ---------- 浅色屏 ---------- */
+:root[data-theme='light'],
+body[data-theme='light'] {
+  --c-screen-a: #f7fafa;
+  --c-screen-b: #e3eff2;
+  --c-text-1: #0f181d;   /* 标题 */
+  --c-text-2: #5a6b74;   /* 正文 */
+  --c-text-3: #7c8b94;   /* 次要 */
+  --c-card-fill: #ffffff;
+  --c-card-stroke: rgba(15, 24, 29, 0.09);
+  --c-divider: rgba(15, 24, 29, 0.08);
+
+  --glass-fill: #ffffff;
+  --glass-stroke: rgba(15, 24, 29, 0.09);
+
+  --sh-card: 0 6px 20px rgba(15, 24, 29, 0.08);
+  --sh-pill: 0 4px 16px rgba(15, 24, 29, 0.12);
+}
+
+/* 系统浅色偏好时同步切换（可在设置里被 data-theme 覆盖） */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --c-screen-a: #f7fafa;
+    --c-screen-b: #e3eff2;
+    --c-text-1: #0f181d;
+    --c-text-2: #5a6b74;
+    --c-text-3: #7c8b94;
+    --c-card-fill: #ffffff;
+    --c-card-stroke: rgba(15, 24, 29, 0.09);
+    --c-divider: rgba(15, 24, 29, 0.08);
+    --glass-fill: #ffffff;
+    --glass-stroke: rgba(15, 24, 29, 0.09);
+    --sh-card: 0 6px 20px rgba(15, 24, 29, 0.08);
+    --sh-pill: 0 4px 16px rgba(15, 24, 29, 0.12);
+  }
+}
+
+/* ---------- 状态色（深浅一致） ---------- */
+:root {
+  --c-state-ok: var(--c-brand);
+  --c-state-stale: var(--c-warn);
+  --c-state-failed: var(--c-alert);
+  --c-state-offline: var(--c-text-3);
+  --c-state-idle: var(--c-text-3);
+}

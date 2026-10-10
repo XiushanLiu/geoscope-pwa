@@ -1,0 +1,230 @@
+/**
+ * 本机状态（Store）
+ *
+ * 职责：保存本机偏好与最近状态 —— 默认地点、单位制、最近一次快照、debug 开关、
+ * 网络类型标记、收藏（阶段二启用，本阶段仅占位 schema）。所有持久化**必须**经 core/cache.js，
+ * 本模块不直接触碰 localStorage。
+ *
+ * 设计：内存态 + 持久化双写；读优先内存，冷启动从缓存反序列化。
+ * 日志：对外只暴露 log()，debug 关闭时完全静默，禁止 elsewhere 直写 console.log。
+ */
+
+import { get, set, makeKey } from './cache.js';
+
+/** 持久化键（store 视作一个伪 sourceId）。 */
+const KEY_PREFS = makeKey('store', 'prefs');
+const KEY_SNAPSHOT = makeKey('store', 'snapshot');
+
+/** store 条目 TTL：十年（等同长期有效；读用 get() 不做三态判定，故 TTL 无实际影响）。 */
+const PREFS_TTL_MS = 10 * 365 * 24 * 3600 * 1000;
+
+/** 默认状态。 */
+const DEFAULT_STATE = {
+  /** @type {{lat:number, lon:number, name:string}} 定位失败时的默认地点（北京天安门）。 */
+  defaultPlace: { lat: 39.9087, lon: 116.3975, name: '北京 · 天安门' },
+  /** @type {'metric'|'imperial'} 单位制（阶段一只有 metric 生效）。 */
+  unitSystem: 'metric',
+  /** @type {'wifi'|'cellular'|'unknown'} 网络类型（手动点选，默认未知）。 */
+  networkType: 'unknown',
+  /** @type {boolean} 调试开关。 */
+  debug: false,
+  /** @type {Array<{lat:number, lon:number, name:string}>} 收藏（阶段二启用）。 */
+  favorites: [],
+};
+
+/** @type {Object} 内存态。 */
+let _state = { ...DEFAULT_STATE };
+
+/** @type {boolean} 是否已从缓存载入。 */
+let _loaded = false;
+
+/**
+ * 从缓存载入偏好（幂等）。
+ *
+ * @returns {void}
+ */
+function _load() {
+  if (_loaded) return;
+  _loaded = true;
+  const entry = get(KEY_PREFS);
+  if (entry && entry.value && typeof entry.value === 'object') {
+    _state = { ...DEFAULT_STATE, ...entry.value };
+    // 数组字段做一次防御性归一，避免坏数据导致渲染崩溃
+    if (!Array.isArray(_state.favorites)) _state.favorites = [];
+  }
+  // URL 参数 ?debug=1 优先级最高
+  try {
+    const search = typeof location !== 'undefined' && location ? String(location.search || '') : '';
+    if (search.indexOf('debug=1') !== -1) _state.debug = true;
+  } catch (err) {
+    /* 非浏览器环境忽略 */
+  }
+}
+
+/**
+ * 持久化偏好（失败静默）。
+ *
+ * @returns {void}
+ */
+function _persist() {
+  set(KEY_PREFS, _state, PREFS_TTL_MS);
+}
+
+/**
+ * 读取整份状态（副本）。
+ *
+ * @returns {Object} 状态副本。
+ */
+export function getState() {
+  _load();
+  return { ..._state, favorites: [..._state.favorites] };
+}
+
+/**
+ * 设置默认地点。
+ *
+ * @param {{lat:number, lon:number, name:string}} place 地点对象。
+ * @returns {void}
+ */
+export function setDefaultPlace(place) {
+  _load();
+  _state.defaultPlace = {
+    lat: Number(place.lat),
+    lon: Number(place.lon),
+    name: String(place.name || ''),
+  };
+  _persist();
+}
+
+/**
+ * 取默认地点（含 source 标记，便于上游直接当 coord 用）。
+ *
+ * @returns {{lat:number, lon:number, name:string, source:'default'}} 默认地点。
+ */
+export function getDefaultPlace() {
+  _load();
+  const p = _state.defaultPlace;
+  return { lat: p.lat, lon: p.lon, name: p.name, source: 'default' };
+}
+
+/**
+ * 设置单位制。
+ *
+ * @param {'metric'|'imperial'} unit 单位制。
+ * @returns {void}
+ */
+export function setUnitSystem(unit) {
+  _load();
+  _state.unitSystem = unit === 'imperial' ? 'imperial' : 'metric';
+  _persist();
+}
+
+/** @returns {'metric'|'imperial'} 当前单位制。 */
+export function getUnitSystem() {
+  _load();
+  return _state.unitSystem;
+}
+
+/**
+ * 设置网络类型（自检页手动点选）。
+ *
+ * @param {'wifi'|'cellular'|'unknown'} t 网络类型。
+ * @returns {void}
+ */
+export function setNetworkType(t) {
+  _load();
+  _state.networkType = t === 'wifi' || t === 'cellular' ? t : 'unknown';
+  _persist();
+}
+
+/** @returns {'wifi'|'cellular'|'unknown'} 网络类型。 */
+export function getNetworkType() {
+  _load();
+  return _state.networkType;
+}
+
+/**
+ * 写入最近一次快照（离线冷启动的降级底座）。
+ *
+ * @param {Object} snapshot NowSnapshot。
+ * @returns {void}
+ */
+export function setLastSnapshot(snapshot) {
+  _load();
+  set(KEY_SNAPSHOT, snapshot, PREFS_TTL_MS);
+}
+
+/**
+ * 读取最近一次快照。
+ *
+ * @returns {Object|null} NowSnapshot 或 null。
+ */
+export function getLastSnapshot() {
+  const entry = get(KEY_SNAPSHOT);
+  return entry && entry.value ? entry.value : null;
+}
+
+/** @returns {boolean} debug 是否开启。 */
+export function isDebug() {
+  _load();
+  return !!_state.debug;
+}
+
+/**
+ * 设置 debug 开关（同时写入缓存，等价于 localStorage['gs:v1:debug']='1' 的效果）。
+ *
+ * @param {boolean} on 是否开启。
+ * @returns {void}
+ */
+export function setDebug(on) {
+  _load();
+  _state.debug = !!on;
+  _persist();
+}
+
+/**
+ * 调试日志：debug 关闭时完全静默（禁止 elsewhere 直写 console.log）。
+ *
+ * @param {...*} args 日志内容。
+ * @returns {void}
+ */
+export function log(...args) {
+  if (!isDebug()) return;
+  try {
+    console.log('[GeoScope]', ...args);
+  } catch (err) {
+    /* 环境无 console 时静默 */
+  }
+}
+
+/** @returns {Array<{lat:number, lon:number, name:string}>} 收藏列表副本（阶段二启用）。 */
+export function getFavorites() {
+  _load();
+  return [..._state.favorites];
+}
+
+/**
+ * 追加收藏（阶段二启用；阶段一保留 schema 与去重逻辑）。
+ *
+ * @param {{lat:number, lon:number, name:string}} place 地点。
+ * @returns {void}
+ */
+export function addFavorite(place) {
+  _load();
+  const lat = Number(place.lat);
+  const lon = Number(place.lon);
+  if (_state.favorites.some((f) => f.lat === lat && f.lon === lon)) return;
+  _state.favorites.push({ lat, lon, name: String(place.name || '') });
+  _persist();
+}
+
+/**
+ * 重置本机状态（仅供自检/排障使用）。
+ *
+ * @returns {void}
+ */
+export function resetStore() {
+  _loaded = true;
+  _state = { ...DEFAULT_STATE, favorites: [] };
+  _persist();
+}
