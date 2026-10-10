@@ -1,0 +1,9 @@
+# 锁死换行符：库内与工作区一律 LF。
+#
+# 为什么必须显式写：本机的 core.autocrlf=true 会让 git 在**检出**时把工作副本改成 CRLF
+# （入库仍是 LF）。对静态托管无害，但对两个东西有害 ——
+#   1) tools/build-standalone.mjs 把源码当字符串内联进单文件版，CRLF 会原样进产物；
+#   2) 若干按行匹配的断言（check.mjs 的正则、verify-standalone.mjs 的逐字比对）
+#      依赖稳定行尾，EOL 随人随机器漂移就会变成「偶发、只在某人机器上出现」的幽灵问题。
+# EOL 属于不该随环境漂移的变量，锁死成本几乎为零。
+* text=auto eol=lf
