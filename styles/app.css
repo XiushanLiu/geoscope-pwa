@@ -217,8 +217,10 @@ body {
    旧写法把状态色同时当文字色，实测（基底口径：chip 坐在**卡片表面**上，不是直接叠在屏渐变上）
    全部低于 WCAG 4.5:1 小字门槛 —— ok 2.82/2.65、stale 3.86/1.90、degraded 3.86/1.90、
    offline 3.14/2.79、failed 2.50/3.18（深色/浅色）。
-   文字统一改 --c-text-1（随主题翻转）后最低 6.10:1（--c-text-3 提亮后 chip--idle 的底变亮，
-   从 7.06 降到 6.10，仍高于 4.5:1），且不新增 token、不需要按主题分别取值。
+   文字统一改 --c-text-1（随主题翻转）后最低 7.06:1（.chip--idle），且不新增 token、
+   不需要按主题分别取值。
+   注：v14 起 --c-state-offline / --c-state-idle 已不再复用 --c-text-3（改写字面色值），
+   chip 填充从此不随文字层级调整而变 —— 这两个数值是解耦后的稳定值。
    告警语义不丢：填充仍是 22% 状态色，此刻屏的 chip 内还有一颗同色徽点。 */
 .chip--ok { background: color-mix(in srgb, var(--c-state-ok) 22%, transparent); color: var(--c-text-1); }
 .chip--stale { background: color-mix(in srgb, var(--c-state-stale) 22%, transparent); color: var(--c-text-1); }
@@ -232,10 +234,9 @@ body {
 /* .chip--idle：**先补信号，再改文字色**（顺序不能反，反过来会把语义抹掉）。
    旧状态的病根：填充 --c-card-stroke 与基础 .chip 的底色完全同色（实测两底只差 1.03:1、
    通道差 3，肉眼分不开），而自检页渲染 chip 时根本不插徽点 —— 于是文字色是它唯一的语义信号。
-   第一步补信号：填充换成 38% 的 --c-state-idle（＝ --c-text-3，**已有中性 token，未新增**），
-   与基础 chip 底拉开到 1.54:1（通道差 29，浅色 Δ28），视觉上分得开
-   （--c-text-3 提亮后区分度不降反升：旧值 1.33:1 / 通道差 19）。
-   第二步才改文字：--c-text-1，实测深色 6.10:1 / 浅色 11.88:1（旧值 3.23:1 / 2.92:1）。
+   第一步补信号：填充换成 38% 的 --c-state-idle（**v14 起是字面色值，不再复用 --c-text-3**），
+   与基础 chip 底拉开到 1.33:1（通道差 19，浅色 Δ28），视觉上分得开。
+   第二步才改文字：--c-text-1，实测深色 7.06:1 / 浅色 11.88:1（旧值 3.23:1 / 2.92:1）。
    不补 .badge--idle：自检页那四处根本不插徽点，补了是死规则。
    基础 .chip 没有 border，所以不涉及「边框同步加深」。 */
 .chip--idle { background: color-mix(in srgb, var(--c-state-idle) 38%, transparent); color: var(--c-text-1); }

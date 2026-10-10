@@ -36,7 +36,7 @@ node tools/serve.mjs 8123            # 位置参数，旧写法仍支持
 | `node tools/serve.mjs [--port N]` | 本地静态服务（只绑定 127.0.0.1，不对外暴露）；启动日志直接打印两个入口页的完整 URL |
 | `node tools/smoke.mjs` | 无网冒烟：mock fetch 验证队列/超时/重试/缓存/降级/映射/日出日落/指纹去重 |
 | `node tools/check.mjs` | 静态检查：语法、import 引用存在性、HTML 引用、外链红线、SW 清单一致性 |
-| `node tools/contrast-audit.mjs` | **改完配色必跑**：数据驱动扫描 `app.css` 全部 `color:` 声明（59 条），按「屏渐变→容器填色→自身填色」实算 WCAG 对比度，有项 < 4.5:1 则退出码 1（当前 22 条待处理，见文档 §9 v13） |
+| `node tools/contrast-audit.mjs` | **改完配色必跑**：数据驱动扫描 `app.css` 全部 `color:` 声明（59 条），按「屏渐变→容器填色→自身填色」实算 WCAG 对比度，有项 < 4.5:1 则退出码 1（当前 59/59 达标，退出码 0） |
 | `node tools/build-standalone.mjs` | 重新生成单文件版 `selfcheck-standalone.html` |
 | `node tools/verify-standalone.mjs` | 校验刚生成的单文件版可用（落盘后按真实结构 import 一遍） |
 | `node --version` | 需 ≥ 18（用到 `AbortController`、`crypto.subtle`、原生 fetch） |

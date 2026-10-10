@@ -84,11 +84,18 @@ body[data-theme='light'] {
   --c-screen-a: #f7fafa;
   --c-screen-b: #e3eff2;
   --c-text-1: #0f181d;   /* 标题 */
-  --c-text-2: #5a6b74;   /* 正文 */
-  --c-text-3: #7c8b94;   /* 次要 */
+  /* 正文 / 次要：#5a6b74 + #7c8b94 在浅色屏渐变暗端（#e3eff2）只有 4.72 / 2.99，
+     且两档之间塞不进「第三级」—— 见 §9 v13 的死结推导。压深两档后：
+     屏暗端 7.44 / 4.50、纯白卡 8.74 / 5.29，三档梯度 2.057 / 1.653（更均匀）。 */
+  --c-text-2: #3f4d55;   /* 正文 */
+  --c-text-3: #5e6e77;   /* 次要 */
   --c-card-fill: #ffffff;
   --c-card-stroke: rgba(15, 24, 29, 0.09);
   --c-divider: rgba(15, 24, 29, 0.08);
+
+  /* 状态色解耦后的浅色值（见文末注释：字面色必须在两个浅色块里各写一遍） */
+  --c-state-offline: #7c8b94;
+  --c-state-idle: #7c8b94;
 
   --glass-fill: #ffffff;
   --glass-stroke: rgba(15, 24, 29, 0.09);
@@ -103,11 +110,14 @@ body[data-theme='light'] {
     --c-screen-a: #f7fafa;
     --c-screen-b: #e3eff2;
     --c-text-1: #0f181d;
-    --c-text-2: #5a6b74;
-    --c-text-3: #7c8b94;
+    --c-text-2: #3f4d55;   /* 与上面 [data-theme='light'] 块同值，改一处必须改两处 */
+    --c-text-3: #5e6e77;
     --c-card-fill: #ffffff;
     --c-card-stroke: rgba(15, 24, 29, 0.09);
     --c-divider: rgba(15, 24, 29, 0.08);
+    /* 状态色解耦后的浅色值（字面色必须在两个浅色块里各写一遍，漏一处只在一半路径生效） */
+    --c-state-offline: #7c8b94;
+    --c-state-idle: #7c8b94;
     --glass-fill: #ffffff;
     --glass-stroke: rgba(15, 24, 29, 0.09);
     --sh-card: 0 6px 20px rgba(15, 24, 29, 0.08);
@@ -115,11 +125,18 @@ body[data-theme='light'] {
   }
 }
 
-/* ---------- 状态色（深浅一致） ---------- */
+/* ---------- 状态色 ---------- */
+/* offline / idle 原先是 `var(--c-text-3)` 的别名 —— 状态色复用文字层级色是偷懒：
+   chip 的填充会跟着「次要文字」的调整一起动，而这两件事的诉求完全不同
+   （文字要的是**与底色的对比度**，chip 填充要的是**与基础 chip 底的区分度**）。
+   v14 起写死为字面色值，chip 填充从此脱离 --c-text-3 独立演化。
+   数值取解耦那一刻的实际取值（深色 #8a9aa3 / 浅色 #7c8b94），画面零变化。
+   注意：因为是字面色，浅色值必须在下面两个浅色块里各写一遍
+   （[data-theme='light'] 与 prefers-color-scheme 媒体块），漏一处就只在半条路径上生效。 */
 :root {
   --c-state-ok: var(--c-brand);
   --c-state-stale: var(--c-warn);
   --c-state-failed: var(--c-alert);
-  --c-state-offline: var(--c-text-3);
-  --c-state-idle: var(--c-text-3);
+  --c-state-offline: #8a9aa3;
+  --c-state-idle: #8a9aa3;
 }
