@@ -183,8 +183,14 @@ body {
   text-overflow: ellipsis;
 }
 
-.kv-v--hot { color: var(--c-hot); }
-.kv-v--cold { color: var(--c-cold); }
+/* 冷热色同样不作文字色（与上面 .kv-v--alert 同一条规矩：数据色只走填充与边框）。
+   旧写法 --c-hot 浅色 2.67:1、--c-cold 深浅双破 3.75/3.41，均低于 4.5:1。
+   文字统一 --c-text-1（深色 12.80:1 / 浅色 17.97:1），冷热语义改由**值下方那条
+   2px 色线**承载 —— 区分度不丢，且不靠文字颜色差。
+   注：本条当前同样无调用方（_kv() 的 mod 参数全项目无人传），改它不影响任何画面；
+   将来若接上，请沿用「色线/底纹承载语义」这条路，不要改回彩色文字。 */
+.kv-v--hot { color: var(--c-text-1); border-bottom: 2px solid var(--c-hot); }
+.kv-v--cold { color: var(--c-text-1); border-bottom: 2px solid var(--c-cold); }
 /* 告警红不作文字色，只作底纹与边框：红字压深底实测仅 3.04:1（浅色 4.22:1），
    双双低于 WCAG 4.5:1 小字门槛 —— 越需要被看见的颜色越看不清，传达效果是负的。
    改走 --c-text-1（随主题翻转）后：深色 12.80:1 / 浅色 17.97:1。
@@ -211,7 +217,8 @@ body {
    旧写法把状态色同时当文字色，实测（基底口径：chip 坐在**卡片表面**上，不是直接叠在屏渐变上）
    全部低于 WCAG 4.5:1 小字门槛 —— ok 2.82/2.65、stale 3.86/1.90、degraded 3.86/1.90、
    offline 3.14/2.79、failed 2.50/3.18（深色/浅色）。
-   文字统一改 --c-text-1（随主题翻转）后全部 ≥ 8.6:1，且不新增 token、不需要按主题分别取值。
+   文字统一改 --c-text-1（随主题翻转）后最低 6.10:1（--c-text-3 提亮后 chip--idle 的底变亮，
+   从 7.06 降到 6.10，仍高于 4.5:1），且不新增 token、不需要按主题分别取值。
    告警语义不丢：填充仍是 22% 状态色，此刻屏的 chip 内还有一颗同色徽点。 */
 .chip--ok { background: color-mix(in srgb, var(--c-state-ok) 22%, transparent); color: var(--c-text-1); }
 .chip--stale { background: color-mix(in srgb, var(--c-state-stale) 22%, transparent); color: var(--c-text-1); }
@@ -226,8 +233,9 @@ body {
    旧状态的病根：填充 --c-card-stroke 与基础 .chip 的底色完全同色（实测两底只差 1.03:1、
    通道差 3，肉眼分不开），而自检页渲染 chip 时根本不插徽点 —— 于是文字色是它唯一的语义信号。
    第一步补信号：填充换成 38% 的 --c-state-idle（＝ --c-text-3，**已有中性 token，未新增**），
-   与基础 chip 底拉开到 1.33:1（通道差 19，浅色 Δ28），视觉上分得开。
-   第二步才改文字：--c-text-1，实测深色 7.06:1 / 浅色 11.88:1（旧值 3.23:1 / 2.92:1）。
+   与基础 chip 底拉开到 1.54:1（通道差 29，浅色 Δ28），视觉上分得开
+   （--c-text-3 提亮后区分度不降反升：旧值 1.33:1 / 通道差 19）。
+   第二步才改文字：--c-text-1，实测深色 6.10:1 / 浅色 11.88:1（旧值 3.23:1 / 2.92:1）。
    不补 .badge--idle：自检页那四处根本不插徽点，补了是死规则。
    基础 .chip 没有 border，所以不涉及「边框同步加深」。 */
 .chip--idle { background: color-mix(in srgb, var(--c-state-idle) 38%, transparent); color: var(--c-text-1); }
@@ -393,8 +401,10 @@ body {
   text-decoration: none;
 }
 
+/* 实心底改用 --c-brand-solid：白字压 --c-brand 实测只有 3.39:1（深浅同值），
+   压 --c-brand-solid #167e70 为 4.94:1。--c-brand 本身不动，仍用于描边与浅填充。 */
 .tab--active {
-  background: var(--c-brand);
+  background: var(--c-brand-solid);
   color: #ffffff;
   font-weight: 600;
 }
@@ -416,8 +426,9 @@ body {
 
 .btn:disabled { opacity: 0.45; cursor: default; }
 
+/* 同 .tab--active：实心底走 --c-brand-solid，白字 4.94:1（--c-brand 仅 3.39:1） */
 .btn--primary {
-  background: var(--c-brand);
+  background: var(--c-brand-solid);
   border-color: transparent;
   color: #ffffff;
   font-weight: 600;
@@ -445,8 +456,9 @@ body {
   cursor: pointer;
 }
 
+/* 同 .tab--active：实心底走 --c-brand-solid，白字 4.94:1（--c-brand 仅 3.39:1） */
 .seg-btn--active {
-  background: var(--c-brand);
+  background: var(--c-brand-solid);
   color: #ffffff;
   font-weight: 600;
 }
@@ -683,10 +695,13 @@ body {
   background: color-mix(in srgb, var(--c-brand) 8%, var(--c-card-fill));
 }
 
+/* N/E/S/W 是罗盘唯一的方位锚点，不能按装饰处理；它压在盘面（8% 品牌色 + 卡片填色）上，
+   比同色文字在纯卡片表面上还低一档 —— --c-text-3 实测仅 3.26/3.22，是全局最差的一处。
+   这里单独升到 --c-text-2：深色 8.00:1 / 浅色 5.07:1。 */
 .compass-mark {
   position: absolute;
   font-size: var(--fs-xs);
-  color: var(--c-text-3);
+  color: var(--c-text-2);
 }
 .compass-mark--n { top: 8px; left: 50%; transform: translateX(-50%); }
 .compass-mark--s { bottom: 8px; left: 50%; transform: translateX(-50%); }
