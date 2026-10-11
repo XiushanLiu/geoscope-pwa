@@ -11,7 +11,7 @@
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v1';
+const SHELL_CACHE = 'geoscope-shell-v2';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -47,7 +47,16 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(SHELL_CACHE);
-      await Promise.allSettled(SHELL_ASSETS.map((url) => cache.add(new Request(url, { cache: 'reload' }))));
+      // allSettled 保证「一个资源 404 不拖垮整站离线壳」，但它会把失败静默吞掉：
+      // 资源不在壳缓存里，断网那一刻才暴露，而现场（哪个 URL 那个原因）已经丢了。
+      // 这里只补可观测性 —— 照样不阻断 install、照样继续激活，多打一条 warn。
+      const results = await Promise.allSettled(SHELL_ASSETS.map((url) => cache.add(new Request(url, { cache: 'reload' }))));
+      const failed = results
+        .map((r, i) => (r.status === 'rejected' ? `${SHELL_ASSETS[i]}（${r.reason}）` : ''))
+        .filter(Boolean);
+      if (failed.length > 0) {
+        console.warn('[sw] 壳缓存写入失败：', failed);
+      }
       await self.skipWaiting();
     })()
   );

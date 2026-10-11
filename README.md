@@ -73,6 +73,11 @@ node tools/verify-standalone.mjs     # 校验可用
    - **Build output directory**：`/`（仓库根目录）
    - **Root path**：留空
 4. 保存并部署，拿到 `https://<project>.pages.dev` 即可手机访问。
+5. **发布前必须先跑一次** `node tools/bump-shell.mjs`（把 `sw.js` 里的 `geoscope-shell-vN` 版本号 +1）。
+   为什么：浏览器判定 Service Worker 要不要更新，看的是 **sw.js 自身的字节变化**，不看业务文件。
+   只改 `styles/app.css`、`src/ui/app.js` 这类业务文件的提交一个字节都没动 sw.js，
+   浏览器判定「没变」→ 不安装新版 → 已安装的真机继续从旧壳缓存拿旧文件。
+   版本号 +1 才能让 sw.js 必然变化、更新必然触发。忘跑的表现是「明明改了，手机上纹丝不动」。
 
 其它等价选项（同样免备案）：GitHub Pages、Vercel、Netlify —— 都按「静态站点、无构建步骤、根目录直接发布」配置即可。
 

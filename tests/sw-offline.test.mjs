@@ -288,7 +288,11 @@ function assetRequest(path, init = {}) {
 
 describe('sw.js 离线壳行为', () => {
   test('清单解析前置条件：SHELL_ASSETS 与实现一致', () => {
-    assert.equal(SHELL_CACHE, 'geoscope-shell-v1');
+    // 不写死版本号（`geoscope-shell-vN` 里的 N）：版本号每次发布都要 +1，写死 N 等于
+    // 让「正常 bump」和「这条断言」互相打架 —— 这次 bump v1→v2 就把它打红了，下一次还会。
+    // 这条断言的**真实意图**是「解析成功 + 名字符合契约」（SHELL_CACHE 是从 sw.js 源码
+    // 正则抠出来的，解析不到就是 undefined/抛错），所以断言命名契约而不是数字本身。
+    assert.match(SHELL_CACHE, /^geoscope-shell-v\d+$/, `缓存名不符合 geoscope-shell-vN 契约：${SHELL_CACHE}`);
     // 不写死条目数：每新增一个运行时模块都要补清单，写死会让「加文件」和「改清单」
     // 这两件事互相打架。改为断言清单本身的性质 + 关键条目必须存在。
     assert.ok(SHELL_ASSETS.length > 0, '预缓存清单不应为空');
