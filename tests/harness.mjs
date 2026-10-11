@@ -406,6 +406,14 @@ class FakeNode {
     return this.attrs.has(String(k)) ? this.attrs.get(String(k)) : null;
   }
 
+  hasAttribute(k) {
+    return this.attrs.has(String(k));
+  }
+
+  removeAttribute(k) {
+    this.attrs.delete(String(k));
+  }
+
   get classList_() {
     return this.classList;
   }
@@ -506,14 +514,20 @@ class FakeNode {
  * 创建一棵假 DOM 树（含 document）。
  *
  * @param {Array<{id:string, tag?:string}>} [ids] 预置元素。
- * @returns {{document:FakeNode, root:FakeNode, byId:Object}} 文档句柄。
+ * @returns {{document:FakeNode, html:FakeNode, body:FakeNode, byId:Object}} 文档句柄
+ *   （html 即 document.documentElement，主题属性写在它上面）。
  */
 export function createFakeDom(ids = []) {
   const document = new FakeNode('document');
   document.readyState = 'loading';
+  // 真实的 <html> 元素：主题模式就是写在它上面的（document.documentElement.dataset/属性）。
+  // 层级保持 document → html → body，querySelectorAll 走 descendants()，不影响既有用例。
+  const html = new FakeNode('html');
   const body = new FakeNode('body');
+  document.documentElement = html;
   document.body = body;
-  document.appendChild(body);
+  document.appendChild(html);
+  html.appendChild(body);
 
   const byId = {};
   for (const item of ids) {
@@ -535,7 +549,7 @@ export function createFakeDom(ids = []) {
 
   define('document', document);
 
-  return { document, body, byId };
+  return { document, html, body, byId };
 }
 
 /** 卸载 document/window。 */

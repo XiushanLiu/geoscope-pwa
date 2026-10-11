@@ -8,6 +8,8 @@
  *   4) **外链与隐私红线校验**：除六路数据源宿主 + SVG 命名空间外，不允许出现任何 http(s) 外链
  *      （禁止 CDN、字体外链、统计、账号相关代码）。
  *   5) **SW 预缓存清单校验**：sw.js 的 SHELL_ASSETS 必须与实际文件一一对应。
+ *   6) **tabbar 导航一致性校验**：四个手写 HTML 的 <nav class="tabbar"> 必须逐项一致
+ *      （href 列表 + 顺序、激活项指向自己、tab--active 与 aria-current 成对、href 指向真实文件）。
  *
  * 用法：node tools/check.mjs
  * 退出码：全部通过 0；存在失败 1。
@@ -203,6 +205,70 @@ function extractHtmlRefs(src) {
   }
   return out;
 }
+
+/* ------------------------- tabbar 导航解析 ------------------------- */
+
+/**
+ * 把 class 属性值切成标记数组（容忍多空格 / 前后空格）。
+ *
+ * @param {string} v class 属性值。
+ * @returns {string[]} 标记数组。
+ */
+function classTokens(v) {
+  return String(v || '')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * 抽出页面里 `<nav class="tabbar">` 的内部内容。
+ *
+ * 为什么只抠这一个块：四个页面的 tabbar 是四份**手写副本**（零构建、无模板、无 SPA 路由），
+ * 上一轮给四页加「我的」tab 时漏改了 compass.html，而旧检查从不比对这几份副本。
+ * 只取块内内容可避免把页面正文里的其它 <a> 混进比对。
+ *
+ * @param {string} src HTML 源码。
+ * @returns {string|null} nav 内部内容（不含 <nav> 标签本身）；找不到返回 null。
+ */
+function extractTabbar(src) {
+  const re = /<nav\b([^>]*)>([\s\S]*?)<\/nav>/gi;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const cls = m[1].match(/\bclass\s*=\s*"([^"]*)"/i);
+    if (cls && classTokens(cls[1]).indexOf('tabbar') !== -1) return m[2];
+  }
+  return null;
+}
+
+/**
+ * 解析 nav 块内的每个 <a> 项（属性顺序无关，容忍 `class="tab"` 与 `class="tab tab--active"`）。
+ *
+ * @param {string} block nav 内部内容。
+ * @returns {Array<{cls:string, href:string|null, aria:string|null}>} 项列表（按文档顺序）。
+ */
+function parseNavItems(block) {
+  const out = [];
+  const re = /<a\b([^>]*)>/gi;
+  let m;
+  while ((m = re.exec(block)) !== null) {
+    const attrs = m[1];
+    const cls = attrs.match(/\bclass\s*=\s*"([^"]*)"/i);
+    const href = attrs.match(/\bhref\s*=\s*"([^"]*)"/i);
+    const aria = attrs.match(/\baria-current\s*=\s*"([^"]*)"/i);
+    out.push({
+      cls: cls ? cls[1] : '',
+      href: href ? href[1] : null,
+      aria: aria ? aria[1] : null,
+    });
+  }
+  return out;
+}
+
+/** 导航项上的激活 class（视觉）。 */
+const ACTIVE_CLASS = 'tab--active';
+
+/** 导航项上的无障碍属性取值（语义）。CSS 里没有 [aria-current] 选择器，全靠它给读屏软件。 */
+const ACTIVE_ARIA = 'page';
 
 /* ------------------------- 主流程 ------------------------- */
 
@@ -400,6 +466,98 @@ async function main() {
     while ((m = re.exec(src)) !== null) {
       check(`${rel} → t('${m[1]}') 存在于文案表`, i18nKeys.has(m[1]), m[1]);
     }
+  }
+
+  /* ---------- 10. tabbar 导航一致性 ---------- */
+  // 背景：四个页面各有一份手写的 <nav class="tabbar">。上一轮给四页加「我的」tab 时漏改了
+  // compass.html，而当时的 760 项检查全绿 —— 它只查 data-i18n / 资源登记 / SW 覆盖，
+  // 从不比对这几份手写副本。本节把这四份副本钉死，漏改即报红。
+  //
+  // 不适用 selfcheck-standalone.html：它是 tools/build-standalone.mjs 的生成产物，
+  // nav 已被改成 tab--disabled 的 <span>（不是 <a>），下面四条断言对它都没有意义。
+  section(`10. tabbar 导航一致性（${PAGES.length} 个手写 HTML 的导航不得漂移）`);
+
+  /** @type {Object<string, Array<{cls:string, href:string|null, aria:string|null}>>} */
+  const navTabs = {};
+
+  for (const html of PAGES) {
+    const src = read(html);
+    const block = extractTabbar(src);
+    check(`${html} 含 <nav class="tabbar">`, !!block, '未找到 tabbar 容器');
+    const anchors = block ? parseNavItems(block) : [];
+    const tabs = anchors.filter((a) => classTokens(a.cls).indexOf('tab') !== -1);
+    check(
+      `${html} tabbar 内每个 <a> 都带 class="tab"（共 ${anchors.length} 个 <a>）`,
+      anchors.length > 0 && tabs.length === anchors.length,
+      `命中 ${tabs.length}/${anchors.length}`
+    );
+    // 缺 href 的项会让下面的列表比对被 null 搅乱，先单独挡一道
+    const noHref = tabs.filter((t) => !t.href).length;
+    check(`${html} tabbar 每项都有 href`, noHref === 0, `${noHref} 项缺 href`);
+    navTabs[html] = tabs;
+  }
+
+  const BASE_PAGE = PAGES[0];
+  const baseHrefs = (navTabs[BASE_PAGE] || []).map((t) => t.href);
+
+  // (a) 四页 href 列表逐项相等（含顺序）
+  for (const html of PAGES) {
+    const hrefs = (navTabs[html] || []).map((t) => t.href);
+    let detail = '';
+    if (hrefs.join(',') !== baseHrefs.join(',')) {
+      const missing = baseHrefs.filter((h) => hrefs.indexOf(h) === -1);
+      const extra = hrefs.filter((h) => baseHrefs.indexOf(h) === -1);
+      detail =
+        missing.length === 0 && extra.length === 0
+          ? `顺序不同：基准 [${baseHrefs.join(' | ')}]，实际 [${hrefs.join(' | ')}]`
+          : `缺少 ${missing.length ? missing.join('、') : '（无）'}；多出 ${extra.length ? extra.join('、') : '（无）'}`;
+    }
+    check(`${html} tab href 列表与基准 ${BASE_PAGE} 一致（含顺序）`, detail === '', detail);
+    // 反向护栏：万一四页一起漏掉同一个 tab，(a) 依然是绿的 —— 用页面清单兜住
+    const notCovered = PAGES.filter((p) => hrefs.indexOf(p) === -1);
+    check(`${html} tab 覆盖全部 ${PAGES.length} 个手写页面`, notCovered.length === 0, `未覆盖 ${notCovered.join('、')}`);
+  }
+
+  // (b) 每页恰好一个激活项，且激活项指向自己
+  for (const html of PAGES) {
+    const tabs = navTabs[html] || [];
+    const active = tabs.filter((t) => classTokens(t.cls).indexOf(ACTIVE_CLASS) !== -1);
+    check(
+      `${html} 恰好一个 ${ACTIVE_CLASS}`,
+      active.length === 1,
+      `实际 ${active.length} 个：${active.map((t) => t.href).join('、') || '无'}`
+    );
+    if (active.length === 1) {
+      check(`${html} 激活项指向自己（href=${html}）`, active[0].href === html, `实际指向 ${active[0].href}`);
+    }
+  }
+
+  // (c) tab--active 与 aria-current="page" 必须成对（视觉靠 class，无障碍语义靠属性）
+  for (const html of PAGES) {
+    for (const t of navTabs[html] || []) {
+      const hasCls = classTokens(t.cls).indexOf(ACTIVE_CLASS) !== -1;
+      const hasAria = t.aria === ACTIVE_ARIA;
+      let why = '';
+      if (t.aria !== null && t.aria !== ACTIVE_ARIA) why = `aria-current="${t.aria}" 取值非法（只许 "${ACTIVE_ARIA}"）`;
+      else if (hasCls && !hasAria) why = `有 class="${ACTIVE_CLASS}" 却缺 aria-current="${ACTIVE_ARIA}"`;
+      else if (!hasCls && hasAria) why = `有 aria-current="${ACTIVE_ARIA}" 却缺 class="${ACTIVE_CLASS}"`;
+      check(`${html} tab[${t.href}] 的 ${ACTIVE_CLASS} 与 aria-current="${ACTIVE_ARIA}" 成对`, why === '', why);
+    }
+  }
+
+  // (d) nav 里的 href 必须指向真实存在的页面文件（抓「加了 tab 页面还没建」与「删页忘删 tab」）
+  const allHrefs = [];
+  for (const html of PAGES) {
+    for (const t of navTabs[html] || []) {
+      if (t.href && allHrefs.indexOf(t.href) === -1) allHrefs.push(t.href);
+    }
+  }
+  for (const href of allHrefs) {
+    const clean = href.split('#')[0].split('?')[0];
+    check(`tab href ${href} 指向 .html 页面`, /\.html$/i.test(clean), '导航项必须指向页面文件');
+    const abs = path.resolve(ROOT, clean.replace(/^\/+/, ''));
+    const exists = fs.existsSync(abs) && fs.statSync(abs).isFile();
+    check(`tab href ${href} 对应文件存在`, exists, exists ? '' : `${clean} 不在磁盘上`);
   }
 
   /* ---------- 汇总 ---------- */
