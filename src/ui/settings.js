@@ -105,6 +105,21 @@ function _exportSummaryText() {
 }
 
 /**
+ * 取导出卡的隐私说明文案。
+ *
+ * 有快照 / 无快照必须分两句说，不能合并成一句含糊的话：快照里嵌着**最近一次定位坐标**
+ * （经纬度，能精确到社区）以及四条同样含经纬度的数据源请求链接，敏感度比 `defaultPlace`
+ * 高一个量级 —— 后者通常是出厂默认值「北京 · 天安门」，根本不是用户的真实位置。
+ * 曾用一句「……和最近一次天气快照」把最敏感的一项藏在最不起眼的四个字里。
+ *
+ * @returns {string} 隐私说明文案。
+ */
+function _privacyText() {
+  const count = getState().favorites.length;
+  return getLastSnapshot() ? t('settings.backupPrivacy', { count }) : t('settings.backupPrivacyNoSnap', { count });
+}
+
+/**
  * 取错误对象的可读消息（不抛）。
  *
  * @param {*} err 任意错误。
@@ -155,7 +170,7 @@ function _refreshExport() {
   const cur = _el('export-current');
   if (cur) cur.textContent = _exportSummaryText();
   const privacy = _el('export-privacy');
-  if (privacy) privacy.textContent = t('settings.backupPrivacy', { count: getState().favorites.length });
+  if (privacy) privacy.textContent = _privacyText();
 }
 
 /**
@@ -235,7 +250,7 @@ function _renderPage() {
         h('button', { class: 'btn btn--primary', type: 'button', id: 'btn-export', text: t('settings.exportBtn') }),
       ]),
       // 隐私说明**常驻**在按钮下方：用户在按下之前就该知道这份文件里有什么
-      h('p', { class: 'card-note', id: 'export-privacy', text: t('settings.backupPrivacy', { count: getState().favorites.length }) }),
+      h('p', { class: 'card-note', id: 'export-privacy', text: _privacyText() }),
       h('p', { class: 'card-note', id: 'export-result' }),
     ])
   );
