@@ -389,6 +389,43 @@ test('applyBackup：拿到计划才写，脏计划一律拒绝且不留下半截
   assert.deepEqual(store.getFavorites(), [{ lat: 1, lon: 1, name: 'A' }]);
 });
 
+test('applyBackup：plan 缺 favorites 数组时整体拒绝（绝不静默清空收藏）', () => {
+  // 背景：plan 是导出符号，可能被跨版本搬运 / 手工构造（applyBackup 的 JSDoc 就是这口径）。
+  // 缺 favorites 时若宽容成 []，结果是 ok:true + 收藏被清空 —— 用户数据没了还以为导入成功，
+  // 这是本模块能造成的最坏后果，所以按注释口径收紧为整体拒绝。
+  store.setDefaultPlace({ lat: 39.9087, lon: 116.3975, name: '本机原地' });
+  store.addFavorite({ lat: 1, lon: 1, name: 'A' });
+  store.addFavorite({ lat: 2, lon: 2, name: 'B' });
+  const before = readAll();
+
+  const ins = backup.inspectBackup(
+    makePayload({
+      defaultPlace: { lat: 31.2304, lon: 121.4737, name: '上海' },
+      favorites: [{ lat: 1, lon: 1, name: 'A' }, { lat: 2, lon: 2, name: 'B' }],
+    })
+  );
+  assert.equal(ins.ok, true, '前置条件：正常载荷必须能产出 plan');
+
+  // 手工把 favorites 摘掉（模拟跨版本搬运 / 手工构造的残缺 plan）
+  const broken = { ...ins.plan };
+  delete broken.favorites;
+
+  const r = backup.applyBackup(broken);
+  assert.equal(r.ok, false, '缺 favorites 的 plan 必须整体拒绝');
+  assert.equal(r.applied, undefined, '失败时不得返回 applied');
+  assert.ok(String(r.reason).indexOf('favorites') !== -1, `reason 要点名 favorites，实际 ${r.reason}`);
+  assert.deepEqual(readAll().favorites, before.favorites, '拒绝后收藏必须原样（不许被清空）');
+  assert.deepEqual(readAll().defaultPlace, before.defaultPlace, '拒绝后默认地点必须原样');
+
+  // 缺 defaultPlace 同样是整体拒绝（坐标正确性，绝不静默拿默认值糊过去）
+  const noPlace = { ...ins.plan };
+  delete noPlace.defaultPlace;
+  const r2 = backup.applyBackup(noPlace);
+  assert.equal(r2.ok, false, '缺 defaultPlace 的 plan 必须整体拒绝');
+  assert.deepEqual(readAll().defaultPlace, before.defaultPlace, '拒绝后默认地点必须原样');
+  assert.deepEqual(readAll().favorites, before.favorites, '拒绝后收藏必须原样');
+});
+
 test('importBackup 严格等价于 inspect + apply（拆分没有改变对外行为）', () => {
   const payload = makePayload({
     defaultPlace: { lat: 45, lon: 9, name: '米兰' },

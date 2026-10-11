@@ -253,6 +253,15 @@ export function inspectBackup(input) {
  * 默认地点、收藏条数、会被丢弃的条数），人确认后才允许调用本函数。拆分前后
  * `importBackup()` 的对外行为完全一致 —— 它就是这两步的串接。
  *
+ * ⚠️ plan 完整性：本函数是为「plan 由 `inspectBackup()` 产出」这条正常路径写的，
+ * 但它是**导出符号**，可能被跨版本搬运或手工构造（同第 2 步注释的口径）。因此对
+ * plan 的要求是**缺关键字段就整体拒绝**，而不是静默走默认值：
+ *   - 缺 `favorites` 数组 → 拒绝。若照 `Array.isArray(...) ? ... : []` 宽容处理，
+ *     结果是把用户的收藏**静默清空**并返回 ok —— 用户数据没了还以为导入成功了，
+ *     这是本模块能造成的最坏后果，宁可拒绝。
+ *   - `defaultPlace` 缺失/非法 → 原本就整体拒绝（坐标正确性，绝不静默拿默认值糊过去）。
+ * 正常路径下这两项 `inspectBackup()` 必然给出，所以收紧不影响任何既有行为。
+ *
  * @param {Object} plan `inspectBackup()` 返回的计划对象。
  * @returns {{ok:boolean, applied?:Object, reason?:string}} 导入结果。
  */
@@ -270,10 +279,15 @@ export function applyBackup(plan) {
   const networkType = NETWORK_TYPES.indexOf(src.networkType) === -1 ? 'unknown' : src.networkType;
   const debug = !!isDebug();
 
-  /* ---------- 3. favorites 再过一遍同一把尺子 ---------- */
+  /* ---------- 3. favorites：没有数组就整体拒绝（绝不静默清空收藏） ---------- */
+  // 宽容成 `[]` 会得到一个 ok:true + 收藏被清空的写入 —— 用户数据没了还不知道。
+  // plan 由 inspectBackup() 产出时必然带 favorites，缺了只可能是手工构造 / 跨版本搬运。
+  if (!Array.isArray(src.favorites)) {
+    return { ok: false, reason: '导入计划里没有 favorites 数组（请先调用 inspectBackup）' };
+  }
   const favorites = [];
   const seen = new Set();
-  for (const item of Array.isArray(src.favorites) ? src.favorites : []) {
+  for (const item of src.favorites) {
     const place = normalizePlace(item);
     if (place === null) continue;
     const key = `${place.lat},${place.lon}`;

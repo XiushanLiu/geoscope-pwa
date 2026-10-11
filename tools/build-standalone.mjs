@@ -38,6 +38,7 @@ const ORDER = [
   'src/data/photon.js',
   'src/data/sources.js',
   'src/data/health.js',
+  'src/ui/theme.js',
   'src/ui/now.js',
   'src/ui/map.js',
   'src/ui/download.js',

@@ -28,10 +28,16 @@ import {
   degradeMapMode,
   mapMode,
 } from '../data/tiles.js';
-import { getNetworkType, setNetworkType as storeSetNetworkType, log } from '../core/store.js';
+import { getNetworkType, setNetworkType as storeSetNetworkType, getThemeMode, log } from '../core/store.js';
 import { stamp, latency as fmtLatency, bytes as fmtBytes } from '../core/format.js';
 import { h, applyI18n } from './now.js';
 import { downloadJson } from './download.js';
+import { applyThemeMode } from './theme.js';
+
+// ★主题引导（模块顶层）：本页是四个入口之一，必须在 module 求值那一刻就把 store 里的
+// themeMode 写到 <html data-theme> 上，不能等 init() —— 否则用户会先看到一帧系统色。
+// 实现与四组合语义见 ui/theme.js 文件头。
+applyThemeMode(getThemeMode());
 
 /** 每源正式取样次数默认值。 */
 export const DEFAULT_SAMPLES = 3;

@@ -221,6 +221,26 @@ function classTokens(v) {
 }
 
 /**
+ * 归一导航 href：去掉开头的 `./`、去掉 `?`/`#` 及其后内容。
+ *
+ * 为什么必须归一再比：`./settings.html` 与 `settings.html` 指向同一个文件、跳到同一个
+ * 页面，是**语义等价**的两种写法；但字符串精确比对（`indexOf(p)`）会把它们判成两项，
+ * 于是「四页统一写成 `./xxx.html`」这种完全正确的写法会被报 8 条红，其中还包括
+ * 「激活项指向自己（href=index.html）— 实际指向 ./index.html」这种明明对却报错的条目。
+ * 误报一多，真正漏改的那条就没人看了 —— 所以先归一，再比对。
+ *
+ * @param {string} v 原始 href（可能为 null）。
+ * @returns {string} 归一后的 href。
+ */
+function normalizeHref(v) {
+  return String(v || '')
+    .trim()
+    .replace(/^\.\//, '')
+    .split('#')[0]
+    .split('?')[0];
+}
+
+/**
  * 抽出页面里 `<nav class="tabbar">` 的内部内容。
  *
  * 为什么只抠这一个块：四个页面的 tabbar 是四份**手写副本**（零构建、无模板、无 SPA 路由），
@@ -498,11 +518,12 @@ async function main() {
   }
 
   const BASE_PAGE = PAGES[0];
-  const baseHrefs = (navTabs[BASE_PAGE] || []).map((t) => t.href);
+  // 归一后比对：`./x.html` 与 `x.html` 视为同一项（见 normalizeHref 的注释）
+  const baseHrefs = (navTabs[BASE_PAGE] || []).map((t) => normalizeHref(t.href));
 
   // (a) 四页 href 列表逐项相等（含顺序）
   for (const html of PAGES) {
-    const hrefs = (navTabs[html] || []).map((t) => t.href);
+    const hrefs = (navTabs[html] || []).map((t) => normalizeHref(t.href));
     let detail = '';
     if (hrefs.join(',') !== baseHrefs.join(',')) {
       const missing = baseHrefs.filter((h) => hrefs.indexOf(h) === -1);
@@ -528,7 +549,7 @@ async function main() {
       `实际 ${active.length} 个：${active.map((t) => t.href).join('、') || '无'}`
     );
     if (active.length === 1) {
-      check(`${html} 激活项指向自己（href=${html}）`, active[0].href === html, `实际指向 ${active[0].href}`);
+      check(`${html} 激活项指向自己（href=${html}）`, normalizeHref(active[0].href) === html, `实际指向 ${active[0].href}`);
     }
   }
 
@@ -549,15 +570,45 @@ async function main() {
   const allHrefs = [];
   for (const html of PAGES) {
     for (const t of navTabs[html] || []) {
-      if (t.href && allHrefs.indexOf(t.href) === -1) allHrefs.push(t.href);
+      const norm = normalizeHref(t.href);
+      if (norm && allHrefs.indexOf(norm) === -1) allHrefs.push(norm);
     }
   }
   for (const href of allHrefs) {
-    const clean = href.split('#')[0].split('?')[0];
+    const clean = normalizeHref(href);
     check(`tab href ${href} 指向 .html 页面`, /\.html$/i.test(clean), '导航项必须指向页面文件');
     const abs = path.resolve(ROOT, clean.replace(/^\/+/, ''));
     const exists = fs.existsSync(abs) && fs.statSync(abs).isFile();
     check(`tab href ${href} 对应文件存在`, exists, exists ? '' : `${clean} 不在磁盘上`);
+  }
+
+  /* ---------- 11. 主题引导覆盖全部入口 ---------- */
+  // 背景：写 <html data-theme> 的代码原本只活在 src/ui/settings.js 里，且只有那一页在模块
+  // 顶层调用过 —— 于是用户手动指定「浅色」后，其余三页的 <html> 上没有 data-theme，CSS
+  // 只能跟着系统偏好走，「手动指定后会一直保持」这条承诺在 3/4 的页面上是假的。
+  // 本仓库**无 SPA 路由、无共享 bootstrap**（四个独立 HTML 靠 <a href> 跳转），所以每个
+  // 入口模块必须各引导一次，谁也替不了谁。这一节用源码扫描钉死：漏一页即报红。
+  // 手法照第 9 节扫 t('...') 的既有写法（读源码 + 正则，零依赖）。
+  section(`11. 主题引导（${PAGES.length} 个页面的入口必须在模块顶层写 data-theme）`);
+
+  const themeSrc = read('src/ui/theme.js');
+  check('src/ui/theme.js 导出 applyThemeMode', /export\s+function\s+applyThemeMode\s*\(/.test(themeSrc), '主题引导必须有唯一实现');
+
+  for (const html of PAGES) {
+    const entry = ENTRY_OF_PAGE[html];
+    const entrySrc = read(entry);
+    check(
+      `${html} 入口 ${entry} 引用主题引导 applyThemeMode`,
+      entrySrc.indexOf('applyThemeMode') !== -1,
+      '入口模块必须引导主题，否则该页会显示错的主题'
+    );
+    // 必须是**顶层**调用（行首无缩进）且喂的是 store 里的当前模式：
+    // 只 import 不调用、或挪进 boot()/init()/await 之后，都会让用户先看到一帧错的主题。
+    check(
+      `${html} 入口 ${entry} 顶层调用 applyThemeMode(getThemeMode())`,
+      /^applyThemeMode\(\s*getThemeMode\(\)\s*\);/m.test(entrySrc),
+      '必须写在模块顶层（行首无缩进），不能只 import 不调用、也不能挪进 boot()/init()'
+    );
   }
 
   /* ---------- 汇总 ---------- */

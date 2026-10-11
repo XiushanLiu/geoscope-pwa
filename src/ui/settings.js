@@ -18,7 +18,8 @@
  *      不是点完才闪一下的提示 —— 用户要在按下去之前就知道自己在导出什么。
  *   3) **文案零硬编码**：一切可见文字走 t()，缺键时 t() 会返回键名本身（不崩）。
  *
- * 依赖方向：ui ← core。顶层不触碰 DOM（除下面一处紧急应用主题），便于 Node 侧检查与单测。
+ * 依赖方向：ui ← core。顶层只做一件事：把主题写到 <html data-theme>（全站属性，
+ * 详见 ui/theme.js），其余 DOM 访问全在 init() 内，便于 Node 侧检查与单测。
  */
 
 import { t } from '../i18n/zh.js';
@@ -26,6 +27,9 @@ import { getState, getLastSnapshot, getThemeMode, setThemeMode, log } from '../c
 import { exportBackup, inspectBackup, applyBackup, backupFilename } from '../core/backup.js';
 import { downloadJson } from './download.js';
 import { h, applyI18n } from './now.js';
+// 写 <html data-theme> 的实现在 ui/theme.js：主题是全站属性，四个入口都要引导，
+// 不能只活在本页里（详见 theme.js 文件头）。
+import { applyThemeMode } from './theme.js';
 
 /** 主题模式选项（顺序即界面顺序）。 */
 export const THEME_MODES = ['system', 'light', 'dark'];
@@ -50,32 +54,12 @@ function _el(id) {
 /* 主题                                                                 */
 /* ------------------------------------------------------------------ */
 
-/**
- * 把主题模式落到 <html data-theme> 上。
- *
- * 为什么只有这一个改写点：深浅两种样式在 tokens.css 里由两组选择器唯一确定 ——
- * `:root[data-theme='light']` 属性块，以及 `@media (prefers-color-scheme: light)
- * :root:not([data-theme='dark'])` 媒体块。**没有 `[data-theme='dark']` 规则块**，
- * 属性值为 dark 时命中的是 `:root` 的默认（深色）值。于是三种模式的写法分别是：
- *   system → 移除属性（交给媒体查询跟着系统走）
- *   light  → 设为 'light'（命中属性块）
- *   dark   → 设为 'dark'（挡掉媒体查询，回落 :root 默认值）
- * 别在这里 add/remove CSS 规则块 —— tokens.css 里两个浅色块是手工重复的
- * （注释写着「改一处必须改两处」），动色值必然漏一处。
- *
- * 在非浏览器环境（Node 侧静态检查）下本函数是空操作。
- *
- * @param {'system'|'light'|'dark'} mode 主题模式。
- * @returns {'system'|'light'|'dark'} 实际应用的模式（非法值按 system 处理）。
- */
-export function applyThemeMode(mode) {
-  const root = typeof document !== 'undefined' && document ? document.documentElement : null;
-  const applied = mode === 'light' || mode === 'dark' ? mode : 'system';
-  if (!root) return applied;
-  if (applied === 'system') root.removeAttribute('data-theme');
-  else root.setAttribute('data-theme', applied);
-  return applied;
-}
+// ★主题引导：本页是四个入口之一，必须在**模块顶层**把 store 里的 themeMode 写到
+// <html data-theme> 上，早于任何渲染。ES module 是 defer 的，此刻 documentElement 已存在；
+// 挪进 init() 或任何 await 之后，用户会先看到一帧系统色的背景。
+// 幂等：init() 里的那次调用与本句完全等价，重复调用无副作用。
+// 实现与四组合语义见 ui/theme.js 文件头（**别在这里改色值、也别补 dark 规则块**）。
+applyThemeMode(getThemeMode());
 
 /**
  * 绑定分段控件（主题三档）。
@@ -433,10 +417,9 @@ export function init() {
   });
 }
 
-// ★模块求值那一刻就把主题上好：<script type="module"> 是 defer 的，不等 DOMContentLoaded
-// 的话，用户会看到一帧系统色的背景。这里顶层的守卫保证 Node 侧静态检查 import 本模块时安全。
+// 主题已在上面的模块顶层引导过（不在这里重复）。其余装配仍需守卫：Node 侧静态检查
+// import 本模块时没有 document，不能注册事件、不能渲染。
 if (typeof document !== 'undefined' && document !== null) {
-  applyThemeMode(getThemeMode());
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
