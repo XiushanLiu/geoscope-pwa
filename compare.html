@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title data-i18n="compare.title">多地点对比</title>
+
+  <!-- PWA 元数据：全部内联，无任何外链资源 -->
+  <meta name="description" content="地候 GeoScope —— 多地点对比：把收藏地点的同一批指标并排列出来。" />
+  <meta name="theme-color" content="#1E9C8C" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="地候" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%231E9C8C'/%3E%3Ccircle%20cx='256'%20cy='256'%20r='120'%20fill='none'%20stroke='%23ffffff'%20stroke-width='24'/%3E%3Cpath%20d='M256%2096v320M96%20256h320'%20stroke='%23ffffff'%20stroke-width='16'%20opacity='.85'/%3E%3C/svg%3E" />
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/app.css" />
+
+  <!-- 无障碍字号档位预置（防跳档）
+       与另外四个页面完全同一段：ES module 是 defer 的，等 src/ui/*.js 跑起来才去写
+       <html data-fs>，浏览器很可能已经按默认字号画过一帧 —— 用户会看到整页文字
+       「先小后大」地跳一下。这段同步脚本在 <head> 里直接读本机偏好把属性设上。
+       ★键 'gs:v1:store:prefs' = core/cache.js 的 NS('gs:v1:') + store 的 prefs 键，
+         tools/check.mjs 第 13 节会断言它与源码一致 —— 改命名空间必须连这里一起改。
+       读不到 / 解析失败 / 值非法就**什么都不做**（模块顶层还会再应用一次），绝不抛异常。 -->
+  <script>
+    try {
+      var gsPrefs = JSON.parse(localStorage.getItem('gs:v1:store:prefs') || '{}');
+      var gsFs = gsPrefs && gsPrefs.v && gsPrefs.v.fontScale;
+      if (gsFs === 'large' || gsFs === 'xlarge') document.documentElement.setAttribute('data-fs', gsFs);
+    } catch (gsErr) { /* 读不到就交给模块顶层，不抛 */ }
+  </script>
+</head>
+<body data-page="compare">
+  <!-- 顶部降级横幅：由 ui/compare.js 填充，无降级时隐藏 -->
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="app" class="app" aria-live="polite">
+    <!-- 骨架屏在 compare.js 挂载前由内联样式占位，避免白屏 -->
+    <div class="skeleton-note" data-i18n="app.loading">正在装载…</div>
+  </main>
+
+  <!-- ★本页**没有**底部 tabbar：.tabbar 是 shrink-to-fit 的固定定位容器，四个 tab 在
+       320px 屏上已经贴着临界点（实测内容宽 294px），真机上出过文字断行的 bug。
+       加第五项必撑破，所以本页走「页面内返回『我的』」这条明确的路（见 compare.js）。 -->
+
+  <script type="module" src="src/ui/compare.js"></script>
+</body>
+</html>

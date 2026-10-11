@@ -566,7 +566,11 @@ export function renderWeatherCard(root, snapshot) {
   const kvGrid = h('div', { class: 'kv' }, [
     _kv(t('w.feels'), fmt.tempC(w.feelsC)),
     _kv(t('w.humidity'), fmt.humidity(w.humidityPct)),
+    // 降水量（mm）与降水概率（%）是**两个不同的量**，必须先后来、各用自己的标签。
+    // 早先界面只有「降水」一项，说的其实是降水量；概率一直取到了（hourlyPopPct）却没上屏。
+    // 两者都缺失时各显示占位符「—」，绝不把概率的空值显示成 0%（那会被读成「确定不下雨」）。
     _kv(t('w.precip'), fmt.precipMm(w.precipMm)),
+    _kv(t('w.pop'), fmt.percent(w.popNowPct)),
     _kv(t('w.wind'), `${fmt.num(w.windMs, 1, 'm/s')} · ${wind.zh}`),
     _kv(t('w.pressure'), fmt.pressure(w.pressureHpa)),
     _kv(t('w.visibility'), fmt.visibility(w.visibilityM)),

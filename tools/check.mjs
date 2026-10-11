@@ -52,6 +52,9 @@ const ENTRY_OF_PAGE = {
   'selfcheck.html': 'src/ui/selfcheck.js',
   'compass.html': 'src/ui/compass.js',
   'settings.html': 'src/ui/settings.js',
+  // 对比页**不进 tabbar**（底部胶囊在 320px 屏上四个 tab 已贴临界点，加第五项必断行），
+  // 但它仍然是一个手写页面，入口登记同样要在这儿占一行 —— 漏登记等于漏引 JS、白屏。
+  'compare.html': 'src/ui/compare.js',
   // 生成产物：入口写在内联引导脚本的 `var ENTRY = "src/ui/selfcheck.js"` 里，
   // 不是 <script src=…> 属性，所以也能被同一条断言覆盖到。
   'selfcheck-standalone.html': 'src/ui/selfcheck.js',

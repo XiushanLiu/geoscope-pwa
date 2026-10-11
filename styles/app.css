@@ -31,6 +31,13 @@ body {
   padding-bottom: calc(var(--sp-12) + var(--sp-6) + env(safe-area-inset-bottom, 0px));
 }
 
+/* 对比页没有底部 tabbar：body 那条「给 tab 留位」的下内边距要撤掉，否则页面
+   底部会白留一大块空地（那块地的高度正好是一个 tabbar + 安全区）。
+   只新增这一条 padding 覆盖，不动 --sp-* 的定义值、也不动其它页面。 */
+body[data-page="compare"] {
+  padding-bottom: var(--sp-6);
+}
+
 /* 数字与拉丁走 Geist，等宽数字走 Geist Mono（缺失时回退系统字体，不外链） */
 .num { font-family: var(--ff-mono); font-variant-numeric: tabular-nums; }
 

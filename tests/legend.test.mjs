@@ -35,14 +35,16 @@ const INITIAL_OPEN = isLegendOpen();
 
 /** 界面上真实出现的指标 id（renderWeatherCard / renderAirCard / renderPlaceCard）。 */
 const KEY_IDS = [
-  'temp', 'feels', 'humidity', 'precip', 'wind', 'beaufort', 'winddir',
+  // 'pop'（降水概率）随「降水概率上屏」那批改动加入：界面上新增了一个数，
+  // 释义表里就该多一条 —— 少登记等于那条断言对新增条目视而不见。
+  'temp', 'feels', 'humidity', 'precip', 'pop', 'wind', 'beaufort', 'winddir',
   'pressure', 'visibility', 'uv', 'sun', 'dayLength', 'today', 'wmo', 'observedAt',
   'aqi', 'pollutants', 'elevation', 'coord', 'tz',
 ];
 
 /** 代码里没有现成分档、因此**不许**出现档位行的指标。 */
 const NO_SCALE_IDS = [
-  'temp', 'feels', 'humidity', 'precip', 'wind', 'pressure', 'visibility',
+  'temp', 'feels', 'humidity', 'precip', 'pop', 'wind', 'pressure', 'visibility',
   'sun', 'dayLength', 'today', 'wmo', 'observedAt', 'pollutants',
   'elevation', 'coord', 'tz',
 ];

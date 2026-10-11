@@ -205,6 +205,17 @@ export function legendModel() {
           rows: [],
         },
         {
+          // 降水概率紧跟降水量：界面上这两个数挨着，释义也挨着，才对得上。
+          // 本应用没有给它设分档（不像蒲福风级 / AQI 那样有现成换算表），rows 留空、
+          // 只讲清「是什么 + 单位 + 它和降水量的区别」。
+          id: 'pop',
+          title: t('legend.pop.title'),
+          unit: t('legend.pop.unit'),
+          body: t('legend.pop.body'),
+          rows: [],
+          noScale: true,
+        },
+        {
           id: 'wind',
           title: t('legend.wind.title'),
           unit: t('legend.wind.unit'),

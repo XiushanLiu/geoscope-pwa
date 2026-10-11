@@ -90,7 +90,10 @@ export const ZH = {
   'w.temp': '气温',
   'w.feels': '体感',
   'w.humidity': '湿度',
-  'w.precip': '降水',
+  // ★「降水量」与「降水概率」是两个不同的量，两个标签必须各自说清楚：
+  // 前者是毫米、后者是百分比，混写成一句「降水」会让用户以为这是同一个数的两种说法。
+  'w.precip': '降水量',
+  'w.pop': '降水概率',
   'w.wind': '风',
   'w.pressure': '气压',
   'w.visibility': '能见度',
@@ -308,6 +311,28 @@ export const ZH = {
   'fav.go': '查看此刻天气',
   'fav.unnamed': '未命名地点',
 
+  // ---------- 多地点对比 ----------
+  // 对比页从「我的」页进（不进底部 tabbar：tabbar 在 320px 屏上已经贴着临界点，
+  // 再加一项会把四个 tab 挤到换行 —— 那是个真机上真实发生过的 bug）。
+  // 口径规矩：每个地点**单独**取一次数（网络一次只发一个请求），取不到的那个
+  // 单独标失败、指标留占位符「—」，绝不拿别处的数据填进来。
+  'compare.title': '多地点对比',
+  'compare.subtitle': '把收藏地点的同一批指标逐个列出来，一个地点一张卡，同一行的指标可以直接对读',
+  'compare.entry': '对比收藏地点',
+  'compare.entryBtn': '开始对比',
+  'compare.hint': '每个地点要单独取一次数，而网络一次只发一个请求 —— 收藏越多，等得越久。',
+  'compare.current': '当前收藏 {count} 条',
+  'compare.needFav': '先收藏地点：到「此刻」页点标题下的收藏按钮，把想对比的地方存起来，再回来。',
+  'compare.maxNote': '收藏超过 {max} 条，本次只对比前 {max} 条。想对比别的，先到上面把不看的删掉。',
+  'compare.summary': '共 {total} 个地点 · 已取到 {ok} 个 · 失败 {failed} 个',
+  'compare.summaryRunning': '共 {total} 个地点 · 正在取第 {done} 个…',
+  'compare.offline': '设备离线，未发起请求',
+  'compare.allFailed': '这 {total} 个地点一个都没取到数据。可能是网络不通或数据源暂时不可用 —— 不是这些地点没有天气。',
+  'compare.rowFailed': '这个地点没取到数据：{reason}',
+  'compare.loading': '正在取数…',
+  'compare.refresh': '刷新',
+  'compare.back': '返回「我的」',
+
   // ---------- 设置 / 我的 ----------
   'settings.title': '我的 · 设置',
   'settings.subtitle': '备份搬家与外观：整机数据不出设备，导出与导入都在本机完成。',
@@ -447,7 +472,11 @@ export const ZH = {
 
   'legend.precip.title': '降水量',
   'legend.precip.unit': 'mm',
-  'legend.precip.body': '当前时次累计的降水量（precipitation），单位毫米。注意这里是「降水量」不是降水概率 —— 界面上没有降水概率这一项。',
+  'legend.precip.body': '当前时次累计的降水量（precipitation），单位毫米。这是「下了多少」，不是「会不会下」—— 会不会下看下面那条降水概率。',
+
+  'legend.pop.title': '降水概率',
+  'legend.pop.unit': '%',
+  'legend.pop.body': '当前这一小时出现降水的概率（precipitation_probability），单位百分比。它是**逐时**量，界面显示的是与「观测时刻」对上的那一小时。取不到时显示占位符「—」，不按 0% 显示 —— 0% 是「确定不下」，与「不知道」不是一回事。',
 
   'legend.wind.title': '风速',
   'legend.wind.unit': 'm/s',

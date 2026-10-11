@@ -66,6 +66,23 @@ export function humidity(pct) {
   return `${Math.round(n)}%`;
 }
 
+/**
+ * 通用百分比：'30%'；缺失时返回 '—'。
+ *
+ * 为什么单独给一个而不复用 humidity()：两者此刻的算法恰好一样（取整 + '%'），
+ * 但 humidity 的语义是「相对湿度」，降水概率若借它的函数名，将来任一方改了取整
+ * 口径（比如湿度保留一位小数）都会连带改错另一方 —— 语义不同就该各自有名。
+ *
+ * @param {*} v 百分比数值。
+ * @param {number} [digits=0] 小数位数。
+ * @returns {string} '30%' 或 '—'。
+ */
+export function percent(v, digits = 0) {
+  const n = _num(v);
+  if (n === null) return DASH;
+  return `${n.toFixed(digits)}%`;
+}
+
 /** 降水：'0.4 mm'；0 显示为 '0 mm'。 */
 export function precipMm(v) {
   const n = _num(v);

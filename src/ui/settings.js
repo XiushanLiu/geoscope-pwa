@@ -76,6 +76,15 @@ let _favBox = null;
 /** @type {HTMLElement|null} 收藏条数那一行（同上，留引用而不是靠 getElementById）。 */
 let _favCountBox = null;
 
+/** @type {HTMLElement|null} 对比入口按钮（收藏为空时要禁用，留引用便于刷新）。 */
+let _compareBtn = null;
+
+/** @type {HTMLElement|null} 对比卡的条数那一行。 */
+let _compareCountBox = null;
+
+/** @type {HTMLElement|null} 对比卡的「先收藏地点」提示行。 */
+let _compareNeedBox = null;
+
 /**
  * 取 DOM 元素（缺失返回 null，不抛）。
  *
@@ -301,9 +310,75 @@ function _refreshFavorites() {
     list.forEach((f) => box.appendChild(_renderFavoriteRow(f)));
   }
   if (_favCountBox) _favCountBox.textContent = t('fav.count', { count: list.length });
+  // 对比入口的可用态直接由收藏条数决定：删光了必须跟着灰掉
+  _refreshCompare();
   _refreshExport();
   // 删除收藏不影响快照，但导入会（见 _refreshCsv 的注释）—— 两条路径都过这里，统一刷
   _refreshCsv();
+}
+
+/**
+ * 跳转对比页（本页唯一的跨页入口）。
+ *
+ * 为什么不用 `<a href="compare.html">`：入口在收藏为空时必须是**禁用**态，
+ * 而 `<a>` 没有 disabled 语义（写 `disabled` 属性对它无效，点了照样跳）。
+ * 用 `<button disabled>` 才能得到「灰掉 + 点不动」，禁用这件事才真的成立 ——
+ * 代价是要自己写一句 `location.href`，换来的是按钮状态与提示文案同步。
+ *
+ * @returns {void}
+ */
+function _goCompare() {
+  if (typeof location === 'undefined' || !location) return; // Node 侧无 location
+  location.href = 'compare.html';
+}
+
+/**
+ * 刷新对比卡的条数 / 按钮可用态 / 提示行。
+ *
+ * 必须跟着收藏一起刷：删光收藏之后按钮还亮着，用户点进去只会看到一个空态，
+ * 不如在这里就灰掉并说明「先收藏地点」。
+ *
+ * @returns {void}
+ */
+function _refreshCompare() {
+  const count = getFavorites().length;
+  if (_compareCountBox) _compareCountBox.textContent = t('compare.current', { count });
+  if (_compareBtn) _compareBtn.disabled = count === 0;
+  if (_compareNeedBox) _compareNeedBox.textContent = count === 0 ? t('compare.needFav') : '';
+}
+
+/**
+ * 渲染多地点对比入口卡。
+ *
+ * 放在收藏卡**正下方**：对比的对象就是收藏，两张卡挨着才看得出「先有收藏、
+ * 再谈对比」这层关系；收藏为空时按钮禁用，同行写明该去哪儿收藏。
+ *
+ * @returns {HTMLElement} 卡片节点。
+ */
+function _renderCompareCard() {
+  const count = getFavorites().length;
+  const btn = h('button', {
+    class: 'btn btn--primary',
+    type: 'button',
+    id: 'btn-compare',
+    disabled: count === 0,
+    text: t('compare.entryBtn'),
+  });
+  btn.addEventListener('click', _goCompare);
+
+  const countBox = h('p', { class: 'card-note', id: 'compare-current' });
+  const needBox = h('p', { class: 'card-note', id: 'compare-need' });
+  _compareBtn = btn;
+  _compareCountBox = countBox;
+  _compareNeedBox = needBox;
+
+  return h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('compare.entry') }),
+    h('p', { class: 'card-note', text: t('compare.hint') }),
+    countBox,
+    h('div', { class: 'field field--row' }, [btn]),
+    needBox,
+  ]);
 }
 
 /**
@@ -502,6 +577,9 @@ function _renderPage() {
 
   // (a) 收藏地点（放在备份之前：先让用户有东西可收藏，再说怎么把它们带走）
   app.appendChild(_renderFavoriteCard());
+
+  // (a2) 多地点对比入口（紧跟收藏卡：对比的对象就是收藏，挨着才看得出先后关系）
+  app.appendChild(_renderCompareCard());
 
   // (b) 备份导出
   app.appendChild(
