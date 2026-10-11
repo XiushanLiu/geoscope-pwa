@@ -459,25 +459,45 @@ body {
   z-index: 20;
 }
 
-/* 四个 Tab 均分一行：`flex: 1 1 0` 让宽屏上四项等宽（不再按文字长度参差），
-   `min-width` 从 88px 降到 64px 是为了窄屏。为什么必须降：tabbar 是 `padding: 4px` +
-   `gap: 4px` 的浮动胶囊，旧值下四个 tab 天然要占 4×88 + 3×4（间距）+ 2×4（内边距）
-   = **372px**，iPhone SE（320px 视口）会溢出 52px —— 第 4 个「我的」被挤出屏幕。
-   降到 64px 后底面积 = 4×64 + 12 + 8 = **276px**，320px 视口还剩 44px 余量；
-   而 flex-basis 为 0 意味着真正决定宽度的是均分后的剩余空间，所以宽屏观感不变、
-   没有「挤在一起」的副作用。 */
+/* 四个 Tab 一行排布。下面是这一组属性被反复改动的历史与最终定案，**改前请读**。
+   ── 真机截图暴露的 bug：四个 tab 文字全断成两行（「此/刻」「自/检」「方/位」「我/的」）。
+      引入于 a0dde93（加第 4 个 tab 时把 `.tab` 从 `min-width: 88px` 改成 `flex: 1 1 0`
+      + `min-width: 64px`）。当时的纸面推算是「4×68 + 3×4 + 2×4 = 294px < 320px，不溢出」
+      —— 算错了，而且**算的不是换行这件事**。
+
+   ── 根因：`.tabbar` 是 `position: fixed` 且**没有设 `width`**。
+      fixed + 无 width → 宽度是 shrink-to-fit，即**由内容决定**，不是占满 390px。
+      于是 `flex: 1 1 0` 里的 `flex-basis: 0` 在一个 shrink-to-fit 容器里分不到「剩余空间」
+      （本来就没有剩余空间可分），每个 tab 实际拿到 ≈ (max-content 总宽) / 4 ≈ 70px。
+      再减去 `padding: 0 var(--sp-5)` 的左右共 40px，**内容区只剩约 30px** ——
+      而「此刻」两个汉字在 `--fs-md`(14px) 下正好约 28–30px。**卡在临界点**，
+      真机字体渲染与桌面稍有差异就换行。
+
+   ── 定案（三条，各管一件事）：
+      1. `padding: 0 var(--sp-3)`（12px，原 `--sp-5` 20px）：内容区从 ~30px 提到 46px，
+         留出明显余量，不再贴着两字临界点。
+      2. `white-space: nowrap`：即使将来再挤，也宁可横向挤压也**不断行**。
+         断行会让 tab 变高、把上方内容顶掉，危害远大于横向挤一点。
+      3. `flex: 0 0 auto`（原 `1 1 0`）：`tabbar` 是 shrink-to-fit 容器，`flex-basis: 0`
+         在这里的行为难以预测（正是踩的坑）；改成按内容宽度排布，配合 `min-width: 64px`
+         完全可预测。四个 tab 文字都是两字，宽度天然相同，观感与「均分」一致。
+
+   ── 保留：`min-width: 64px`（宽度下限，窄屏）、`min-height: var(--touch-min)`（触控下限）。
+   ── 不要把 `--sp-*` 或 `--fs-*` 改成别的值来「腾空间」：那是全局栅格/字号阶梯，一动影响全站。
+      宽度够不够现在由 `tools/check.mjs` 第 12 节机器计算，不再靠纸面估算。 */
 .tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 64px;
   min-height: var(--touch-min);
-  padding: 0 var(--sp-5);
+  padding: 0 var(--sp-3);
   border-radius: var(--r-pill);
   color: var(--c-text-3);
   font-size: var(--fs-md);
   text-decoration: none;
+  white-space: nowrap;
 }
 
 /* 实心底改用 --c-brand-solid：白字压 --c-brand 实测只有 3.39:1（深浅同值），

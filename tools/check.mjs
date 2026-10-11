@@ -10,6 +10,9 @@
  *   5) **SW 预缓存清单校验**：sw.js 的 SHELL_ASSETS 必须与实际文件一一对应。
  *   6) **tabbar 导航一致性校验**：四个手写 HTML 的 <nav class="tabbar"> 必须逐项一致
  *      （href 列表 + 顺序、激活项指向自己、tab--active 与 aria-current 成对、href 指向真实文件）。
+ *   7) **tabbar 空间预算校验**：从 CSS/tokens 实解析出 tab 宽、间距、内边距与字号，机器算出
+ *      320px 窄屏下的总宽并断言不溢出，同时钉住 `.tab` 的 `white-space: nowrap`。
+ *      「宽度够不够」不再靠纸面估算（第 12 节的注释写明了它的覆盖面边界）。
  *
  * 用法：node tools/check.mjs
  * 退出码：全部通过 0；存在失败 1。
@@ -289,6 +292,85 @@ const ACTIVE_CLASS = 'tab--active';
 
 /** 导航项上的无障碍属性取值（语义）。CSS 里没有 [aria-current] 选择器，全靠它给读屏软件。 */
 const ACTIVE_ARIA = 'page';
+
+/* ------------------------- CSS 规则解析 ------------------------- */
+
+/**
+ * 取出某个选择器（精确匹配）的规则体。
+ *
+ * 为什么用「选择器 + 空白 + {」锚定而不是裸 indexOf：`.tab` 会命中 `.tabbar` / `.tab--active`
+ * 的前缀，取到的声明体是别人的，断言就变成假绿。锚定后 `.tabbar {` / `.tab--active {`
+ * 都不会被匹配（选择器后面还有字符，不是 `{`）。
+ *
+ * @param {string} css CSS 源码。
+ * @param {string} selector 选择器字面量（如 `.tab`）。
+ * @returns {string|null} `{` 与 `}` 之间的声明体；找不到返回 null。
+ */
+function extractRule(css, selector) {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(?:^|\\n)\\s*${esc}\\s*\\{([\\s\\S]*?)\\}`, 'm');
+  const m = css.match(re);
+  return m ? m[1] : null;
+}
+
+/**
+ * 取规则体里某条声明的值。
+ *
+ * @param {string} block 规则体（`{` 与 `}` 之间）。
+ * @param {string} prop 属性名（如 `min-width`）。
+ * @returns {string|null} 属性值原文（可能是 `var(--sp-3)`）；未声明返回 null。
+ */
+function declValue(block, prop) {
+  const re = new RegExp(`(?:^|[;\\n])\\s*${prop}\\s*:\\s*([^;{}]+)`, 'i');
+  const m = String(block || '').match(re);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * 在 tokens.css 里查自定义属性的真值。
+ *
+ * @param {string} tokens tokens.css 源码。
+ * @param {string} name 变量名（不含 `--` 前缀，如 `sp-3`）。
+ * @returns {string|null} 值原文（如 `12px`）；未定义返回 null。
+ */
+function tokenValue(tokens, name) {
+  const re = new RegExp(`--${name}\\s*:\\s*([^;]+);`);
+  const m = tokens.match(re);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * 把「可能是 var(...) 的长度值」解析成像素数字。
+ *
+ * @param {string} v 值原文（如 `64px` / `var(--sp-3)`）。
+ * @param {string} tokens tokens.css 源码。
+ * @returns {number|null} 像素数；解析不出返回 null。
+ */
+function pxOf(v, tokens) {
+  if (!v) return null;
+  const varMatch = v.match(/var\(\s*--([a-z0-9-]+)\s*\)/i);
+  const raw = varMatch ? tokenValue(tokens, varMatch[1]) : v;
+  if (!raw) return null;
+  const num = parseFloat(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * 取 padding 简写的**水平**值（左右各一份）。
+ *
+ * `padding: 0 var(--sp-3)` → 第二项（左右）；`padding: var(--sp-1)` → 唯一项（四边同值）。
+ *
+ * @param {string} v padding 值原文。
+ * @param {string} tokens tokens.css 源码。
+ * @returns {number|null} 单侧水平 padding 的像素数；解析不出返回 null。
+ */
+function paddingHorizontal(v, tokens) {
+  if (!v) return null;
+  const parts = v.trim().split(/\s+/);
+  if (parts.length === 1) return pxOf(parts[0], tokens);
+  // 2/3/4 值语法下，左右永远是第二项
+  return pxOf(parts[1], tokens);
+}
 
 /* ------------------------- 主流程 ------------------------- */
 
@@ -610,6 +692,111 @@ async function main() {
       '必须写在模块顶层（行首无缩进），不能只 import 不调用、也不能挪进 boot()/init()'
     );
   }
+
+  /* ---------- 12. 底部 tabbar 空间预算 ---------- */
+  // 背景（真机 bug，不是理论推演）：a0dde93 加第 4 个 tab 时，把 `.tab` 从 `min-width: 88px`
+  // 改成 `flex: 1 1 0` + `min-width: 64px`，纸面算的是「4×68 + 3×4 + 2×4 = 294px < 320px」。
+  // 上线后真机截图：四个 tab 文字全断成两行。
+  //
+  // 根因是 `.tabbar` 是 `position: fixed` 且**没有 width** → 宽度 shrink-to-fit、由内容决定。
+  // 于是 `flex-basis: 0` 分不到「剩余空间」（本来就没有），每个 tab 实际只有 ~70px，
+  // 减去 `padding: 0 var(--sp-5)` 的左右 40px，内容区只剩 ~30px —— 而「此刻」两字在
+  // `--fs-md`(14px) 下正好 ~28–30px。**卡在临界点**，真机字体渲染稍有差异就换行。
+  //
+  // 教训：「宽度够不够」应该由机器算，不该靠纸面估。本节就是把这次的算术固化成断言。
+  //
+  // ⚠️ 覆盖面（别把这条守卫当成「保证不换行」）：
+  //   它能抓的是**声明的空间预算超限** —— tab 数量变多（4 → 6）、padding 被调大、
+  //   min-width 被调大、gap 变宽这类「纸面上就该溢出」的改动。
+  //   它**抓不住真实字体渲染差异**：这里的「两字文本宽」取 `2 × --fs-md`（中文字符宽约等于
+  //   font-size）是保守估计，但真实渲染受字重、font-family 回退（Noto Sans SC 未命中时落到
+  //   PingFang / 微软雅黑）、字距影响，可能比这个数更宽或更窄。
+  //   也就是说：本节全绿 ≠ 真机一定不换行；本节报红 = 纸面就已经不够，必须解决。
+  //   真正的换行防线是 CSS 里的 `white-space: nowrap`（断行会把 tab 撑高、顶掉上方内容，
+  //   危害远大于横向挤压），本节另有一条断言钉住它不许被删。
+  section('12. 底部 tabbar 空间预算（窄屏 320px 下四个 tab 不得溢出 / 不得断行）');
+
+  /** 最小目标屏宽：iPhone SE 一代的 320px CSS 视口，本项目支持的地板。 */
+  const MIN_VIEWPORT = 320;
+
+  const appCss = read('styles/app.css');
+  const tokensCss = read('styles/tokens.css');
+
+  const tabRule = extractRule(appCss, '.tab');
+  const tabbarRule = extractRule(appCss, '.tabbar');
+  check('app.css 存在 .tab 规则', !!tabRule, '解析不到 `.tab { … }`，空间预算无从计算');
+  check('app.css 存在 .tabbar 规则', !!tabbarRule, '解析不到 `.tabbar { … }`，空间预算无从计算');
+
+  const tabMinWidthRaw = declValue(tabRule, 'min-width');
+  const tabPadRaw = declValue(tabRule, 'padding');
+  const tabbarGapRaw = declValue(tabbarRule, 'gap');
+  const tabbarPadRaw = declValue(tabbarRule, 'padding');
+
+  const tabMinWidth = pxOf(tabMinWidthRaw, tokensCss);
+  const tabPadH = paddingHorizontal(tabPadRaw, tokensCss);
+  const tabbarGap = pxOf(tabbarGapRaw, tokensCss);
+  const tabbarPadH = paddingHorizontal(tabbarPadRaw, tokensCss);
+  const fsMd = pxOf(tokenValue(tokensCss, 'fs-md'), tokensCss);
+
+  check(
+    `.tab 的 min-width 可解析（${tabMinWidthRaw} → ${tabMinWidth}px）`,
+    tabMinWidth !== null,
+    '解析失败：值是 var() 但 tokens.css 里没有，或不是长度'
+  );
+  check(
+    `.tab 的 padding 水平值可解析（${tabPadRaw} → ${tabPadH}px）`,
+    tabPadH !== null,
+    '解析失败：padding 简写形式超出本节支持（2/3/4 值取第二项，1 值取唯一项）'
+  );
+  check(
+    `.tabbar 的 gap 可解析（${tabbarGapRaw} → ${tabbarGap}px）`,
+    tabbarGap !== null,
+    '解析失败'
+  );
+  check(
+    `.tabbar 的 padding 水平值可解析（${tabbarPadRaw} → ${tabbarPadH}px）`,
+    tabbarPadH !== null,
+    '解析失败'
+  );
+  check(`tokens.css 的 --fs-md 可解析（${fsMd}px）`, fsMd !== null, '解析失败');
+
+  // tab 数量从页面 HTML 实读（复用第 10 节的 extractTabbar / parseNavItems，四页导航一致，取基准页）
+  const baseNav = extractTabbar(read(BASE_PAGE));
+  const baseTabs = baseNav
+    ? parseNavItems(baseNav).filter((a) => classTokens(a.cls).indexOf('tab') !== -1)
+    : [];
+  check(`${BASE_PAGE} 解析出 tab 数量（${baseTabs.length} 个）`, baseTabs.length > 0, 'tab 数量必须 > 0');
+
+  // 两字文本宽：中文字符宽度约等于 font-size，保守取 2 × --fs-md
+  const twoCharText = 2 * (fsMd || 0);
+  const tabPadTotal = 2 * (tabPadH || 0);
+  const tabWidth = Math.max(tabMinWidth || 0, tabPadTotal + twoCharText);
+  const gapsTotal = (baseTabs.length - 1) * (tabbarGap || 0);
+  const shellPadTotal = 2 * (tabbarPadH || 0);
+  const budgetTotal = baseTabs.length * tabWidth + gapsTotal + shellPadTotal;
+  const slack = MIN_VIEWPORT - budgetTotal;
+
+  // 算术过程原样打印：断言里的数字必须能被人工复核，不能是个黑盒
+  process.stdout.write(`  预算明细（${BASE_PAGE}，tab 数 = ${baseTabs.length}）：\n`);
+  process.stdout.write(`    --fs-md                = ${fsMd}px\n`);
+  process.stdout.write(`    两字文本宽 2 × fs-md    = ${twoCharText}px\n`);
+  process.stdout.write(`    .tab padding 水平       = ${tabPadH}px（单侧）× 2 = ${tabPadTotal}px\n`);
+  process.stdout.write(`    .tab min-width         = ${tabMinWidth}px\n`);
+  process.stdout.write(`    → 单 tab 宽 = max(${tabMinWidth}, ${tabPadTotal} + ${twoCharText}) = ${tabWidth}px\n`);
+  process.stdout.write(`    tab 合计 ${baseTabs.length} × ${tabWidth}      = ${baseTabs.length * tabWidth}px\n`);
+  process.stdout.write(`    gap 合计 ${baseTabs.length - 1} × ${tabbarGap}        = ${gapsTotal}px\n`);
+  process.stdout.write(`    tabbar padding 2 × ${tabbarPadH}   = ${shellPadTotal}px\n`);
+  process.stdout.write(`    总和                    = ${budgetTotal}px（上限 ${MIN_VIEWPORT}px，余量 ${slack}px）\n`);
+
+  check(
+    `tabbar 总宽 ${budgetTotal}px ≤ ${MIN_VIEWPORT}px（余量 ${slack}px）`,
+    budgetTotal <= MIN_VIEWPORT,
+    `超了 ${budgetTotal - MIN_VIEWPORT}px：降 .tab 的 padding / min-width，或减 tab 数量 —— 不要动 --sp-* 与 --fs-*，那是全局栅格与字号阶梯`
+  );
+
+  // white-space: nowrap 是真正的「不断行」防线（见本节开头注释），不许被当成无用声明删掉
+  const wsRaw = declValue(tabRule, 'white-space');
+  check(`.tab 声明 white-space: nowrap（现为 ${wsRaw || '缺失'}）`, wsRaw === 'nowrap', '删掉它，挤窄屏时 tab 文字会断行、把上方内容顶掉');
 
   /* ---------- 汇总 ---------- */
   const total = PASS + FAIL;
