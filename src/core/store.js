@@ -81,6 +81,60 @@ export function getState() {
 }
 
 /**
+ * 归一地点对象（内部用）。
+ *
+ * 只认识五个字段里的 defaultPlace 形状；坐标必须是**有限数字**且在经纬度范围内，
+ * 否则回落默认地点。为什么不做 Number() 宽容解析：`Number(null)` / `Number('')`
+ * 都是 0，那会把「坏数据」静默变成「几内亚湾 0,0」这个真实存在的地点。
+ * 名称长度不做截断 —— 截断规则归 core/backup.js 的 MAX_NAME_LEN 一处管。
+ *
+ * @param {*} p 任意值。
+ * @returns {{lat:number, lon:number, name:string}} 归一后的地点。
+ */
+function _normPlace(p) {
+  const d = DEFAULT_STATE.defaultPlace;
+  if (!p || typeof p !== 'object') return { ...d };
+  const lat = p.lat;
+  const lon = p.lon;
+  if (typeof lat !== 'number' || typeof lon !== 'number') return { ...d };
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { ...d };
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return { ...d };
+  return { lat, lon, name: String(p.name === null || p.name === undefined ? '' : p.name) };
+}
+
+/**
+ * 整体替换状态（供 core/backup.js 导入备份使用）。
+ *
+ * 为什么需要它：导入备份如果逐字段 set，中途失败会留下「改了一半」的状态
+ * （defaultPlace 已经换了、favorites 还是旧的）。调用方（backup.js）先把完整的
+ * next state 算完并校验通过，再由本函数**一次性**写入内存 + 持久化，保证原子性。
+ *
+ * 本函数只做**形状归一**（store 自身不变量：绝不把坏地点 / 非数组收藏写进内存态），
+ * 不做业务级「非法就整体拒绝」—— 那是 backup.js 的职责。两者是同一把尺子的两道防线：
+ * backup.js 负责拒绝，本函数保证就算被绕过了，内存态也不会存进不可用的值。
+ *
+ * 不改变任何既有 API 的语义，也不删除任何既有导出。
+ *
+ * @param {Object} next 新状态（{ defaultPlace, unitSystem, networkType, debug, favorites }）。
+ * @returns {Object} 实际落地的状态副本（与 getState() 同形状）。
+ */
+export function replaceState(next) {
+  _load();
+  const src = next && typeof next === 'object' ? next : {};
+  _state = {
+    defaultPlace: _normPlace(src.defaultPlace),
+    unitSystem: src.unitSystem === 'imperial' ? 'imperial' : DEFAULT_STATE.unitSystem,
+    networkType: src.networkType === 'wifi' || src.networkType === 'cellular' ? src.networkType : DEFAULT_STATE.networkType,
+    debug: !!src.debug,
+    favorites: (Array.isArray(src.favorites) ? src.favorites : [])
+      .filter((f) => f && typeof f === 'object' && typeof f.lat === 'number' && Number.isFinite(f.lat) && typeof f.lon === 'number' && Number.isFinite(f.lon))
+      .map((f) => ({ lat: f.lat, lon: f.lon, name: String(f.name === null || f.name === undefined ? '' : f.name) })),
+  };
+  _persist();
+  return getState();
+}
+
+/**
  * 设置默认地点。
  *
  * @param {{lat:number, lon:number, name:string}} place 地点对象。

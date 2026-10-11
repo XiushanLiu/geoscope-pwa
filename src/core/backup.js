@@ -1,0 +1,252 @@
+/**
+ * 备份与恢复（导出 / 导入 JSON）
+ *
+ * 职责：把本机偏好与收藏导出成一份可携带的 JSON，并把这份 JSON 还原回本机。
+ *
+ * 为什么必须有：产品边界第 2 条 —— 不做端到端加密同步，无账号、无云、无后端存储，
+ * 收藏与足迹只留本机，**靠导出 / 导入 JSON 搬家**；iOS 上 PWA 存储可能被系统清理，
+ * 导出备份是唯一退路（README「技术约束」）。本模块补的就是这条承诺过但缺失的能力。
+ *
+ * ⚠️ 明确**不导出**什么（两条硬排除，改本文件前先重读）：
+ *   1) **不含瓦片缓存**：src/data/tiles.js:36 已登记，三个 Esri 服务的 `exportTilesAllowed`
+ *      均为 **false**，离线批量导出瓦片违反其服务条款。
+ *   2) **不含任何 API 响应原文**：天气 / 空气 / 地名 / 海拔 / 逆地理的原文一律不带，
+ *      只带已解析的 NowSnapshot 对象（快照丢了可重建，不是关键数据）。
+ *
+ * 分层：本模块属 core 层，只依赖同层的 store 与 format。四层单向依赖是
+ * core ← data ← ui，**严禁反向依赖 src/data/* 下的任何模块**。
+ *
+ * 失败语义：`importBackup()` **永不抛异常**，一律返回 `{ ok:false, reason }`。
+ * 面向用户的文案由 UI 层走 i18n，这里的 reason 是给开发者 / 排障看的兜底串。
+ */
+
+import { getState, getLastSnapshot, replaceState, setLastSnapshot, isDebug } from './store.js';
+// 文件名时间戳复用 core/format.js 的导出文件名时间戳（其导出名为 stamp：'YYYYMMDD-HHmm'，
+// 本地时区）。这里用别名是为了让调用处读起来就是「导出文件名时间戳」，避免重复实现一份。
+import { stamp as exportFilenameStamp } from './format.js';
+
+/** 备份格式版本号（整数；未来格式变更时 +1，并在 importBackup 里加分支）。 */
+export const SCHEMA_VERSION = 1;
+
+/** 应用标识：用于拒绝别的应用的备份文件。 */
+export const APP_ID = 'geoscope';
+
+/** 收藏条数上限：超出一律截断（防止一个畸形备份把内存态撑爆）。 */
+export const MAX_FAVORITES = 200;
+
+/** 地点名长度上限（字符数）。 */
+export const MAX_NAME_LEN = 60;
+
+/** 允许的单位制。 */
+const UNIT_SYSTEMS = ['metric', 'imperial'];
+
+/** 允许的网络类型。 */
+const NETWORK_TYPES = ['wifi', 'cellular', 'unknown'];
+
+/**
+ * 生成导出文件名。
+ *
+ * 时间戳直接复用 core/format.js 的 `stamp()`（'YYYYMMDD-HHmm'），不重复实现。
+ * UI 层做 Blob 下载时用它取名，保证各处的备份文件名同一种格式。
+ *
+ * @param {number} [atMs=Date.now()] 导出时刻（ms epoch）。
+ * @returns {string} 形如 'geoscope-backup-20250105-1423.json'。
+ */
+export function backupFilename(atMs = Date.now()) {
+  return `${APP_ID}-backup-${exportFilenameStamp(atMs)}.json`;
+}
+
+/**
+ * 判断一个值是不是「合法经纬度数字」。
+ *
+ * 为什么只认 number 类型、不做 Number() 宽容解析：宽容解析会把 `null` / `''` / `false`
+ * 统统变成 0 —— 也就是「几内亚湾 0,0」这个真实存在但不该被静默接受的地点。
+ * 用户会以为导入成功了，实际默认地点被改到了海上。宁可拒绝。
+ *
+ * @param {*} v 待判定的值。
+ * @param {number} limit 绝对值上限（纬度 90 / 经度 180）。
+ * @returns {boolean} 是否合法。
+ */
+function isFiniteCoord(v, limit) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return false;
+  return v >= -limit && v <= limit;
+}
+
+/**
+ * 归一地点名：强制转字符串并截断到 60 字符。
+ *
+ * @param {*} v 原始值。
+ * @returns {string} 归一后的名称（'undefined' / 'null' 一律归为空串）。
+ */
+function normalizeName(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return s.length > MAX_NAME_LEN ? s.slice(0, MAX_NAME_LEN) : s;
+}
+
+/**
+ * 校验并归一一个地点（defaultPlace 与 favorites 逐项共用同一把尺子）。
+ *
+ * @param {*} p 原始值。
+ * @returns {{lat:number, lon:number, name:string}|null} 合法地点，或 null（非法）。
+ */
+function normalizePlace(p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+  if (!isFiniteCoord(p.lat, 90) || !isFiniteCoord(p.lon, 180)) return null;
+  return { lat: p.lat, lon: p.lon, name: normalizeName(p.name) };
+}
+
+/**
+ * 判断快照是否值得保留。
+ *
+ * 只做「是不是对象」这一层判断，不深入校验 NowSnapshot 的字段：快照是**可重建**的
+ * 派生数据（联网一次就有了），一旦把字段级校验写死在这里，将来 NowSnapshot 演进
+ * （新增字段）就会导致老备份的快照被误判为非法而丢弃。丢了不致命，所以宁宽勿严。
+ *
+ * @param {*} s 原始值。
+ * @returns {boolean} 是否保留。
+ */
+function isUsableSnapshot(s) {
+  return !!s && typeof s === 'object' && !Array.isArray(s);
+}
+
+/**
+ * 导出备份。
+ *
+ * ⚠️ 隐私：导出内容含 `defaultPlace`（用户常去地点）与 `favorites`（收藏地点），
+ * 属**敏感个人信息**。本函数**不联网、不上传**，只是把内存里的状态组装成普通对象，
+ * 由调用方（UI 层）用 Blob 在本地触发下载 —— 全程不出设备。
+ *
+ * ⚠️ UI 层必须在导出前告知用户「这份文件含你的位置信息（常去地点与收藏）」，
+ * 别让用户稀里糊涂地把它发给别人。
+ *
+ * 不含瓦片缓存（Esri exportTilesAllowed=false）、不含任何 API 响应原文。
+ *
+ * @returns {{schema:number, app:string, exportedAt:string, prefs:Object, snapshot:Object|null}} 备份载荷。
+ */
+export function exportBackup() {
+  const state = getState();
+  return {
+    schema: SCHEMA_VERSION,
+    app: APP_ID,
+    exportedAt: new Date().toISOString(),
+    prefs: {
+      defaultPlace: { ...state.defaultPlace },
+      unitSystem: state.unitSystem,
+      networkType: state.networkType,
+      // debug 照实导出（它就是 getState() 的一部分，便于排障时看清来源机器的状态），
+      // 但 importBackup 不会把它写回去 —— 见 importBackup 的 JSDoc。
+      debug: !!state.debug,
+      favorites: state.favorites.map((f) => ({ ...f })),
+    },
+    snapshot: getLastSnapshot(),
+  };
+}
+
+/**
+ * 导入备份。
+ *
+ * 入参既可以是 JSON 字符串，也可以是已解析的对象，两种形态行为完全一致。
+ * **永不抛异常**：任何失败都返回 `{ ok:false, reason }`。
+ *
+ * 原子性：先把完整的 next state 算出来、全部校验通过，再**一次性**经
+ * `store.replaceState()` 写入；中途任何一步失败都不落任何状态，本机状态保持原样。
+ *
+ * ⚠️ `debug` **不从备份带入**，导入后保持当前值。理由：debug 是排障开关，从别处
+ * 导入一个 `debug:true` 会让用户莫名其妙看到一堆日志（甚至以为应用坏了）。
+ * 它是「这台机器的临时开关」，不是「用户数据」，不该跟着备份搬家。
+ *
+ * 宽容度是分层的：涉及位置正确性的（defaultPlace）**非法就整体拒绝**，绝不静默拿
+ * 默认值糊过去 —— 那会让用户以为导入成功了；不涉及位置隐私的枚举值（unitSystem /
+ * networkType）非法就回退默认值；可重建的派生数据（snapshot）不合法就当 null。
+ *
+ * @param {string|Object} input JSON 字符串或已解析对象。
+ * @returns {{ok:boolean, applied?:Object, reason?:string}} 导入结果。
+ */
+export function importBackup(input) {
+  /* ---------- 1. 解析 ---------- */
+  let data = input;
+  if (typeof input === 'string') {
+    try {
+      data = JSON.parse(input);
+    } catch (err) {
+      return { ok: false, reason: '不是合法 JSON' };
+    }
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { ok: false, reason: '备份内容不是 JSON 对象' };
+  }
+
+  /* ---------- 2. 格式版本 ---------- */
+  if (!Number.isInteger(data.schema) || data.schema !== SCHEMA_VERSION) {
+    return { ok: false, reason: `备份格式版本不支持（schema=${String(data.schema)}）` };
+  }
+
+  /* ---------- 3. 是不是地候的备份 ---------- */
+  if (data.app !== APP_ID) {
+    return { ok: false, reason: '不是地候的备份文件' };
+  }
+
+  /* ---------- 4. prefs 必须在 ---------- */
+  const prefs = data.prefs;
+  if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) {
+    return { ok: false, reason: '缺少 prefs' };
+  }
+
+  /* ---------- 5. defaultPlace：非法就整体拒绝 ---------- */
+  const defaultPlace = normalizePlace(prefs.defaultPlace);
+  if (defaultPlace === null) {
+    return {
+      ok: false,
+      reason: 'defaultPlace 坐标非法（lat/lon 必须是有限数字，纬度 ±90、经度 ±180 内）',
+    };
+  }
+
+  /* ---------- 6~8. 枚举值：非法回退默认值；debug 保持当前值 ---------- */
+  const unitSystem = UNIT_SYSTEMS.indexOf(prefs.unitSystem) === -1 ? 'metric' : prefs.unitSystem;
+  const networkType = NETWORK_TYPES.indexOf(prefs.networkType) === -1 ? 'unknown' : prefs.networkType;
+  const debug = !!isDebug();
+
+  /* ---------- 9. favorites：逐项校验，非法项跳过；去重；截断 ---------- */
+  const rawFavorites = Array.isArray(prefs.favorites) ? prefs.favorites : [];
+  const favorites = [];
+  const seen = new Set();
+  for (const item of rawFavorites) {
+    const place = normalizePlace(item);
+    if (place === null) continue; // 非法项跳过，不整体拒绝
+    const key = `${place.lat},${place.lon}`;
+    if (seen.has(key)) continue; // 按 lat+lon 去重
+    seen.add(key);
+    favorites.push(place);
+    if (favorites.length >= MAX_FAVORITES) break; // 上限 200，超出截断
+  }
+  const favoritesDropped = rawFavorites.length - favorites.length;
+
+  /* ---------- 10. snapshot：不合法就当 null ---------- */
+  const snapshot = isUsableSnapshot(data.snapshot) ? data.snapshot : null;
+
+  /* ---------- 一次性写入（原子） ---------- */
+  try {
+    replaceState({ defaultPlace, unitSystem, networkType, debug, favorites });
+    // 快照整体覆盖：备份里没有快照时也要把旧的清掉，否则会残留「上一台机器」的天气数据，
+    // 用户看到的是一份自己从没去过的地点的天气 —— 比没有更糟。
+    setLastSnapshot(snapshot);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    return { ok: false, reason: `写入本机状态失败：${msg}` };
+  }
+
+  return {
+    ok: true,
+    applied: {
+      defaultPlace: { ...defaultPlace },
+      unitSystem,
+      networkType,
+      debug,
+      favorites: favorites.map((f) => ({ ...f })),
+      /** 因坐标非法 / 重复 / 超出 200 上限而未被导入的条数（UI 可据此提示）。 */
+      favoritesDropped,
+      snapshot,
+    },
+  };
+}

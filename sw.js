@@ -34,6 +34,7 @@ const SHELL_ASSETS = [
   './src/core/wmo.js',
   './src/core/mag.js',
   './src/core/format.js',
+  './src/core/backup.js',
   './src/data/sources.js',
   './src/data/openmeteo.js',
   './src/data/photon.js',
