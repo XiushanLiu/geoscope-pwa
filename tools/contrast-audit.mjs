@@ -343,6 +343,13 @@ const LEGACY_SELECTORS = [
   '.banner--grid', '.banner--partial', '.banner--empty',
 ];
 
+/* ---------- 曾经不达标、靠压深色值修好的小字：同样钉住「一直被扫描到」 ---------- */
+/* 这两个是 11–12px 的 `--c-text-3`（历史数字 4.41 / 3.51 见 tokens.css 那条注释，
+   现值为 5.95 / 5.36）。它们不在 v1 的 9 项里，却是最容易「被人改回去」的一类：
+   小字 + 次要色，改的人觉得只是淡了一点点。钉住覆盖率，扫描逻辑哪天漏掉它们、
+   或色值被改回旧值，这里都要报 —— 否则又是靠人肉发现。 */
+const PATCHED_SELECTORS = ['.card-note', '.compass-hero-signed'];
+
 // ---------- 组装审计项 ----------
 /**
  * 合成文字的实际基底：屏渐变 → 容器填色 → 自身填色（自下而上）。
@@ -433,6 +440,8 @@ for (const item of items) {
 const scanned = new Set(items.map((i) => i.selector));
 const missingLegacy = LEGACY_SELECTORS.filter((s) => !scanned.has(s));
 const legacyBad = failures.filter((r) => LEGACY_SELECTORS.includes(r.选择器)).length;
+const missingPatched = PATCHED_SELECTORS.filter((s) => !scanned.has(s));
+const patchedBad = failures.filter((r) => PATCHED_SELECTORS.includes(r.选择器)).length;
 
 console.log('对比度审计 · 数据驱动全量扫描');
 console.log(`基底口径：屏渐变两端取较差者 → 容器填色 → 自身填色；color-mix 按预乘语义展开`);
@@ -461,6 +470,10 @@ const oldBad = failures.length - newBad;
 console.log(`全量：${items.length} 条，不达标 ${failures.length} 条（本轮新增 ${newBad} / 既有 ${oldBad}）`);
 console.log(`既有 18 项护栏：${missingLegacy.length === 0 ? 9 - legacyBad : 0}/9 选择器被自动扫描命中` +
   ` → ${2 * (9 - legacyBad)}/18 项达标${missingLegacy.length ? `（漏扫描：${missingLegacy.join(', ')}）` : ''}`);
+console.log(`曾不达标的小字护栏：${PATCHED_SELECTORS.length - missingPatched.length - patchedBad}` +
+  `/${PATCHED_SELECTORS.length} 选择器被扫描到且达标` +
+  `${missingPatched.length ? `（漏扫描：${missingPatched.join(', ')}）` : ''}` +
+  `${patchedBad ? `（不达标：${failures.filter((r) => PATCHED_SELECTORS.includes(r.选择器)).map((r) => r.选择器).join(', ')}）` : ''}`);
 if (unflat.length) {
   console.log(`\n未折算的渐变/图片底（${unflat.length} 处，按「无额外填色」处理，非静默当透明）：`);
   for (const u of unflat) console.log(`  · ${u}`);
@@ -468,6 +481,14 @@ if (unflat.length) {
 
 if (missingLegacy.length) {
   console.error(`\n自动扫描漏掉了 v1 既有的审计项：${missingLegacy.join(', ')}`);
+  process.exit(1);
+}
+if (missingPatched.length) {
+  console.error(`\n自动扫描漏掉了「曾不达标、靠压深修好」的小字：${missingPatched.join(', ')}`);
+  process.exit(1);
+}
+if (patchedBad) {
+  console.error('\n「曾不达标」的小字又掉到门槛以下了（多半是 --c-text-3 被改回旧值）');
   process.exit(1);
 }
 console.log(failures.length === 0 ? '\n全部达标' : `\n有 ${failures.length} 条低于门槛，需修`);
