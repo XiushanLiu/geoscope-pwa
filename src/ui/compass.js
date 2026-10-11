@@ -23,13 +23,14 @@
  *   - 可能抛 `RangeError`（纬度越界）/ `TypeError`（NaN/字符串）→ try/catch 降级，不许白屏。
  *
  * 依赖方向：ui ← data（`wmm2025.js`）/ core（`mag.js` `geo.js` `format.js` `store.js`）。
- * 顶层只碰一处 DOM —— 主题引导（把 themeMode 写到 <html data-theme>，全站属性，
- * 见 `theme.js`）；其余 DOM 访问都在 boot / render 内，便于 Node 侧检查与单测。
+ * 顶层只碰两处 DOM —— 主题引导（把 themeMode 写到 <html data-theme>）与字号档位引导
+ * （把 fontScale 写到 <html data-fs>），两者都是全站属性，见 `theme.js`；
+ * 其余 DOM 访问都在 boot / render 内，便于 Node 侧检查与单测。
  */
 
 import { t } from '../i18n/zh.js';
 import * as fmt from '../core/format.js';
-import { getThemeMode, log } from '../core/store.js';
+import { getThemeMode, getFontScale, log } from '../core/store.js';
 import { getCurrentPosition } from '../core/geo.js';
 import { computeGeomagnetic, WMM_MODEL } from '../data/wmm2025.js';
 import {
@@ -40,12 +41,15 @@ import {
   normalizeBearing,
 } from '../core/mag.js';
 import { h, applyI18n } from './now.js';
-import { applyThemeMode } from './theme.js';
+import { applyThemeMode, applyFontScale } from './theme.js';
 
 // ★主题引导（模块顶层）：本页是四个入口之一，必须在 module 求值那一刻就把 store 里的
 // themeMode 写到 <html data-theme> 上，不能等 boot() —— 否则用户会先看到一帧系统色。
 // 实现与四组合语义见 ui/theme.js 文件头。
 applyThemeMode(getThemeMode());
+// ★字号档位引导（模块顶层，与主题同一时机）：字号是全站属性，本页那个大号磁偏角
+// 与一堆要素数字同样要跟着放大档走。乘数在 styles/tokens.css，这里只落属性。
+applyFontScale(getFontScale());
 
 /** 定位超时（毫秒）：与此刻屏一致，超时即降级为默认地点，不阻塞渲染。 */
 const GEO_TIMEOUT_MS = 8000;

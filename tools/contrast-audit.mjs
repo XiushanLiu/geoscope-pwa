@@ -24,6 +24,11 @@
  *   「14pt bold」那条因 bold 无明确阈值定义（600 还是 700？规范没说），不采用 —— 宁可严，
  *   不给自己找台阶。唯一会落到 3:1 的是 24px 以上的大号数值。
  *
+ * 字号口径（v15 起，无障碍字号三档）：styles/tokens.css 把八个 --fs-* 写成了
+ *   `calc(<基准 px> × var(--fs-scale))`，本工具一律按**默认档**（--fs-scale: 1）折算。
+ *   那是全档**最严**的口径（门槛随字号单调不升、对比度与字号无关），所以本节全绿
+ *   在 large / xlarge 下同样成立 —— 完整推导见 pxOfToken() 的 JSDoc。
+ *
  * 用法：node tools/contrast-audit.mjs
  * 退出码：有任何一项低于门槛时为 1（可接进 CI），全部达标为 0。
  */
@@ -32,7 +37,11 @@ import { readFileSync } from 'node:fs';
 
 const ROOT = new URL('../', import.meta.url);
 const APP_CSS_PATH = 'styles/app.css';
-const tokens = readFileSync(new URL('styles/tokens.css', ROOT), 'utf8');
+// 注释整段换成等长空白（保留换行，行号不漂移）后再解析：注释里只要出现一句
+// 「比如 --fs-scale: 1」这种长得像声明的文字，token() 的正则就会把它当成真声明，
+// 取回一个根本不存在的值，而且不报错。
+const tokens = readFileSync(new URL('styles/tokens.css', ROOT), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
 const appCssRaw = readFileSync(new URL(APP_CSS_PATH, ROOT), 'utf8');
 
 /** 注释整体替换为空格但**保留换行**，这样行号不漂移（清单要报文件与行号） */
@@ -201,11 +210,46 @@ const rules = parseRules(appCss);
 const declOf = (rule, prop) => rule.decls.find((d) => d.prop === prop) || null;
 const compoundOf = (selector) => selector.split(/\s+/).filter(Boolean);
 
-/** 字号变量/字面值 → px；解析不出来抛错（宁可炸，不要静默按 14px 放过） */
+/**
+ * 取一个字号 token 的 px 值（**默认档**口径）。
+ *
+ * 无障碍字号三档把八个 --fs-* 都写成了 `calc(<基准 px> × var(--fs-scale))`，所以这里
+ * 必须认这个单一乘数形态，并把乘数按默认档（--fs-scale: 1）折算。
+ *
+ * ★为什么「按默认档算」是全档**最严**的口径（不是偷懒，是刻意选的）：
+ *   WCAG 只在字号变大时**放宽**门槛（≥ 24px 走大字 3:1，其余 4.5:1），门槛随字号单调
+ *   不升；而对比度数值本身与字号无关（同一对颜色，放大到哪儿都是那个比值）。
+ *   所以在默认档算出来达标的配色，在任何放大档下都达标 —— 反过来不成立。
+ *   也就是说：本节全绿在默认档成立，在 large / xlarge 下同样成立。
+ */
+function pxOfToken(name) {
+  const raw = token(name, 'dark');
+  const calc = String(raw).match(/^calc\(\s*(-?\d+(?:\.\d+)?)px\s*\*\s*var\(\s*--([a-z0-9-]+)\s*\)\s*\)$/i);
+  if (calc) {
+    const base = parseFloat(calc[1]);
+    const mul = parseFloat(token(calc[2], 'dark'));
+    if (!Number.isFinite(base) || !Number.isFinite(mul)) throw new Error(`无法解析字号 token: --${name} = ${raw}`);
+    return base * mul;
+  }
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n)) throw new Error(`无法解析字号 token: --${name} = ${raw}`);
+  return n;
+}
+
+/** 字号变量 / calc(…) / 字面 px → px；解析不出来抛错（宁可炸，不要静默按 14px 放过） */
 function pxOf(value) {
   const v = value.trim();
   const ref = v.match(/^var\((--[a-z0-9-]+)\)$/i);
-  if (ref) return parseFloat(token(ref[1].slice(2), 'dark'));
+  if (ref) return pxOfToken(ref[1].slice(2));
+  // app.css 里少数几处（如 .map-cell-x）直接写 `calc(24px * var(--fs-scale))` 而不是
+  // 引用某个 --fs-* —— 它们同样要按默认档折算，口径与 pxOfToken 一致。
+  const calc = v.match(/^calc\(\s*(-?\d+(?:\.\d+)?)px\s*\*\s*var\(\s*--([a-z0-9-]+)\s*\)\s*\)$/i);
+  if (calc) {
+    const base = parseFloat(calc[1]);
+    const mul = parseFloat(token(calc[2], 'dark'));
+    if (!Number.isFinite(base) || !Number.isFinite(mul)) throw new Error(`无法解析字号: ${v}`);
+    return base * mul;
+  }
   const m = v.match(/^(-?\d+(?:\.\d+)?)px$/);
   if (m) return parseFloat(m[1]);
   throw new Error(`无法解析字号: ${v}`);

@@ -36,6 +36,18 @@ const DEFAULT_STATE = {
    * 画面不一致。
    */
   themeMode: 'system',
+  /**
+   * @type {'normal'|'large'|'xlarge'} 无障碍字号档位。
+   *
+   * 默认 'normal'：CSS 侧（styles/tokens.css）默认档就是「`<html>` 上没有 data-fs」这条
+   * 路径（--fs-scale: 1）。默认值若写成 'large'/'xlarge'，会出现「store 说放大、
+   * 页面首帧却是默认字号」的错位 —— 与上面 themeMode 必须默认 'system' 是同一条道理。
+   *
+   * ★它和 themeMode 一样**不进备份**（见 core/backup.js 的 exportBackup：prefs 只有
+   * 5 个字段），理由是「这台机器屏幕多大、用户眼睛舒不舒服」是本机属性，不是可搬家的
+   * 用户数据 —— 从一台开了特大的旧手机导入备份，不该把新手机的字号也顶到特大。
+   */
+  fontScale: 'normal',
   /** @type {'wifi'|'cellular'|'unknown'} 网络类型（手动点选，默认未知）。 */
   networkType: 'unknown',
   /** @type {boolean} 调试开关。 */
@@ -127,13 +139,15 @@ function _normPlace(p) {
  *
  * 不改变任何既有 API 的语义，也不删除任何既有导出。
  *
- * ⚠️ `themeMode` 的特殊处理（漏了这条就会把用户的主题抹回去）：本函数整体重建
- * `_state`，而**备份里没有 themeMode 字段**（主题是这台机器的属性，不是用户数据，
- * 理由同 backup.js 里「debug 不从备份带入」那条）。若照其它字段一律读 `src.themeMode`，
- * 那么 `src` 里根本没有这个字段 → 一律回落 'system' → 导入一次备份就把用户手选的主题
- * 静默清掉了。所以这里也走 「有明确值就用它，否则保持当前值」。
+ * ⚠️ `themeMode` 与 `fontScale` 的特殊处理（漏了这条就会把用户的主题 / 字号抹回去）：
+ * 本函数整体重建 `_state`，而**备份里没有这两个字段**（它们都是这台机器的属性，不是
+ * 用户数据，理由同 backup.js 里「debug 不从备份带入」那条）。若照其它字段一律读
+ * `src.themeMode`，那么 `src` 里根本没有这个字段 → 一律回落 'system' → 导入一次备份
+ * 就把用户手选的主题静默清掉了。字号同理：从一台开了「特大」的旧手机导入备份，不该把
+ * 新手机的字号也顶到「特大」。所以这两个字段都走「有明确值就用它，否则保持当前值」。
  *
- * @param {Object} next 新状态（{ defaultPlace, unitSystem, networkType, debug, favorites, themeMode? }）。
+ * @param {Object} next 新状态（{ defaultPlace, unitSystem, networkType, debug, favorites,
+ *                             themeMode?, fontScale? }）。
  * @returns {Object} 实际落地的状态副本（与 getState() 同形状）。
  */
 export function replaceState(next) {
@@ -146,6 +160,8 @@ export function replaceState(next) {
     debug: !!src.debug,
     // themeMode 不在备份里（见本函数 JSDoc）：src 没带就保持当前值，不许回落默认。
     themeMode: src.themeMode === 'light' || src.themeMode === 'dark' ? src.themeMode : _state.themeMode,
+    // fontScale 与 themeMode 同理（同为本机属性、不进备份）：src 没带就保持当前值。
+    fontScale: src.fontScale === 'large' || src.fontScale === 'xlarge' ? src.fontScale : _state.fontScale,
     favorites: (Array.isArray(src.favorites) ? src.favorites : [])
       .filter((f) => f && typeof f === 'object' && typeof f.lat === 'number' && Number.isFinite(f.lat) && typeof f.lon === 'number' && Number.isFinite(f.lon))
       .map((f) => ({ lat: f.lat, lon: f.lon, name: String(f.name === null || f.name === undefined ? '' : f.name) })),
@@ -218,6 +234,35 @@ export function setThemeMode(mode) {
 export function getThemeMode() {
   _load();
   return _state.themeMode;
+}
+
+/**
+ * 设置无障碍字号档位。
+ *
+ * 白名单钳位：只认 'large' / 'xlarge'，其它任何值（含 undefined / 拼错的字符串）一律
+ * 回落 'normal' —— 宁可回到默认字号，也不把一个 UI 认不出来的值写进 <html data-fs>。
+ * 与 setThemeMode() 同构：两者都是「写全站属性 + 白名单钳位」这一件事的两个实例。
+ *
+ * @param {'normal'|'large'|'xlarge'} scale 字号档位。
+ * @returns {void}
+ */
+export function setFontScale(scale) {
+  _load();
+  _state.fontScale = scale === 'large' || scale === 'xlarge' ? scale : 'normal';
+  _persist();
+}
+
+/**
+ * @returns {'normal'|'large'|'xlarge'} 当前字号档位。
+ *
+ * 读侧同样钳位（不直接返回 _state.fontScale）：内存态可能来自一份被外力改坏的缓存，
+ * 一旦出去一个 '超大' 这样的值，ui/theme.js 会把它当 'normal' 处理，于是界面显示
+ * 「默认」而设置页显示「特大」—— 两个页面各说各话。在这里收口，全站只会看到三档之一。
+ */
+export function getFontScale() {
+  _load();
+  const v = _state.fontScale;
+  return v === 'large' || v === 'xlarge' ? v : 'normal';
 }
 
 /**

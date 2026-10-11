@@ -15,8 +15,9 @@
  *   2) **无地图模式不可 sticky**：每轮 boot 依据本次探测结果双向置位（必修 2）；
  *   3) **竞态靠 epoch 丢弃**：refresh 不切断串行队列链，而是让上一轮在飞结果回来后被丢弃（必修 7）。
  *
- * 注意：本模块顶层只碰一处 DOM —— 主题引导（把 themeMode 写到 <html data-theme>，全站
- * 属性，见 ui/theme.js）；其余 DOM 访问都在 boot() 内，便于 Node 侧语法/引用检查。
+ * 注意：本模块顶层只碰两处 DOM —— 主题引导（把 themeMode 写到 <html data-theme>）与
+ * 字号档位引导（把 fontScale 写到 <html data-fs>），两者都是全站属性、见 ui/theme.js；
+ * 其余 DOM 访问都在 boot() 内，便于 Node 侧语法/引用检查。
  */
 
 import { t } from '../i18n/zh.js';
@@ -25,6 +26,7 @@ import {
   getLastSnapshot,
   setLastSnapshot,
   getThemeMode,
+  getFontScale,
   log,
 } from '../core/store.js';
 import { getCurrentPosition } from '../core/geo.js';
@@ -47,13 +49,17 @@ import {
   applyI18n,
 } from './now.js';
 import { renderMapCard, renderMapSkeleton } from './map.js';
-import { applyThemeMode } from './theme.js';
+import { applyThemeMode, applyFontScale } from './theme.js';
 
 // ★主题引导（模块顶层）：主题是全站属性，不是设置页的属性。本页是四个入口之一，
 // 必须在 module 求值那一刻就把 store 里的 themeMode 写到 <html data-theme> 上 ——
 // 挪进 boot() 或任何 await 之后，用户会先看到一帧系统色的背景。
 // 实现与「没有 [data-theme='dark'] 规则块」等四组合语义见 ui/theme.js 文件头。
 applyThemeMode(getThemeMode());
+// ★字号档位引导（模块顶层，与主题同一时机）：字号同样是全站属性，用户在「我的」页
+// 选的档位在本页必须一样生效。放大乘数在 styles/tokens.css（--fs-scale），
+// 这里只落属性；默认的 'normal' 是**移除** data-fs，语义同 data-theme 的 'system'。
+applyFontScale(getFontScale());
 
 /** 定位超时（毫秒）。 */
 const GEO_TIMEOUT_MS = 8000;

@@ -13,6 +13,8 @@
  *   7) **tabbar 空间预算校验**：从 CSS/tokens 实解析出 tab 宽、间距、内边距与字号，机器算出
  *      320px 窄屏下的总宽并断言不溢出，同时钉住 `.tab` 的 `white-space: nowrap`。
  *      「宽度够不够」不再靠纸面估算（第 12 节的注释写明了它的覆盖面边界）。
+ *   8) **无障碍字号三档校验**：钉住「默认档 --fs-* 计算值一个像素都不许变」这条硬底线，
+ *      并机器核算最大档下英雄区行宽、固定高度文字盒、tabbar 是否还装得下（第 13 节）。
  *
  * 用法：node tools/check.mjs
  * 退出码：全部通过 0；存在失败 1。
@@ -134,6 +136,19 @@ function walk(dir, filter, acc = []) {
  */
 function read(rel) {
   return fs.readFileSync(path.join(ROOT, rel), 'utf8');
+}
+
+/**
+ * 把 CSS 注释整段替换成**等长空白**（换行保留，行号不漂移）。
+ *
+ * 用途：本脚本对 tokens.css / app.css 的取值全靠正则，注释里只要出现一句
+ * 「比如 --fs-scale: 1」就会被当成真声明。剥掉注释后，解析器看到的只有真声明。
+ *
+ * @param {string} s CSS 源码。
+ * @returns {string} 去注释后的源码。
+ */
+function stripCssComments(s) {
+  return String(s).replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
 }
 
 /* ------------------------- 1. 语法校验 ------------------------- */
@@ -340,19 +355,95 @@ function tokenValue(tokens, name) {
 }
 
 /**
+ * 把「裸 px / calc(Npx * var(--x))」折成像素数字。
+ *
+ * 只认**单一乘数**形态 `calc(<数字>px * var(--<变量名>))`（无障碍字号档位用的正是它）：
+ * 把变量按 tokens.css 解析成数字再相乘。解析不出一律返回 null，绝不静默当 0 ——
+ * 在本脚本里「解析不出来」必须变成一条红，而不是一个被当成 0 的宽度。
+ *
+ * @param {string} raw 值原文（已去掉外层 var()）。
+ * @param {string} tokens tokens.css 源码。
+ * @returns {number|null} 像素数；解析不出返回 null。
+ */
+function resolvePx(raw, tokens) {
+  const calc = String(raw).match(/^calc\(\s*(-?\d+(?:\.\d+)?)px\s*\*\s*var\(\s*--([a-z0-9-]+)\s*\)\s*\)$/i);
+  if (calc) {
+    const base = parseFloat(calc[1]);
+    const mul = parseFloat(tokenValue(tokens, calc[2]));
+    if (!Number.isFinite(base) || !Number.isFinite(mul)) return null;
+    return base * mul;
+  }
+  const num = parseFloat(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
+/**
  * 把「可能是 var(...) 的长度值」解析成像素数字。
  *
- * @param {string} v 值原文（如 `64px` / `var(--sp-3)`）。
+ * @param {string} v 值原文（如 `64px` / `var(--sp-3)` / `var(--fs-md)`）。
  * @param {string} tokens tokens.css 源码。
  * @returns {number|null} 像素数；解析不出返回 null。
  */
 function pxOf(v, tokens) {
   if (!v) return null;
-  const varMatch = v.match(/var\(\s*--([a-z0-9-]+)\s*\)/i);
+  const varMatch = String(v).trim().match(/^var\(\s*--([a-z0-9-]+)\s*\)$/i);
   const raw = varMatch ? tokenValue(tokens, varMatch[1]) : v;
   if (!raw) return null;
-  const num = parseFloat(raw);
-  return Number.isFinite(num) ? num : null;
+  return resolvePx(raw, tokens);
+}
+
+/**
+ * 取出所有声明了指定属性值的规则（供「line-height: 1 的那几处」这类全量扫描使用）。
+ *
+ * 为什么不用第 12 节那个按选择器名查的 extractRule()：这里要的是**反过来** ——
+ * 不知道有哪些选择器，只知道「谁写了 line-height: 1」。将来新增一处没被登记的规则，
+ * 本节会自动把它捞出来，不需要有人记得来登记。
+ *
+ * @param {string} css CSS 源码。
+ * @param {string} prop 属性名（如 'line-height'）。
+ * @param {string} value 期望的属性值原文（如 '1'）。
+ * @returns {Array<{selector:string, body:string}>} 命中的规则。
+ */
+function rulesWithDecl(css, prop, value) {
+  const out = [];
+  const re = /([^{}]+?)\s*\{([^{}]*)\}/g;
+  let m;
+  while ((m = re.exec(css)) !== null) {
+    const selector = m[1].trim().replace(/\s+/g, ' ');
+    const body = m[2];
+    if (!selector || selector.startsWith('@')) continue;
+    const decl = new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*${value}\\s*(?:;|$)`).test(body);
+    if (decl) out.push({ selector, body });
+  }
+  return out;
+}
+
+/**
+ * 取出 `:root[data-fs='<tier>']` 这个档位块的声明体。
+ *
+ * @param {string} css tokens.css 源码。
+ * @param {string} tier 档位名（如 'large'）。
+ * @returns {string|null} 声明体；块不存在返回 null。
+ */
+function extractTierBlock(css, tier) {
+  const re = new RegExp(`:root\\[data-fs=['"]${tier}['"]\\]\\s*\\{([\\s\\S]*?)\\}`, 'm');
+  const m = css.match(re);
+  return m ? m[1] : null;
+}
+
+/**
+ * 解析 `--fs-*: calc(<N>px * var(--<乘数变量>))` 的形状。
+ *
+ * @param {string} tokens tokens.css 源码。
+ * @param {string} name token 名（不含 `--` 前缀，如 'fs-md' / 'fs-hero'）。
+ * @returns {{base:number, mul:string}|null} 基准 px 与乘数变量名；形状不符返回 null。
+ */
+function parseFsToken(tokens, name) {
+  const raw = tokenValue(tokens, name);
+  if (!raw) return null;
+  const m = String(raw).match(/^calc\(\s*(-?\d+(?:\.\d+)?)px\s*\*\s*var\(\s*--([a-z0-9-]+)\s*\)\s*\)$/i);
+  if (!m) return null;
+  return { base: parseFloat(m[1]), mul: m[2] };
 }
 
 /**
@@ -719,8 +810,11 @@ async function main() {
   /** 最小目标屏宽：iPhone SE 一代的 320px CSS 视口，本项目支持的地板。 */
   const MIN_VIEWPORT = 320;
 
-  const appCss = read('styles/app.css');
-  const tokensCss = read('styles/tokens.css');
+  // ★先剥注释再解析：注释里一旦出现「--fs-scale: 1」这类**长得像声明**的文字，
+  //   按正则取值的解析器就会把注释当成真声明，算出一个 NaN 或者一个根本不存在的值，
+  //   而且不报错。把注释替换成等长空白（保留换行，行号不漂移）是零成本的一劳永逸。
+  const appCss = stripCssComments(read('styles/app.css'));
+  const tokensCss = stripCssComments(read('styles/tokens.css'));
 
   const tabRule = extractRule(appCss, '.tab');
   const tabbarRule = extractRule(appCss, '.tabbar');
@@ -797,6 +891,282 @@ async function main() {
   // white-space: nowrap 是真正的「不断行」防线（见本节开头注释），不许被当成无用声明删掉
   const wsRaw = declValue(tabRule, 'white-space');
   check(`.tab 声明 white-space: nowrap（现为 ${wsRaw || '缺失'}）`, wsRaw === 'nowrap', '删掉它，挤窄屏时 tab 文字会断行、把上方内容顶掉');
+
+  /* ---------- 13. 无障碍字号三档 ---------- */
+  // 背景：全站 72 处 font-size 里 69 处是 `var(--fs-*)`、全是裸 px，且**全站零 rem**、
+  // `html` / `:root` / `body` 都没设过 font-size —— 所以「改 `html { font-size }`」这套
+  // Web 上最常见的放大手法在这里**完全无效**（一个像素都不会动）。v15 的做法是给八个
+  // --fs-* 各挂一个乘数（--fs-scale / --fs-hero-scale），档位靠 `<html data-fs>` 切换。
+  //
+  // 本节要把三件事钉死，理由是它们**写错了既不报错、也不会让任何既有用例变红**：
+  //   ① 默认档的计算值必须与此前一模一样（一个像素都不许变）—— 放大功能是新增能力，
+  //      不能顺手把「不想放大的人」的界面改了；
+  //   ② 放大档必须真的放大（不能只写了 CSS 却没人写 data-fs，那是「看起来做完了」）；
+  //   ③ 放大后布局还得装得下（英雄区行宽、固定高度文字盒、tabbar）—— 这是纸面最容易
+  //      算错、真机上最难看的一类问题，所以交给机器按与第 12 节同一套保守估算来算。
+  section('13. 无障碍字号三档（默认档不许变 / 放大档真的放大 / 放大后不撑破）');
+
+  /** 八个字号 token 的**回归基线**：加 --fs-scale 之前 tokens.css 里的实测 px 值。 */
+  const FS_BASELINE = {
+    'fs-xs': 11,
+    'fs-sm': 12,
+    'fs-md': 14,
+    'fs-lg': 16,
+    'fs-xl': 20,
+    'fs-2xl': 26,
+    'fs-hero': 56,
+    'fs-hero-sm': 40,
+  };
+  const FS_NAMES = Object.keys(FS_BASELINE);
+
+  /** 三档：tier 为 null 表示默认档（`<html>` 上没有 data-fs 属性）。 */
+  const FS_TIERS = [
+    { tier: null, label: '默认（无 data-fs）' },
+    { tier: 'large', label: 'large' },
+    { tier: 'xlarge', label: 'xlarge' },
+  ];
+
+  /** 抹掉乘出来的浮点尾巴（`1.15 × 12 = 15.600000000000001`）再进断言文案，便于人工复核。 */
+  const px2 = (n) => (typeof n === 'number' && Number.isFinite(n) ? Number(n.toFixed(2)) : n);
+
+  /**
+   * 取某个档位下某个乘数的值。
+   *
+   * 默认档读 `:root` 块里 --fs-scale / --fs-hero-scale 的声明本身；
+   * 放大档读 `:root[data-fs='X']` 块里的覆盖值（块缺失或没写该变量 → null，由调用方报红）。
+   *
+   * @param {string} tier 档位名或 null。
+   * @param {string} mulName 乘数变量名（'fs-scale' / 'fs-hero-scale'）。
+   * @returns {number|null} 乘数；查不到返回 null。
+   */
+  function scaleOf(tier, mulName) {
+    let raw = null;
+    if (tier === null) {
+      raw = tokenValue(tokensCss, mulName);
+    } else {
+      const block = extractTierBlock(tokensCss, tier);
+      if (!block) return null;
+      raw = declValue(block, `--${mulName}`);
+    }
+    if (!raw) return null;
+    const n = parseFloat(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // ① 八个 token 的形状与基线
+  const fsTokens = {};
+  for (const name of FS_NAMES) {
+    const parsed = parseFsToken(tokensCss, name);
+    check(
+      `--${name} 是 calc(<基准 px> × var(--${parsed ? parsed.mul : '?'})) 形状`,
+      !!parsed,
+      `实际为 ${tokenValue(tokensCss, name)}；裸 px 或不可解析的形状都过不了`
+    );
+    if (!parsed) continue;
+    fsTokens[name] = parsed;
+    check(
+      `--${name} 的基准 px = ${parsed.base}（基线 ${FS_BASELINE[name]}）`,
+      parsed.base === FS_BASELINE[name],
+      `基线值被改了：改字号阶梯必须同步改 FS_BASELINE，否则「默认档不变」这条底线就没人守了`
+    );
+  }
+
+  // ② 默认档：乘数必须是 1，且计算值必须等于基线（一个像素都不许变）
+  const defaultScale = scaleOf(null, 'fs-scale');
+  const defaultHeroScale = scaleOf(null, 'fs-hero-scale');
+  check(`默认档 --fs-scale = 1（现为 ${defaultScale}）`, defaultScale === 1, '默认档不许放大');
+  check(`默认档 --fs-hero-scale = 1（现为 ${defaultHeroScale}）`, defaultHeroScale === 1, '默认档英雄区不许放大');
+
+  /** 每个档位下每个 --fs-* 的计算值（px）。 */
+  const fsAtTier = {};
+  for (const { tier, label } of FS_TIERS) {
+    fsAtTier[label] = {};
+    for (const name of FS_NAMES) {
+      const tok = fsTokens[name];
+      if (!tok) continue;
+      const mul = scaleOf(tier, tok.mul);
+      if (mul === null) {
+        check(`${label} 档未定义 --${tok.mul}`, false, '放大档必须显式给出乘数（英雄区那个更要显式给，见 tokens.css 注释）');
+        continue;
+      }
+      fsAtTier[label][name] = tok.base * mul;
+    }
+  }
+
+  for (const name of FS_NAMES) {
+    if (!fsTokens[name]) continue;
+    const v = fsAtTier['默认（无 data-fs）'][name];
+    check(
+      `默认档 --${name} 计算值 = ${v}px（基线 ${FS_BASELINE[name]}px，一个像素都不许变）`,
+      v === FS_BASELINE[name],
+      `实际 ${v}px`
+    );
+  }
+
+  for (const tier of ['large', 'xlarge']) {
+    const mul = scaleOf(tier, 'fs-scale');
+    const heroMul = scaleOf(tier, 'fs-hero-scale');
+    check(`${tier} 档 --fs-scale = ${mul}（> 1 才叫放大）`, typeof mul === 'number' && mul > 1, `实际 ${mul}`);
+    check(
+      `${tier} 档 --fs-hero-scale = ${heroMul} 且小于 --fs-scale = ${mul}（英雄区放得比正文慢）`,
+      typeof heroMul === 'number' && typeof mul === 'number' && heroMul > 1 && heroMul < mul,
+      `英雄区必须放大得比正文慢，否则 56px × 全档乘数会把窄屏挤坏`
+    );
+    for (const name of FS_NAMES) {
+      if (!fsTokens[name]) continue;
+      const base = FS_BASELINE[name];
+      const v = fsAtTier[tier][name];
+      check(`${tier} 档 --${name} = ${px2(v)}px（> 默认 ${base}px）`, typeof v === 'number' && v > base, `实际 ${px2(v)}px`);
+    }
+  }
+
+  // ③ 放大后的布局核算（320px 窄屏，与第 12 节同一套保守估算）
+  const appPadH = paddingHorizontal(declValue(extractRule(appCss, '.app'), 'padding'), tokensCss);
+  const heroCardPadH = paddingHorizontal(declValue(extractRule(appCss, '.card--hero'), 'padding'), tokensCss);
+  const heroGap = pxOf(declValue(extractRule(appCss, '.hero'), 'gap'), tokensCss);
+  const cardContent = MIN_VIEWPORT - 2 * (appPadH || 0) - 2 * (heroCardPadH || 0);
+  check(`.app 水平 padding 可解析（${appPadH}px）`, appPadH !== null);
+  check(`.card--hero 水平 padding 可解析（${heroCardPadH}px）`, heroCardPadH !== null);
+  check(`.hero gap 可解析（${heroGap}px）`, heroGap !== null);
+
+  /** 等宽数字步长（em）：主流等宽字体是 0.6，取它是保守估计（真实渲染只会更窄或持平）。 */
+  const MONO_ADVANCE = 0.6;
+  /** 英雄温度最多按三个字符算（'-12'；更冷的地方 '-89' 也是三位）。 */
+  const TEMP_GLYPHS = 3;
+  /** 单位 '°C' 的宽度系数：'°' ≈ 0.5em、'C' ≈ 0.6em。 */
+  const UNIT_ADVANCE = 1.1;
+  /** `.hero-temp .unit` 的 margin-left（px），从 CSS 实读。 */
+  const unitMargin = pxOf(declValue(extractRule(appCss, '.hero-temp .unit'), 'margin-left'), tokensCss);
+  /** 英雄区右列「☀ 晴」那一行的最短不换行宽度系数：图标 1em + 空格 0.25em + 一个汉字 1em。 */
+  const DESC_MIN_ADVANCE = 2.25;
+
+  process.stdout.write(`  英雄区预算明细（视口 ${MIN_VIEWPORT}px，卡内容宽 ${cardContent}px）：\n`);
+
+  for (const { tier, label } of FS_TIERS) {
+    const fsHero = fsAtTier[label]['fs-hero'];
+    const fsXl = fsAtTier[label]['fs-xl'];
+    const fsLg = fsAtTier[label]['fs-lg'];
+    if (!fsHero || !fsXl || !fsLg) continue;
+    const tempW = TEMP_GLYPHS * MONO_ADVANCE * fsHero;
+    const unitW = UNIT_ADVANCE * fsXl + (unitMargin || 0);
+    const nodeW = tempW + unitW;
+    const descMin = DESC_MIN_ADVANCE * fsLg;
+    const needed = nodeW + (heroGap || 0) + descMin;
+    const slack = cardContent - needed;
+    process.stdout.write(
+      `    ${label.padEnd(18)} hero=${px2(fsHero)}px → 温度 ${tempW.toFixed(1)} + 单位 ${unitW.toFixed(1)}` +
+        ` + gap ${heroGap} + 描述下限 ${descMin.toFixed(1)} = ${needed.toFixed(1)}px（余量 ${slack.toFixed(1)}px）\n`
+    );
+    check(
+      `${label} 档英雄行 ${needed.toFixed(1)}px ≤ 卡内容宽 ${cardContent}px（余量 ${slack.toFixed(1)}px）`,
+      needed <= cardContent,
+      `超了 ${(needed - cardContent).toFixed(1)}px：调小 --fs-hero-scale，或让 .hero 换行 —— 不要动 --sp-*`
+    );
+  }
+
+  // 固定高度文字盒：height（不是 min-height）+ 自己的 font-size → 放大后不许裁字
+  const fixedTextBoxes = rulesWithDecl(appCss, 'height', '(-?\\d+(?:\\.\\d+)?)px');
+  check(`app.css 里「写死 height 且自带 font-size」的文字盒已全部扫描（命中 ${fixedTextBoxes.length} 处）`, fixedTextBoxes.length > 0, '解析不到任何一条，本节就成了空转');
+  for (const rule of fixedTextBoxes) {
+    const fsRaw = declValue(rule.body, 'font-size');
+    if (!fsRaw) continue; // 没有自己的字号 → 由祖先继承，本节的保守估算不适用
+    const hPx = pxOf(new RegExp(`height\\s*:\\s*([^;]+)`).exec(rule.body)[1], tokensCss);
+    const lhRaw = declValue(rule.body, 'line-height');
+    const lh = lhRaw === null ? 1.2 : parseFloat(lhRaw);
+    for (const { tier, label } of FS_TIERS) {
+      const m = fsRaw.match(/^var\(\s*--([a-z0-9-]+)\s*\)$/i);
+      const fsPx = m ? fsAtTier[label][m[1]] : resolvePx(fsRaw, tokensCss);
+      if (fsPx === undefined || fsPx === null || hPx === null) {
+        check(`${rule.selector} 在 ${label} 档可解析`, false, '字号/高度解析失败');
+        continue;
+      }
+      const box = fsPx * (Number.isFinite(lh) ? lh : 1.2);
+      check(
+        `${label} 档 ${rule.selector}：字号 ${px2(fsPx)}px × 行高 ${lh} = ${box.toFixed(1)}px ≤ 写死高度 ${hPx}px（不裁字）`,
+        box <= hPx,
+        `超了 ${(box - hPx).toFixed(1)}px：把 height 改成 min-height，或在大档里放宽`
+      );
+    }
+  }
+
+  // line-height: 1 的那几处：行盒高度 = 字号本身，只有两种不裁字的活法 ——
+  //   ① 盒子只给 min-height（随字号长高）；② 写死了 height 但那个 height 在最大档下仍 ≥ 字号。
+  // 两条路都合法（.map-zoom-btn 走的是②：32px 装 20.8px 的字，居中偏上但不裁），
+  // 所以这里不是「不许写死 height」，而是「写死了就得装得下」。
+  const lh1 = rulesWithDecl(appCss, 'line-height', '1');
+  check(`app.css 里 line-height: 1 的规则全部捞到（${lh1.length} 处）`, lh1.length > 0, '解析不到任何一条，本节就成了空转');
+  for (const rule of lh1) {
+    const fixed = /(?:^|[;\s])height\s*:\s*([^;]+)/.exec(rule.body);
+    if (!fixed) {
+      check(`${rule.selector} 的 line-height: 1 只配 min-height（盒子随字号长高，不裁字）`, true);
+      continue;
+    }
+    const hPx = pxOf(fixed[1], tokensCss);
+    const fsRaw = declValue(rule.body, 'font-size');
+    const tok = fsRaw ? fsRaw.match(/^var\(\s*--([a-z0-9-]+)\s*\)$/i) : null;
+    const fsMax = tok ? fsAtTier.xlarge[tok[1]] : resolvePx(fsRaw || '', tokensCss);
+    check(
+      `${rule.selector} 的 line-height: 1 配了写死 height（${hPx}px），xlarge 字号 ${px2(fsMax)}px 仍装得下`,
+      hPx !== null && fsMax !== null && fsMax <= hPx,
+      `差 ${(fsMax - hPx).toFixed(1)}px：把 height 改成 min-height，或在大档里放宽`
+    );
+  }
+
+  // tabbar 在最大档下仍不溢出（第 12 节只算了默认档，这里补最大档）
+  {
+    const fsMdMax = fsAtTier['xlarge']['fs-md'];
+    const twoChar = 2 * (fsMdMax || 0);
+    const tabWMax = Math.max(tabMinWidth || 0, tabPadTotal + twoChar);
+    const totalMax = baseTabs.length * tabWMax + gapsTotal + shellPadTotal;
+    check(
+      `xlarge 档 tabbar 总宽 ${totalMax}px ≤ ${MIN_VIEWPORT}px（--fs-md = ${fsMdMax}px）`,
+      totalMax <= MIN_VIEWPORT,
+      `超了 ${totalMax - MIN_VIEWPORT}px`
+    );
+  }
+
+  // app.css 不许再出现新的裸 px font-size（那 3 处历史遗留必须已挂上乘数）
+  {
+    const bare = [];
+    const re = /(?:^|[;{\s])font-size\s*:\s*([^;}]+)/g;
+    let m;
+    while ((m = re.exec(appCss)) !== null) {
+      const v = String(m[1]).trim();
+      const isToken = /^var\(\s*--fs-[a-z0-9-]+\s*\)$/i.test(v);
+      const isScaled = /^calc\(\s*-?\d+(?:\.\d+)?px\s*\*\s*var\(\s*--fs-[a-z0-9-]+\s*\)\s*\)$/i.test(v);
+      if (!isToken && !isScaled) bare.push(v);
+    }
+    check(
+      `app.css 无裸 px 的 font-size（共扫到 ${bare.length} 处不合格：${bare.join(' | ') || '无'}）`,
+      bare.length === 0,
+      '写裸 px 的字号在切档时纹丝不动，会和四周跟着放大的文字对不齐'
+    );
+  }
+
+  // ④ 四个入口必须在模块顶层引导字号档位（与主题同构）
+  const themeSrc2 = read('src/ui/theme.js');
+  check('src/ui/theme.js 导出 applyFontScale', /export\s+function\s+applyFontScale\s*\(/.test(themeSrc2), '字号引导必须有唯一实现');
+  for (const html of PAGES) {
+    const entry = ENTRY_OF_PAGE[html];
+    const entrySrc = read(entry);
+    check(`${html} 入口 ${entry} 引用字号引导 applyFontScale`, entrySrc.indexOf('applyFontScale') !== -1, '入口模块必须引导字号，否则该页永远是默认字号');
+    check(
+      `${html} 入口 ${entry} 顶层调用 applyFontScale(getFontScale())`,
+      /^applyFontScale\(\s*getFontScale\(\)\s*\);/m.test(entrySrc),
+      '必须写在模块顶层（行首无缩进），不能只 import 不调用、也不能挪进 boot()/init()'
+    );
+  }
+
+  // ⑤ 防跳档：每个 HTML 的 <head> 里必须有同步预置脚本，且 localStorage 键与 cache.js 一致
+  const cacheSrc2 = read('src/core/cache.js');
+  const nsMatch = cacheSrc2.match(/export const NS\s*=\s*'([^']+)'/);
+  const prefsKey = nsMatch ? `${nsMatch[1]}store:prefs` : null;
+  check('core/cache.js 的 NS 可解析（用于核对 HTML 里的预置键）', !!prefsKey, String(prefsKey));
+  for (const html of [...PAGES, 'selfcheck-standalone.html']) {
+    const src = read(html);
+    check(`${html} 含字号档位预置脚本（防跳档）`, src.indexOf('data-fs') !== -1, '缺了它，首帧会先按默认字号画一遍再跳档');
+    check(`${html} 预置脚本读的键是 ${prefsKey}`, !!prefsKey && src.indexOf(prefsKey) !== -1, '键与 core/cache.js 不一致就会永远读不到偏好');
+  }
 
   /* ---------- 汇总 ---------- */
   const total = PASS + FAIL;

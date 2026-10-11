@@ -1015,7 +1015,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  /* 基准 24px（瓦片缺块时盖在瓦片上的「×」）。原来是裸 px —— 切到放大档时它纹丝不动，
+     会和四周跟着放大的文字/图标对不齐，所以同样挂上 --fs-scale。 */
+  font-size: calc(24px * var(--fs-scale));
   line-height: 1;
   color: var(--c-text-3);
 }
@@ -1299,8 +1301,10 @@ body {
   /* 2) 顶部横幅与内容区同宽（原本 640，横屏下比内容区窄一截，看着像没对齐） */
   .banner { max-width: 960px; }
 
-  /* 3) 英雄温度放大：--fs-hero 是 56px，横屏下 64px（给具体值，不改变量） */
-  .hero-temp { font-size: 64px; }
+  /* 3) 英雄温度放大：--fs-hero 是 56px，横屏下 64px（给具体值，不改变量）。
+        挂 --fs-hero-scale 而不是 --fs-scale：与竖屏那套英雄区口径保持一致
+        （见 tokens.css 里 --fs-hero-scale 那条注释 —— 大号字放得比正文慢）。 */
+  .hero-temp { font-size: calc(64px * var(--fs-hero-scale)); }
 
   /* 4) 底图：350×260 → 630×468
      ★为什么用 zoom 而不是 width/height：视口宽高是 JS 写在 inline style 上的
@@ -1318,7 +1322,7 @@ body {
        给它加 width 或改成靠边，会重演真机上「四个 tab 文字断成两行」那个 bug
        （commit fa1ec49，根因见上面 .tab 那一大段注释）。横屏左右余量充足，
        把 tab 放大到 96px 也不会挤压：4×96 + 3×4 + 2×4 = 404px，远小于 768px。 */
-  .tab { min-width: 96px; padding: 0 var(--sp-4); font-size: 15px; }
+  .tab { min-width: 96px; padding: 0 var(--sp-4); font-size: calc(15px * var(--fs-scale)); }
 
   /* 6) 图例：横屏下两列排布 —— 单列会变成又窄又长的两三条，短行更好读。
        两列时每行的第一条不该带分隔线，所以把 :first-child 的例外扩到 :nth-child(2)。 */

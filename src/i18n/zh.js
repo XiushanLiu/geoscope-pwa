@@ -355,6 +355,67 @@ export const ZH = {
   'settings.theme.dark': '深色',
   'settings.themeDone': '主题已切换为「{mode}」',
 
+  // ---------- 无障碍字号三档 ----------
+  // 三档只改「乘数」（styles/tokens.css 的 --fs-scale），不动任何色值、不动 --sp-* 间距。
+  // 英雄区那个大温度刻意放得比正文慢（--fs-hero-scale）—— 它本来就是正文的 4 倍，
+  // 再按 1.3 放大会把窄屏挤坏。这句话要如实讲给用户听，别含糊成「放大全部文字」。
+  'settings.fontTitle': '字号',
+  'settings.fontHint': '三档放大全站文字。那个大号温度放得慢一些：它本来就是正文的四倍，跟着一起放大会把窄屏挤坏。',
+  'settings.font.normal': '默认',
+  'settings.font.large': '大',
+  'settings.font.xlarge': '特大',
+  'settings.fontDone': '字号已切换为「{mode}」',
+
+  // ---------- 导出 CSV ----------
+  // 口径（与备份 JSON 那条隐私说明同一套规矩）：导出前就说清楚导的是什么、缺的项怎么表示。
+  // 特别注意「缺的项留空，不填 0」—— 本项目界面上缺失一律显示占位符「—」，但 CSV 里写
+  // 「—」会让 Excel 把整列判成文本列，数字列就废了；留空才是表格里「没有数据」的语义。
+  'settings.csvTitle': '导出 CSV',
+  'settings.csvHint': '把最近一次「此刻」数据导出成表格。UTF-8 带 BOM，Excel 直接打开不乱码；每一行一个时刻，缺的项留空（不填 0）。',
+  'settings.csvBtn': '导出 CSV 文件',
+  'settings.csvCurrent': '当前可导出：{time} · {place}',
+  'settings.csvNone': '当前可导出：暂无数据',
+  'settings.csvEmpty': '还没有可导出的数据 —— 先去「此刻」页取一次，它会自动存一份到本机。',
+  'settings.csvDone': '已导出 {name}',
+  'settings.csvFail': '导出失败：本机浏览器不支持文件下载',
+  'settings.csvNoSnapshot': '暂无快照可导出',
+
+  // CSV 表头（core/csv.js 消费）：每一列都对应界面上一个数字，不许出现界面上没有的量。
+  // 时间两列特意标出时区：导出时间跟文件名一样是设备本地时间，观测时刻是被查询
+  // 地点的当地时间。查异地时这两列本来就不一样，不明写会被当成 bug。
+  'csv.h.exportedAt': '导出时间（本机）',
+  'csv.h.observedAt': '观测时刻（当地）',
+  'csv.h.place': '地点',
+  'csv.h.lat': '纬度（度）',
+  'csv.h.lon': '经度（度）',
+  'csv.h.elevation': '海拔（m）',
+  'csv.h.temp': '气温（°C）',
+  'csv.h.feels': '体感（°C）',
+  'csv.h.humidity': '湿度（%）',
+  'csv.h.precip': '降水（mm）',
+  'csv.h.windSpeed': '风速（m/s）',
+  'csv.h.windDir': '风向',
+  'csv.h.beaufort': '蒲福风级',
+  'csv.h.pressure': '气压（hPa）',
+  'csv.h.visibility': '能见度（m）',
+  'csv.h.weather': '天气现象',
+  'csv.h.wmoCode': '天气码',
+  'csv.h.sunrise': '日出',
+  'csv.h.sunset': '日落',
+  'csv.h.dayLength': '昼长（分）',
+  'csv.h.uv': '紫外线指数',
+  'csv.h.uvLevel': '紫外线档位',
+  'csv.h.todayMax': '今日最高（°C）',
+  'csv.h.todayMin': '今日最低（°C）',
+  'csv.h.aqi': '欧洲 AQI',
+  'csv.h.aqiLevel': 'AQI 档位',
+  'csv.h.pm10': 'PM10（µg/m³）',
+  'csv.h.pm25': 'PM2.5（µg/m³）',
+  'csv.h.ozone': '臭氧（µg/m³）',
+  'csv.h.no2': '二氧化氮（µg/m³）',
+  'csv.h.declination': '磁偏角（度，东偏为正）',
+  'csv.h.sources': '数据来源',
+
   // ---------- 图例与指标释义 ----------
   // 「指标释义」是此刻页底部一个可展开的面板，把界面上那些专业数字讲成人话。
   // ★阈值纪律（改这段文案前必须知道）：下面凡是出现**分档数字**的，全部由

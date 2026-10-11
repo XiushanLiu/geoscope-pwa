@@ -17,6 +17,22 @@
 
   <link rel="stylesheet" href="styles/tokens.css" />
   <link rel="stylesheet" href="styles/app.css" />
+
+  <!-- 无障碍字号档位预置（防跳档）
+       ES module 是 defer 的：等 src/ui/*.js 跑起来才去写 <html data-fs>，浏览器很可能
+       已经按默认字号画过一帧 —— 用户会看到整页文字「先小后大」地跳一下。这段同步脚本在
+       <head> 里直接读本机偏好把属性设上，比模块早那么一瞬间。
+       ★键 'gs:v1:store:prefs' = core/cache.js 的 NS('gs:v1:') + store 的 prefs 键，
+         tools/check.mjs 第 13 节会断言它与源码一致 —— 改命名空间必须连这里一起改。
+       读不到 / 解析失败 / 值非法就**什么都不做**（模块顶层还会再应用一次），绝不抛异常。
+       放大乘数全在 styles/tokens.css，这里不存任何数字。 -->
+  <script>
+    try {
+      var gsPrefs = JSON.parse(localStorage.getItem('gs:v1:store:prefs') || '{}');
+      var gsFs = gsPrefs && gsPrefs.v && gsPrefs.v.fontScale;
+      if (gsFs === 'large' || gsFs === 'xlarge') document.documentElement.setAttribute('data-fs', gsFs);
+    } catch (gsErr) { /* 读不到就交给模块顶层，不抛 */ }
+  </script>
 </head>
 <body data-page="now">
   <!-- 顶部降级横幅：由 ui/now.js 填充，无降级时隐藏 -->

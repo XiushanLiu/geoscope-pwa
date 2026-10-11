@@ -11,7 +11,7 @@
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v10';
+const SHELL_CACHE = 'geoscope-shell-v13';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -41,6 +41,7 @@ const SHELL_ASSETS = [
   './src/core/mag.js',
   './src/core/format.js',
   './src/core/backup.js',
+  './src/core/csv.js',
   './src/data/sources.js',
   './src/data/openmeteo.js',
   './src/data/photon.js',

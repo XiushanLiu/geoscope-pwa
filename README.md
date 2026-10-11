@@ -225,14 +225,63 @@ docs/stage1-architecture.md 架构与接口契约
 | POI（Overpass） | `src/data/overpass.js`；`sources.js` 注册表追加条目即可 |
 | 多地点对比 | `src/ui/compare.js`；`store.favorites` 已有 schema |
 | 图表交互（24h 温度 / 降水概率） | `hourlyTempC` / `hourlyPopPct` 已在 `WeatherNow` 中输出 |
-| 分享海报 / 导出 CSV | `src/core/share.js` |
+| 分享海报 | `src/core/share.js` |
+| 导出 CSV | ✅**已落地**：`src/core/csv.js`（RFC 4180 转义 + UTF-8 BOM + CRLF），入口在「我的」页 |
 | 英文包 | `src/i18n/en.js`（与 `zh.js` 同构 key）；本阶段不建文件，已定稿的一条先记在这里：`mode.grid` = "Some tiles failed · grid only" |
 | 磁偏角 WMM2025 | ✅**已落地**：`src/core/mag.js`（通用球谐算法）+ `src/data/wmm2025.js`（该版本系数）；UI 见 `compass.html` + `src/ui/compass.js` |
 | 罗盘（指针） | ✅**已落地**（传感器可用时）：`src/ui/compass.js` 的 `renderCompassCard()`；无传感器降级为「仅显示计算值与手动换算」 |
 | 二十四山 | `src/core/compass.js`（未开工，方位屏未做此层） |
-| 无障碍三档、Pad 横屏 | `styles/app.css` 断点与 `--fs-*` 阶梯 |
+| 无障碍字号三档 | ✅**已落地**：`styles/tokens.css` 的 `--fs-scale` 乘数 + `<html data-fs>`；见下方 §8.1 |
+| Pad 横屏 | ✅**已落地**：`styles/app.css` 末尾 `@media (min-width: 768px)` 块 |
 
 「降级态」枚举已预留 `no-poi` 语义位置（当前由 `no-map` 分支承载）。
+
+### 8.1 无障碍字号三档（怎么放大、为什么这么放）
+
+三档：**默认 / 大（1.15×）/ 特大（1.30×）**，在「我的」页切换，档位存 `store.fontScale`。
+
+★要点（改这里之前必须知道）：**不能靠改 `html { font-size }` 来放大**。全站零 rem，
+`app.css` 的 72 处 `font-size` 里 69 处是 `var(--fs-*)`、全是裸 px，改根字号对它们
+一个都不生效。所以做法是给八个 `--fs-*` 各挂一个乘数：
+
+```css
+--fs-scale: 1;                              /* 默认档；放大档由 data-fs 覆盖 */
+--fs-hero-scale: 1;                         /* 英雄温度单独一个、更小的乘数 */
+--fs-md: calc(14px * var(--fs-scale));
+--fs-hero: calc(56px * var(--fs-hero-scale));
+```
+
+两条硬约束：
+
+1. **默认档的计算值必须与此前一模一样**（一个像素都不许变）—— 由 `tools/check.mjs`
+   第 13 节与 `tests/fontscale.test.mjs` 各用一套独立解析器逐值钉死；
+2. **英雄区（那个大号温度）放得比正文慢**（xlarge 下 56px → 64.4px，不是 72.8px）——
+   它本来就是正文的 4 倍，按全档放大会把 320px 窄屏的右侧描述列挤没了。
+
+防跳档：ES module 是 defer 的，等模块跑起来再写 `data-fs`，浏览器可能已经按默认字号
+画过一帧。所以四个 HTML 的 `<head>` 里各有一段同步内联脚本，读本机偏好先把属性设上；
+读不到就什么都不做（模块顶层还会再应用一次）。
+
+### 8.2 导出 CSV（列从哪来）
+
+导的是 `store` 里的**最近一次快照**（此刻屏首屏三源取完才写入，所以必然是完整的一份），
+一行 = 一个时刻，32 列，UTF-8 带 BOM（中文版 Excel 直接打开不乱码）。
+
+两条口径：
+
+1. **每一列都必须能在界面上找到出处** —— 界面上没有的量（例如已取回但尚未上屏的逐小时
+   降水概率）一律不进表；磁偏角是唯一「跨页」的列，它来自方位屏那一屏；
+2. **缺失留空，不填 0、也不写「—」** —— 界面上缺失显示占位符「—」，但 CSV 里写「—」
+   会让 Excel 把整列判成文本列，数字列就废了；
+3. **两个时间列各按各的时区，表头里就写明** —— `导出时间（本机）` 跟**文件名**同源
+   （都是设备本地墙钟），`观测时刻（当地）` 按被查询地点的时区偏移换算。查异地时这两列
+   本来就不一样（在东八区导出一份伦敦的数据，文件名是本地 14:23、观测时刻是当地 06:23）。
+   踩过的坑：第一版 `导出时间` 按 UTC 写，于是同一份文件出现「文件名 1405、表里 06:05」，
+   现在由 `tests/csv.test.mjs` 里两条同源断言守住。
+
+`tools/check.mjs` 第 13 节与 `tests/csv.test.mjs` 覆盖转义（逗号 / 双引号 / 换行）、BOM、
+CRLF 行尾、空数据（只输出表头）与公式注入（以 `=` `+` `@` 开头的单元格前置单引号；
+负数**不**加，否则所有气温都会变成文本）。
 
 ---
 

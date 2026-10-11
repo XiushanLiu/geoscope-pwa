@@ -1,10 +1,12 @@
 /**
- * 「我的」设置页（备份导出 / 备份导入 / 主题切换）
+ * 「我的」设置页（备份导出 / 备份导入 / 导出 CSV / 主题 / 字号）
  *
  * 职责：把 core 层已经备好的能力接成界面 ——
- *   1) 导出：core/backup.js 的 exportBackup() + ui/download.js 落地成文件；
+ *   1) 导出备份：core/backup.js 的 exportBackup() + ui/download.js 落地成 JSON 文件；
  *   2) 导入：**先看后写**（inspectBackup 预览 → 用户点头 → applyBackup 落地）；
- *   3) 主题：三档写 <html data-theme>，具体色值全在 styles/tokens.css。
+ *   3) 导出 CSV：core/csv.js 的 snapshotToCsv() + ui/download.js 落地成表格文件；
+ *   4) 外观两档：主题写 <html data-theme>、无障碍字号写 <html data-fs>，
+ *      具体色值与放大乘数全在 styles/tokens.css，本页一个数字都不存。
  *
  * 为什么这一页是硬承诺而不是锦上添花：产品边界第 2 条写着「收藏与足迹留本机，
  * 靠导出 / 导入 JSON 搬家」，技术约束写着 iOS 上 PWA 存储可能被系统清理、
@@ -18,30 +20,41 @@
  *      不是点完才闪一下的提示 —— 用户要在按下去之前就知道自己在导出什么。
  *   3) **文案零硬编码**：一切可见文字走 t()，缺键时 t() 会返回键名本身（不崩）。
  *
- * 依赖方向：ui ← core。顶层只做一件事：把主题写到 <html data-theme>（全站属性，
- * 详见 ui/theme.js），其余 DOM 访问全在 init() 内，便于 Node 侧检查与单测。
+ * 依赖方向：ui ← data ← core（磁偏角要用到 data/wmm2025.js 那套系数，core 层不许
+ * 反向 import data，所以在本页算好再作为参数传进 core/csv.js）。
+ * 顶层只做一件事：把主题写到 <html data-theme>、把字号档位写到 <html data-fs>
+ * （两者都是全站属性，详见 ui/theme.js），其余 DOM 访问全在 init() 内，
+ * 便于 Node 侧检查与单测。
  */
 
 import { t } from '../i18n/zh.js';
 import * as fmt from '../core/format.js';
+import { decimalYearFromDate } from '../core/mag.js';
+import { snapshotToCsv, CSV_MIME } from '../core/csv.js';
+import { geomagneticDeclination } from '../data/wmm2025.js';
 import {
   getState,
   getLastSnapshot,
   getThemeMode,
   setThemeMode,
+  getFontScale,
+  setFontScale,
   getFavorites,
   removeFavorite,
   log,
 } from '../core/store.js';
 import { exportBackup, inspectBackup, applyBackup, backupFilename } from '../core/backup.js';
-import { downloadJson } from './download.js';
+import { downloadJson, downloadText } from './download.js';
 import { h, applyI18n } from './now.js';
-// 写 <html data-theme> 的实现在 ui/theme.js：主题是全站属性，四个入口都要引导，
-// 不能只活在本页里（详见 theme.js 文件头）。
-import { applyThemeMode } from './theme.js';
+// 写 <html data-theme> / <html data-fs> 的实现在 ui/theme.js：这两者都是全站属性，
+// 四个入口都要各引导一次，不能只活在本页里（详见 theme.js 文件头）。
+import { applyThemeMode, applyFontScale } from './theme.js';
 
 /** 主题模式选项（顺序即界面顺序）。 */
 export const THEME_MODES = ['system', 'light', 'dark'];
+
+/** 无障碍字号档位选项（顺序即界面顺序：从小到大）。 */
+export const FONT_SCALES = ['normal', 'large', 'xlarge'];
 
 /** @type {Object|null} 当前待确认的导入计划（inspectBackup 的产物，未经用户确认不许写）。 */
 let _plan = null;
@@ -83,6 +96,11 @@ function _el(id) {
 // 幂等：init() 里的那次调用与本句完全等价，重复调用无副作用。
 // 实现与四组合语义见 ui/theme.js 文件头（**别在这里改色值、也别补 dark 规则块**）。
 applyThemeMode(getThemeMode());
+// ★字号档位引导（与主题同构、同一时机）：本页也是四个入口之一，必须在 module 求值
+// 那一刻就把 store.fontScale 写到 <html data-fs>。默认的 'normal' 是**移除属性**
+// （不是写成 "normal"），语义与 data-theme 的 'system' 一致 —— 见 theme.js 的 JSDoc。
+// 放大乘数、以及英雄区那个更小的乘数都在 styles/tokens.css，这里不碰任何数字。
+applyFontScale(getFontScale());
 
 /**
  * 绑定分段控件（主题三档）。
@@ -159,12 +177,16 @@ function _errMsg(err) {
  * 备份可能来自几个月前，年-月-日必须齐全 —— core/format.js 的 mdHm() 只给到月日，
  * 跨年的旧备份会显示得像「今天」，那正是「误以为这是最新备份」的诱因。
  *
- * @param {string} iso ISO 时间串。
+ * 同一条理由对「当前可导出：xxx」那行也成立（快照可能是几天前联网取的那一份），
+ * 所以本函数同时收 ms epoch 与 ISO 串，两处卡片共用一套口径 —— 不许一处带年份、
+ * 一处不带。
+ *
+ * @param {number|string} at ms epoch 或 ISO 时间串。
  * @returns {string} 本地时间文本；无法解析时返回 i18n 的「未知」。
  */
-function _fmtExportedAt(iso) {
-  if (!iso) return t('app.unknown');
-  const ms = Date.parse(iso);
+function _fmtExportedAt(at) {
+  if (at === null || at === undefined || at === '') return t('app.unknown');
+  const ms = typeof at === 'number' ? at : Date.parse(String(at));
   if (!Number.isFinite(ms)) return t('app.unknown');
   const d = new Date(ms);
   const p = (n) => String(n).padStart(2, '0');
@@ -194,6 +216,21 @@ function _refreshExport() {
   if (cur) cur.textContent = _exportSummaryText();
   const privacy = _el('export-privacy');
   if (privacy) privacy.textContent = _privacyText();
+}
+
+/**
+ * 刷新导出 CSV 卡的概要与按钮可用态。
+ *
+ * 必须跟着导入一起刷：applyBackup() 会**整体覆盖**快照（备份里没带快照时还会把旧的
+ * 清成 null，见 core/backup.js），导入完这张卡还写着上一次的地点就是假话。
+ *
+ * @returns {void}
+ */
+function _refreshCsv() {
+  const cur = _el('csv-current');
+  if (cur) cur.textContent = _csvSummaryText();
+  const btn = _el('btn-csv');
+  if (btn) btn.disabled = !getLastSnapshot();
 }
 
 /**
@@ -265,6 +302,8 @@ function _refreshFavorites() {
   }
   if (_favCountBox) _favCountBox.textContent = t('fav.count', { count: list.length });
   _refreshExport();
+  // 删除收藏不影响快照，但导入会（见 _refreshCsv 的注释）—— 两条路径都过这里，统一刷
+  _refreshCsv();
 }
 
 /**
@@ -306,6 +345,114 @@ function _renderThemeCard() {
     h('div', { class: 'seg', id: 'theme-mode', role: 'group' }, buttons),
     h('p', { class: 'card-note', id: 'theme-result' }),
   ]);
+}
+
+/**
+ * 渲染无障碍字号卡（三档）。
+ *
+ * 与主题卡完全同构（同一套 .seg / .seg-btn 结构、同一个 data-value 协议），
+ * 两档外观放一起，用户不必学两种交互。
+ *
+ * @returns {HTMLElement} 卡片节点。
+ */
+function _renderFontCard() {
+  const current = getFontScale();
+  const buttons = FONT_SCALES.map((s) =>
+    h('button', {
+      type: 'button',
+      class: s === current ? 'seg-btn seg-btn--active' : 'seg-btn',
+      'data-value': s,
+      text: t(`settings.font.${s}`),
+    })
+  );
+  return h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('settings.fontTitle') }),
+    h('p', { class: 'card-note', text: t('settings.fontHint') }),
+    h('div', { class: 'seg', id: 'font-scale', role: 'group' }, buttons),
+    h('p', { class: 'card-note', id: 'font-result' }),
+  ]);
+}
+
+/**
+ * 当前可导出的 CSV 概要（常态显示，点导出前就知道会导出哪一份）。
+ *
+ * 取的是 `getLastSnapshot()` —— 与备份 JSON 里那份快照同源：它由此刻屏在**首屏三源
+ * 全部取完之后**才写入（src/ui/app.js 的 setLastSnapshot），所以这里的快照天然是
+ * 「完整的一份」，不会出现「导出一半空数据」。
+ *
+ * @returns {string} 概要文案。
+ */
+function _csvSummaryText() {
+  const snap = getLastSnapshot();
+  if (!snap) return t('settings.csvNone');
+  const atMs = snap && snap.weather && snap.weather.atMs ? snap.weather.atMs : snap.atMs;
+  const place =
+    snap.placeName ||
+    (snap.coord && Number.isFinite(Number(snap.coord.lat)) ? fmt.coord(snap.coord.lat, snap.coord.lon) : t('settings.previewNoPlace'));
+  return t('settings.csvCurrent', { time: _fmtExportedAt(atMs), place });
+}
+
+/**
+ * 为导出算一次磁偏角（度，东偏为正）。
+ *
+ * 为什么在本页算而不是放进 core/csv.js：磁偏角要用 data/wmm2025.js 那套模型系数，
+ * 而四层单向依赖规定 `core` 不得 import `data`（tools/check.mjs 静态断言）。
+ * 本页是 ui 层，import data 完全合法 —— 与 src/ui/compass.js 同一条路径。
+ *
+ * 失败（坐标缺失 / 纬度越界 / 模型抛 RangeError）一律返回 null：CSV 里那一列留空，
+ * 绝不让一个算不出来的数把整份导出搞挂（口径同 compass.js 的 computeAt）。
+ *
+ * @param {Object} snapshot NowSnapshot。
+ * @returns {number|null} 磁偏角（度）或 null。
+ */
+function _declinationFor(snapshot) {
+  const coord = snapshot && snapshot.coord ? snapshot.coord : null;
+  const lat = coord ? Number(coord.lat) : NaN;
+  const lon = coord ? Number(coord.lon) : NaN;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  try {
+    const altM = Number(snapshot.elevationM);
+    const deg = geomagneticDeclination({
+      latitude: lat,
+      longitude: lon,
+      // WMM 要**千米**且是椭球高，项目通用单位是米 —— 与 compass.js 的 altitudeKmFromM 同口径
+      altitudeKm: Number.isFinite(altM) ? altM / 1000 : 0,
+      // 不传会按历元 2025.0 算而不是今天（2029 年打开就会拿到 2025 年的值）
+      decimalYear: decimalYearFromDate(new Date()),
+    });
+    return Number.isFinite(deg) ? deg : null;
+  } catch (err) {
+    log('csv declination failed', err && err.message);
+    return null;
+  }
+}
+
+/**
+ * 渲染导出 CSV 卡。
+ *
+ * 放在备份导入之后、主题之前：三张「把数据带出本机」的卡（备份导出 / 备份导入 /
+ * CSV）连成一片，外观两档跟在后面。
+ *
+ * @returns {HTMLElement} 卡片节点。
+ */
+function _renderCsvCard() {
+  const hasSnapshot = !!getLastSnapshot();
+  return h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('settings.csvTitle') }),
+    h('p', { class: 'card-note', text: t('settings.csvHint') }),
+    h('p', { class: 'card-note', id: 'csv-current', text: _csvSummaryText() }),
+    h('div', { class: 'field field--row' }, [
+      h('button', {
+        class: 'btn btn--primary',
+        type: 'button',
+        id: 'btn-csv',
+        disabled: !hasSnapshot,
+        text: t('settings.csvBtn'),
+      }),
+    ]),
+    hasSnapshot ? null : h('p', { class: 'card-note', text: t('settings.csvEmpty') }),
+    h('p', { class: 'card-note', id: 'csv-result' }),
+  ].filter(Boolean));
 }
 
 /**
@@ -386,8 +533,14 @@ function _renderPage() {
     ])
   );
 
-  // (d) 主题
+  // (d) 导出 CSV（紧跟备份两张卡：三张都是「把数据带出本机」，连成一片更好找）
+  app.appendChild(_renderCsvCard());
+
+  // (e) 主题
   app.appendChild(_renderThemeCard());
+
+  // (f) 字号（外观两档放一起）
+  app.appendChild(_renderFontCard());
 
   // 收藏列表内容最后填：卡片刚建好时 _favBox / _favCountBox 才指向真实节点，
   // 这一步顺带把导出卡的 {count} 也算对。
@@ -518,6 +671,32 @@ function _onExport() {
 }
 
 /**
+ * 导出「此刻」数据 CSV。
+ *
+ * 数据源是 store 里的**最近一次快照**（getLastSnapshot），不是现取一份新的：
+ *   ① 此刻屏首屏三源取完才会写快照（app.js），所以这份必然是完整的一份；
+ *   ② 导出是「把已经看到的东西拿走」，不该在离线时再发一轮请求去撞网络；
+ *   ③ 与备份 JSON 里那份快照同源，两份导出说的是同一件事。
+ * 没有快照时按钮本来就是禁用的；这里再挡一道（按钮状态可能被别处改写）。
+ *
+ * @returns {void}
+ */
+function _onExportCsv() {
+  const snap = getLastSnapshot();
+  if (!snap) {
+    _setStatus('csv-result', t('settings.csvNoSnapshot'));
+    _refreshCsv();
+    return;
+  }
+  const built = snapshotToCsv(snap, { atMs: Date.now(), declinationDeg: _declinationFor(snap) });
+  if (downloadText(built.name, built.text, CSV_MIME)) {
+    _setStatus('csv-result', t('settings.csvDone', { name: built.name }));
+  } else {
+    _setStatus('csv-result', t('settings.csvFail'));
+  }
+}
+
+/**
  * 设置页初始化（DOM 就绪后调用）。
  *
  * @returns {void}
@@ -526,6 +705,10 @@ export function init() {
   // ① 先把主题落上去：这一步必须早于任何渲染，否则用户上次选的主题会在这一页
   //    先闪一下系统的颜色，再被 JS 掰过来。init() 可能被多处调用，这里是幂等的。
   applyThemeMode(getThemeMode());
+  // ①b 字号档位：与主题完全同一时机、同一理由（全站属性，慢一帧就会先显示默认字号
+  //    再跳到放大档）。每个页面 HTML 的 <head> 里那段同步脚本已经在首帧之前预置过，
+  //    这里只是把「store → 属性」这条链路再走一遍，保证 JS 改完档位立刻生效。
+  applyFontScale(getFontScale());
 
   // ② 静态外壳文案统一由 i18n 填充
   applyI18n(document);
@@ -538,6 +721,9 @@ export function init() {
   const exportBtn = _el('btn-export');
   if (exportBtn) exportBtn.addEventListener('click', _onExport);
 
+  const csvBtn = _el('btn-csv');
+  if (csvBtn) csvBtn.addEventListener('click', _onExportCsv);
+
   const fileInput = _el('file-backup');
   if (fileInput) fileInput.addEventListener('change', () => _onFilePicked());
 
@@ -549,6 +735,15 @@ export function init() {
     const applied = applyThemeMode(getThemeMode());
     log(`theme mode → ${applied}`);
     _setStatus('theme-result', t('settings.themeDone', { mode: t(`settings.theme.${applied}`) }));
+  });
+
+  // 字号三档：写 store → 立刻落到 <html data-fs>（全站属性，与主题同一套路）。
+  // 改完**不需要重渲染**：放大是靠 CSS 变量乘数实现的，浏览器自己会重排整个页面。
+  _bindSeg('font-scale', (v) => {
+    setFontScale(v);
+    const applied = applyFontScale(getFontScale());
+    log(`font scale → ${applied}`);
+    _setStatus('font-result', t('settings.fontDone', { mode: t(`settings.font.${applied}`) }));
   });
 }
 

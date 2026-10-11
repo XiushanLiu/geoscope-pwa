@@ -28,16 +28,19 @@ import {
   degradeMapMode,
   mapMode,
 } from '../data/tiles.js';
-import { getNetworkType, setNetworkType as storeSetNetworkType, getThemeMode, log } from '../core/store.js';
+import { getNetworkType, setNetworkType as storeSetNetworkType, getThemeMode, getFontScale, log } from '../core/store.js';
 import { stamp, latency as fmtLatency, bytes as fmtBytes } from '../core/format.js';
 import { h, applyI18n } from './now.js';
 import { downloadJson } from './download.js';
-import { applyThemeMode } from './theme.js';
+import { applyThemeMode, applyFontScale } from './theme.js';
 
 // ★主题引导（模块顶层）：本页是四个入口之一，必须在 module 求值那一刻就把 store 里的
 // themeMode 写到 <html data-theme> 上，不能等 init() —— 否则用户会先看到一帧系统色。
 // 实现与四组合语义见 ui/theme.js 文件头。
 applyThemeMode(getThemeMode());
+// ★字号档位引导（模块顶层，与主题同一时机）：字号是全站属性，本页那一屏密集的
+// 指标数字恰恰是最需要跟着放大档走的地方。乘数在 styles/tokens.css，这里只落属性。
+applyFontScale(getFontScale());
 
 /** 每源正式取样次数默认值。 */
 export const DEFAULT_SAMPLES = 3;

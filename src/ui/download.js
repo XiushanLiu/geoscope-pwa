@@ -1,8 +1,9 @@
 /**
  * 本地文件下载（Blob + <a download>）
  *
- * 职责：把一段数据当成文件保存到用户设备上。项目里两处在用 —— 自检页导出报告 JSON、
- * 设置页导出备份 JSON —— 两处的下载手法必须完全一致，所以集中在这里，不再各自抄一份。
+ * 职责：把一段数据当成文件保存到用户设备上。项目里三处在用 —— 自检页导出报告 JSON、
+ * 设置页导出备份 JSON、设置页导出「此刻」数据 CSV —— 三处的下载手法必须完全一致，
+ * 所以集中在这里，不再各自抄一份。
  *
  * ⚠️ 那个 `setTimeout(revoke, 2000)` 不是随手写的，删掉会让部分浏览器下载失败：
  *   `a.click()` 返回时，浏览器只是**接受了**下载任务，真正的读取（去 Blob URL 取字节）
@@ -17,19 +18,19 @@
 const REVOKE_DELAY_MS = 2000;
 
 /**
- * 把数据以 JSON 文件的形式下载到本地。
+ * 把一段文本以文件形式下载到本地（本模块唯一的下载实现）。
  *
- * 全程在本机完成：不联网、不上传、`objectURL` 用完即释放。调用方负责取好文件名。
+ * 全程在本机完成：不联网、不上传、`objectURL` 用完即释放。调用方负责取好文件名与 MIME。
  *
  * @param {string} name 文件名（含扩展名）。
- * @param {*} data 任意可 JSON 序列化的数据。
+ * @param {string} text 文件正文。
+ * @param {string} [mime='text/plain;charset=utf-8'] MIME 类型。
  * @returns {boolean} 是否成功触发下载（false 表示环境不支持 Blob / objectURL，需调用方提示）。
  */
-export function downloadJson(name, data) {
+export function downloadText(name, text, mime = 'text/plain;charset=utf-8') {
   if (typeof Blob === 'undefined' || typeof URL === 'undefined' || typeof document === 'undefined') return false;
   try {
-    const json = JSON.stringify(data, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
+    const blob = new Blob([String(text)], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -44,4 +45,21 @@ export function downloadJson(name, data) {
   } catch (err) {
     return false;
   }
+}
+
+/**
+ * 把数据以 JSON 文件的形式下载到本地。
+ *
+ * @param {string} name 文件名（含扩展名）。
+ * @param {*} data 任意可 JSON 序列化的数据。
+ * @returns {boolean} 是否成功触发下载（false 表示环境不支持 Blob / objectURL，需调用方提示）。
+ */
+export function downloadJson(name, data) {
+  let json = '';
+  try {
+    json = JSON.stringify(data, null, 2);
+  } catch (err) {
+    return false;
+  }
+  return downloadText(name, json, 'application/json');
 }

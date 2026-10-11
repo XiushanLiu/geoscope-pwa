@@ -31,6 +31,12 @@
  * 已存在；放进 boot() / init() 或任何 `await` 之后，用户会先看到一帧错误主题的背景色。
  * 本函数幂等，重复调用无副作用。
  *
+ * 2026-10-12 无障碍字号三档（v15）：本模块**再加一个同构的 `applyFontScale()`**，把
+ * `store.fontScale` 写到 `<html data-fs>` 上。两件事的性质完全一样（都是全站属性、
+ * 都靠属性选择器命中、都必须在四个入口各引导一次），所以放同一个文件、同一套写法，
+ * 入口模块里两行并排调用。另有一层防跳档：每个 HTML 的 `<head>` 里还有一段同步内联
+ * 脚本，在首帧之前就把 `data-fs` 预置好 —— 那是本模块之外的第二道保险，见 HTML 里注释。
+ *
  * 依赖方向：本模块**零 import**（只吃参数、只碰 `document.documentElement`），因此
  * core / data / ui 任一层都可以引它，不会引入循环依赖。非浏览器环境（Node 侧静态检查
  * import 本模块）下是安全的空操作。
@@ -49,5 +55,38 @@ export function applyThemeMode(mode) {
   if (!root) return applied;
   if (applied === 'system') root.removeAttribute('data-theme');
   else root.setAttribute('data-theme', applied);
+  return applied;
+}
+
+/**
+ * 把无障碍字号档位写到 `<html data-fs>` 上。
+ *
+ * 与 `applyThemeMode()` 同构（同一时机、同一手法、同样的白名单钳位），理由也完全一样：
+ * 字号是**全站属性**，不是「我的」页的属性 —— 用户在设置页选了「特大」，切回此刻 / 自检 /
+ * 方位页必须是同一个字号。四页是四个独立 HTML、靠 `<a href>` 跳转，没有共享 bootstrap，
+ * 所以每个入口模块必须各引导一次。
+ *
+ * ⚠️ 两条与主题同源、极易写错的地方：
+ *   1) **默认档必须是「移除属性」（removeAttribute），不是写成 "normal"**。
+ *      `:root[data-fs='large']` 这类属性选择器靠属性**存在与否**命中；默认档写
+ *      "normal" 虽然今天不会命中任何选择器（所以不会坏），但它是一颗定时炸弹 ——
+ *      将来有人补一条 `:root[data-fs]` 或 `[data-fs]:not([data-fs='large'])` 规则时，
+ *      默认档会突然变成「非默认」。与 `data-theme` 保持同一套语义，读代码的人不必记两套。
+ *   2) 放大用的乘数、以及英雄区那个更小的乘数，都写在 styles/tokens.css 里；
+ *      本函数**不碰任何数字**，只负责把档位名落到属性上。改数字请去 tokens.css，
+ *      并跑 tools/check.mjs 第 13 节（那一节机器核算放大后的布局是否还装得下）。
+ *
+ * 非法值（含 undefined / 拼错的字符串）一律按 'normal' 处理 —— 宁可回到默认字号，
+ * 也不把一个 CSS 认不出来的值写进 `<html>`。
+ *
+ * @param {'normal'|'large'|'xlarge'} scale 字号档位。
+ * @returns {'normal'|'large'|'xlarge'} 实际应用的档位。
+ */
+export function applyFontScale(scale) {
+  const root = typeof document !== 'undefined' && document ? document.documentElement : null;
+  const applied = scale === 'large' || scale === 'xlarge' ? scale : 'normal';
+  if (!root) return applied;
+  if (applied === 'normal') root.removeAttribute('data-fs');
+  else root.setAttribute('data-fs', applied);
   return applied;
 }

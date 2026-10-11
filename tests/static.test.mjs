@@ -146,7 +146,7 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
     'styles/tokens.css', 'styles/app.css',
     'src/i18n/zh.js',
     'src/core/http.js', 'src/core/cache.js', 'src/core/store.js', 'src/core/geo.js', 'src/core/sun.js', 'src/core/wmo.js', 'src/core/format.js',
-    'src/core/mag.js',
+    'src/core/mag.js', 'src/core/backup.js', 'src/core/csv.js',
     'src/data/sources.js', 'src/data/openmeteo.js', 'src/data/photon.js', 'src/data/tiles.js', 'src/data/health.js',
     'src/data/wmm2025.js',
     'src/ui/app.js', 'src/ui/now.js', 'src/ui/selfcheck.js', 'src/ui/compass.js', 'src/ui/map.js',

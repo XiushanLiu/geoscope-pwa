@@ -163,6 +163,8 @@ test('i18n：所有 t() 字面量 key 与模板 key 的枚举都必须存在于�
     // 设置页主题三档：与 src/ui/settings.js 的 THEME_MODES 一一对应，
     // 那边加档位必须同步这里（多一项 → map 取值取不到 → 缺 key 测试立即报警）
     'settings.theme.': ['system', 'light', 'dark'],
+    // ★无障碍字号三档：与 src/ui/settings.js 的 FONT_SCALES 一一对应（同 THEME_MODES 的道理）
+    'settings.font.': ['normal', 'large', 'xlarge'],
   };
 
   for (const rel of FILES.filter((f) => f.endsWith('.js'))) {
