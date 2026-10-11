@@ -1,8 +1,15 @@
 /**
  * 校验 selfcheck-standalone.html（单文件自检页）是否装配正确：
  * 1. HTML 里不能残留任何相对资源引用（模块 src / 样式 href / manifest / index.html 死链）
- * 2. 内联的 16 个模块能按真实目录结构落盘并被 Node 正常 import
+ * 2. 内联的模块**清单**与 build-standalone.mjs 的登记表逐项一致（不比数量，比成员），
+ *    且能按真实目录结构落盘并被 Node 正常 import
  * 3. 关键导出可用（apiSources 应为 5 路、SOURCE_LIST 6 条、瓦片 URL 路径正确）
+ *
+ * 为什么不写死「模块数量 = N」：这个数字会随正常开发变化（新增模块就 +1），写死就等于
+ * 给下一个人埋雷 —— 本项目已经栽过一次（tests/sw-offline.test.mjs 曾写死「22 项」，
+ * sw.js 的 SHELL_ASSETS 正常补两行就把测试打红）。这条断言的**真实意图**不是「恰好 N 个」，
+ * 而是「产物里内联的 == 登记表里登记的」，所以直接读登记表来比，且比成员不比数量：
+ * 数量凑巧相同但成员错了也能抓到。
  *
  * 用法：node tools/verify-standalone.mjs
  */
@@ -43,9 +50,36 @@ try {
   process.exit(1);
 }
 const keys = Object.keys(MODULES);
-// ★登记值：与 build-standalone.mjs 的模块列表长度绑定。新增模块时**两处一起改**，
-//   否则这条守卫会直接失败（它就是要拦「产物悄悄变旧 / 少内联一个模块」）。
-ok('模块数量 = 16', keys.length === 16, `实际 ${keys.length}`);
+
+/**
+ * 从 build-standalone.mjs 读出模块登记表本身（ORDER 数组）。
+ * 不能直接 import 那个文件 —— 它顶层就有副作用，一 import 就会重新打包并写盘。
+ * 所以走与上面提取 MODULES 相同的手法：定位 `const ORDER = [...]` 后求值。
+ * 以后加模块只需在登记表改一处，这条断言自动跟随，不需要有人记得回来改数字。
+ *
+ * @returns {string[]} 登记表里的模块路径。
+ */
+function readRegistry() {
+  const src = readFileSync(resolve(ROOT, 'tools/build-standalone.mjs'), 'utf8');
+  const m = src.match(/const ORDER = (\[[\s\S]*?\]);/);
+  if (!m) throw new Error('build-standalone.mjs 里找不到 `const ORDER = [...]` 登记表');
+  const list = new Function('return ' + m[1])();
+  if (!Array.isArray(list) || list.length === 0) throw new Error('ORDER 登记表为空或不是数组');
+  return list;
+}
+
+const registry = readRegistry();
+const missing = registry.filter((k) => !keys.includes(k));   // 登记表里有、产物里没有
+const extra = keys.filter((k) => !registry.includes(k));     // 产物里有、登记表里没有
+const diff = [
+  missing.length ? `缺少 ${missing.join('、')}` : '',
+  extra.length ? `多出 ${extra.join('、')}` : '',
+].filter(Boolean).join('；');
+ok(
+  `模块清单与 build-standalone.mjs 登记表一致（${registry.length} 项）`,
+  missing.length === 0 && extra.length === 0,
+  diff || `实际 ${keys.length} 项`
+);
 ok('含入口 src/ui/selfcheck.js', keys.includes('src/ui/selfcheck.js'));
 
 console.log('\n[3] 落盘后按真实结构 import');
