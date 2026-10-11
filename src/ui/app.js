@@ -437,16 +437,36 @@ function _maxStaleAge(snapshot) {
 }
 
 /**
+ * 十进制数字字面量：`-?整数(.小数)?`。
+ *
+ * 只认这一种形态 —— 十六进制（'0x10'）、'Infinity' / 'NaN'、科学计数法（'1e2'）、
+ * 前导 '+'、省略整数位的 '.5'、尾随小数点的 '31.' 一律不收。先过这道正则再
+ * Number()，才能挡住 `Number()` 那些「看着像数字其实不是本意」的宽容转换。
+ *
+ * **取舍：不收科学计数法。** 本项目唯一的 URL 生产者是 settings.js 的 _favHref()
+ * （`String(number)`），在纬度 ±90 / 经度 ±180 这个量级上永远不会产出指数形式
+ * （JS 只在 |v| < 1e-6 时才切指数，那已是亚厘米级、不是真实地点）。收下 '1e2'
+ * 等于重新开一个「长得像数字但不是本意」的口子，与严格解析的承诺冲突，故不收。
+ *
+ * 收下的形态里必须包含 '0' / '-0' / '0.0000'：0,0（几内亚湾）是真实地点。
+ */
+const DECIMAL_LITERAL_RE = /^-?\d+(\.\d+)?$/;
+
+/**
  * 从 URL 查询串解析「指定地点」（跨页传参：收藏列表 → 此刻页）。
  *
  * 为什么必须有它：本项目**无 SPA 路由**，四个 HTML 页靠 `<nav class="tabbar">` 的
  * `<a href>` 整页跳转，页面间没有任何共享内存（每次导航都是全新的 JS 环境）。
  * 收藏列表要点一下就跳到那个地点，只能把坐标写在 URL 上。
  *
- * 严格解析（不做 Number() 宽容转换）：空串 / 非数字一律判为非法。理由与
- * store.js 的 _normPlace() 同一条 —— `Number('')` 与 `Number(null)` 都是 0，
+ * 严格十进制解析（不做 Number() 宽容转换）：空串 / 空白 / 非十进制字面量一律判为非法。
+ * 理由与 store.js 的 _normPlace() 同一条 —— `Number('')` 与 `Number(null)` 都是 0，
  * 宽容解析会把「参数坏了」静默变成「几内亚湾 0,0」这个真实存在的地点，
  * 用户会看到一片陌生的天气却毫无提示。
+ *
+ * 更进一步，`Number()` 还会接受**非十进制字面量**：`Number('0x10') === 16`、
+ * `Number('Infinity') === Infinity`、`Number('1e2') === 100`。所以不能只靠
+ * `Number.isFinite()` 把关，必须先用 DECIMAL_LITERAL_RE 卡字面量形态。
  *
  * 参数非法 / 缺失一律返回 null，调用方退回原有的定位流程，行为不变。
  *
@@ -469,10 +489,15 @@ export function parsePlaceParam(search) {
   const rawLon = params.get('lon');
   // 缺任一参数 → null（「只有 lat 没有 lon」是非法，不是「lon 取 0」）
   if (rawLat === null || rawLon === null) return null;
-  // 空串 / 空白 / 非数字全部拦下（见上方 JSDoc：0,0 是真实地点，不能靠 Number() 兜出来）
-  if (!String(rawLat).trim() || !String(rawLon).trim()) return null;
-  const lat = Number(rawLat);
-  const lon = Number(rawLon);
+  const sLat = String(rawLat).trim();
+  const sLon = String(rawLon).trim();
+  // 先卡字面量形态，再 Number()：空串 / 空白 / 十六进制（0x10）/ Infinity / NaN /
+  // 科学计数法（1e2）/ 前导 '+' / 省略整数位的 '.5' / 尾随小数点的 '31.' 全部拦下
+  // （见上方 JSDoc 与 DECIMAL_LITERAL_RE 的取舍说明）。
+  // ★但 '0' 与 '-0' 必须放行：0,0（几内亚湾）是个真实地点，不能因为「像空值」被误杀。
+  if (!DECIMAL_LITERAL_RE.test(sLat) || !DECIMAL_LITERAL_RE.test(sLon)) return null;
+  const lat = Number(sLat);
+  const lon = Number(sLon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
 

@@ -188,6 +188,36 @@ export function renderBanner(bannerEl, mode, extra = {}) {
 /* ------------------------------------------------------------------ */
 
 /**
+ * 取「此刻该收藏的地点」——**点击时现算**，不在构造按钮时抓快照。
+ *
+ * 为什么必须现算：GPS 定位成功后、逆地理（Photon）还没回来的那一秒多里，
+ * `snapshot.placeName` 与 `coord.name` 都是 null —— 那是**常态**，用户加载完顺手点 ☆
+ * 比等一个网络往返快得多。若在按钮构造那一刻把地名抓进闭包，存进去的就是
+ * `{lat, lon, name: ''}`，在「我的」页显示成「未命名地点」，跳回去只剩坐标。
+ *
+ * 兜底：名字为空（反查未回 / 反查失败 / 默认地点没名字）时用**坐标串**兜底，
+ * 复用 core/format.js 的 coord()（'22.5431°N, 114.0579°E'），不另造一套格式化。
+ * 理由：空串在列表里是「未命名」，坐标至少能让人认出是哪儿、跳回去也显示得出来。
+ *
+ * ★反过来**绝不**为了拿地名去等逆地理返回 —— 那会让收藏按钮卡住或延迟。
+ * 宁可先存坐标串。
+ *
+ * @param {Object} snapshot NowSnapshot。
+ * @returns {{lat:number, lon:number, name:string}|null} 可收藏的地点；
+ *   无坐标或坐标非有限数字时返回 null（存不出能跳回去的收藏）。
+ */
+function _favPlaceOf(snapshot) {
+  const c = snapshot && snapshot.coord ? snapshot.coord : null;
+  if (!c) return null;
+  const lat = Number(c.lat);
+  const lon = Number(c.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const raw = snapshot.placeName || c.name || '';
+  const name = String(raw).trim();
+  return { lat, lon, name: name || fmt.coord(lat, lon) };
+}
+
+/**
  * 收藏按钮（toggle：已收藏再点一次就是取消）。
  *
  * 三件事必须同时成立，缺一个这颗按钮就是死的：
@@ -196,16 +226,29 @@ export function renderBanner(bannerEl, mode, extra = {}) {
  *   2) **点了就地翻转**（改文案 / 改配色 / 改 aria-pressed），用户立刻看得见；
  *   3) **aria-pressed** 跟着状态走，读屏软件才知道这是开关而不是普通按钮。
  *
+ * ★第四条（缺陷 A 回改后固化，勿回退）：**名字在 click 那一刻才读**，不在构造时抓
+ * 闭包 —— 这颗按钮出生时逆地理往往还没回来，抓闭包就会把「未命名地点」存进收藏。
+ * 坐标（lat/lon）可以在构造时定下来：renderHeader 整槽重建就是换一颗新按钮，
+ * 而同一颗按钮活着期间坐标不会变。
+ *
+ * 关于「反查到地名后把已存进来的坐标串补写回真实地名」：本轮**明确不做**，理由见
+ * _favPlaceOf() 上方与 renderHeader() 的注释 —— 那需要「删旧条再插新条」以维持
+ * store 的 lat+lon 去重口径（条目会被挪到列表末尾），还要靠正则去猜「这条 name 是
+ * 不是坐标兜底串」，并且会让纯渲染层反过来写 store。收益只是把可读的坐标串换成
+ * 更好看的真名，不值得付这个代价。
+ *
  * 配色两态复用既有的 `.btn`（未收藏）与 `.btn--primary`（已收藏）—— 这两条规则的
  * 白字/实心底组合已经过 tools/contrast-audit.mjs，不新增任何 color 声明。
  *
- * @param {{lat:number, lon:number, name:string}} place 要收藏的地点。
- * @returns {HTMLElement} 按钮容器（按钮 + 行内反馈）。
+ * @param {Object} snapshot NowSnapshot（持有**活跃引用**：后台反查把 placeName 改写
+ *   之后，下一次点击读到的就是新值）。
+ * @returns {HTMLElement|null} 按钮容器（按钮 + 行内反馈）；无可用坐标时 null。
  */
-function _favButton(place) {
-  const lat = Number(place.lat);
-  const lon = Number(place.lon);
-  const name = String(place.name || '');
+function _favButton(snapshot) {
+  const place = _favPlaceOf(snapshot);
+  if (!place) return null;
+  const lat = place.lat;
+  const lon = place.lon;
 
   const btn = h('button', { type: 'button', class: 'btn fav-btn' });
   // 反馈位用「有没有字」表示显隐，不用 hidden 属性：整槽重建后属性容易被落下，
@@ -229,7 +272,9 @@ function _favButton(place) {
     // 「删掉了」与「本来就没有」，但按钮只按**最新**状态刷新，所以两种情况
     // 都会收敛到「未收藏」，不需要分支。
     if (was) removeFavorite(lat, lon);
-    else addFavorite({ lat, lon, name });
+    // ★现读：不复用构造时算好的 place.name —— 那一刻逆地理常常还没回来。
+    // 兜底逻辑（空名 → 坐标串）也在 _favPlaceOf 里，两处共用同一把尺子。
+    else addFavorite(_favPlaceOf(snapshot) || place);
     sync();
 
     hint.textContent = was ? t('fav.removedHint') : t('fav.addedHint');
@@ -251,8 +296,14 @@ function _favButton(place) {
  * 整槽替换（_fill）会重建 .hd 里的全部节点，所以按钮上的 click 监听不会重复绑定 ——
  * 每次渲染都是一颗新按钮，状态也顺带从 store 重新读一遍。
  *
- * 无坐标时不给收藏按钮：store 的收藏以 lat+lon 为身份，没有坐标就存不出一条
- * 能跳回去的收藏，放一颗点了没反应的按钮比不放更糟。
+ * 无坐标（或坐标不是有限数字）时不给收藏按钮：store 的收藏以 lat+lon 为身份，
+ * 没有坐标就存不出一条能跳回去的收藏，放一颗点了没反应的按钮比不放更糟。
+ *
+ * 为什么不做「反查到地名后回写已存条目的名字」：那要先把旧条目删掉再插新的
+ * （store 以 lat+lon 去重，没有就地改名的 API），条目会因此被挪到列表末尾 ——
+ * 一次后台网络回调悄悄改掉用户的列表顺序，是新的不可预期行为；判据又只能靠正则
+ * 去猜「这条 name 是不是坐标兜底串」。纯渲染层也不该反过来写 store（见本文件头）。
+ * 缺陷 A 的核心伤害（空串 → 「未命名地点」）已由 _favPlaceOf 的坐标兜底消除。
  *
  * @param {HTMLElement} root 根容器。
  * @param {Object} snapshot NowSnapshot。
@@ -264,18 +315,16 @@ export function renderHeader(root, snapshot, opts = {}) {
   if (!hd) return;
   const placeName = snapshot.placeName || (snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.unknown'));
   const right = snapshot.atMs ? t('now.observeAt', { time: fmt.hhmm(snapshot.atMs, snapshot.weather && snapshot.weather.tzOffsetSec ? snapshot.weather.tzOffsetSec : 0) }) : t('app.loading');
-  // 收藏的是**当前显示的地点**：坐标取 snapshot.coord，名字优先用反查出来的地名
-  // （coord 自带的 name 只在收藏跳转 / 默认地点这类已知名字的场景下存在）。
-  const favPlace = snapshot.coord
-    ? { lat: snapshot.coord.lat, lon: snapshot.coord.lon, name: snapshot.placeName || snapshot.coord.name || '' }
-    : null;
 
   _fill(hd, [
     h('div', {}, [
       h('h1', { class: 'hd-place', text: placeName }),
       h('p', { class: 'hd-coord num', text: snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.dash') }),
       opts.isDefaultPlace ? h('p', { class: 'hd-coord', text: t('now.defaultPlaceNotice') }) : null,
-      favPlace ? _favButton(favPlace) : null,
+      // 收藏的是**当前显示的地点**：坐标取 snapshot.coord，名字优先用反查出来的地名
+      // （coord 自带的 name 只在收藏跳转 / 默认地点这类已知名字的场景下存在）。
+      // 传整个 snapshot 而不是算好的 place —— 名字要留到 click 那一刻才读。
+      _favButton(snapshot),
     ]),
     h('div', { class: 'hd-time', text: right }),
   ]);

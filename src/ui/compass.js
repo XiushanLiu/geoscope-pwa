@@ -761,7 +761,13 @@ export async function boot() {
 
   snapshot.coord = { lat: coord.lat, lon: coord.lon };
   snapshot.altitudeM = Number.isFinite(Number(coord.altitudeM)) ? Number(coord.altitudeM) : null;
-  snapshot.isDefaultPlace = coord.source !== 'gps';
+  // ★只认 `source === 'default'`，不能写成 `coord.source !== 'gps'`：
+  // 方位页的 coord 今天只来自 geo.js（'gps' / 'default' 两种），两种写法**恰好**等价；
+  // 但那靠的是「没有第三个 source」，不是靠写法本身成立。哪天给方位页加
+  // 「收藏地从这里看磁偏角」（source:'favorite'，很自然的下一步），`!== 'gps'`
+  // 会立刻把它判成「未取得定位，正在显示默认地点」—— 一句假话，且没有测试拦得住。
+  // 与 app.js 的 resolveCoord() 同口径（那里也是 `base.source === 'default'`）。
+  snapshot.isDefaultPlace = coord.source === 'default';
   snapshot.atMs = Date.now();
 
   const res = computeAt(snapshot.coord, { altitudeM: snapshot.altitudeM, atMs: snapshot.atMs });

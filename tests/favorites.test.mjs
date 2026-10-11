@@ -10,7 +10,11 @@
  *   2) URL 参数解析：合法 / 缺参 / 只有 lat / 越界 / 非数字 / 空串；
  *   3) ★source:'favorite' 时 isDefaultPlace 必须是 false（旧写法 !== 'gps' 会判错）；
  *   4) 收藏按钮 toggle 往返（加 → 已收藏 → 取消 → 未收藏）；
- *   5) 我的页收藏列表渲染 + 删除后条数变化 + 空态 + 导出卡计数同步。
+ *   5) 我的页收藏列表渲染 + 删除后条数变化 + 空态 + 导出卡计数同步；
+ *   6) ★逆地理未返回时点收藏：name 用坐标串兜底，绝不留空（缺陷 A 护栏）；
+ *      以及 placeName 写回后必须被「点击时现读」到（钉死不抓闭包）；
+ *   7) ★导入全链路（选文件 → 预览 → 确认）后条数 / 导出卡 {count} / 我的页计数三处同步
+ *      （M13 护栏：删掉 settings.js 的 _onConfirm() 里那句 _refreshFavorites() 必须报红）。
  *
  * 环境：与 ui.test.mjs 同一套路 —— 装好假 DOM / 假 localStorage 后再 import
  * 被测模块（now.js 与 settings.js 都在模块顶层引导主题，没有 document 会炸）。
@@ -35,7 +39,38 @@ const DOM_IDS = [
   { id: 'app' }, { id: 'banner' },
   // 导出卡的两个文案位：预置进索引，settings.js 的 _refreshExport() 才能被观测到
   { id: 'export-current' }, { id: 'export-privacy' },
+  // 导入链路的四个交互位：settings.js 用 _el(id)（= document.getElementById）取节点，
+  // 而假 DOM 的索引只收录预置 id —— 不预置就拿不到，走不完「选文件 → 预览 → 确认」
+  { id: 'file-backup' }, { id: 'import-preview' }, { id: 'import-result' }, { id: 'btn-confirm' },
 ];
+
+/**
+ * 假 FileReader：Node 22 有 File / Blob 但没有 FileReader 全局。
+ *
+ * 只实现 settings.js 的 _readFileAsText() 真正用到的成员：
+ * readAsText() + result / error / onload / onerror。
+ */
+class FakeFileReader {
+  /**
+   * 读文件为文本（异步回调，与浏览器一致）。
+   *
+   * @param {Object} file File 对象（Node 的 File 自带 text()）。
+   * @returns {void}
+   */
+  readAsText(file) {
+    Promise.resolve()
+      .then(() => (file && typeof file.text === 'function' ? file.text() : String(file || '')))
+      .then((s) => {
+        this.result = s;
+        if (typeof this.onload === 'function') this.onload();
+      })
+      .catch((err) => {
+        this.error = err;
+        if (typeof this.onerror === 'function') this.onerror();
+      });
+  }
+}
+Object.defineProperty(globalThis, 'FileReader', { value: FakeFileReader, configurable: true, writable: true });
 
 const dom = createFakeDom(DOM_IDS);
 const document = dom.document;
@@ -163,6 +198,30 @@ test('URL 参数非法：缺参 / 只有 lat / 越界 / 非数字 / 空串 全�
 test('URL 参数：边界值 ±90 / ±180 视为合法', () => {
   assert.notEqual(app.parsePlaceParam('?lat=90&lon=180'), null, '90/180 是合法边界');
   assert.notEqual(app.parsePlaceParam('?lat=-90&lon=-180'), null, '-90/-180 是合法边界');
+});
+
+test('★URL 参数只收十进制字面量：十六进制 / 科学计数法 / 前导 + 号一律不收，0,0 必须收', () => {
+  // Number() 会接受非十进制字面量 —— 0x10 → 16，旧实现正是被它兜成 16,16
+  assert.equal(app.parsePlaceParam('?lat=0x10&lon=0x10'), null, '十六进制 0x10 不得被 Number() 兜成 16');
+  assert.equal(app.parsePlaceParam('?lat=0x0&lon=0x0'), null, '十六进制 0x0 也不收');
+  assert.equal(app.parsePlaceParam('?lat=1e2&lon=1e2'), null, '科学计数法 1e2 不收（见 app.js 的取舍说明）');
+  assert.equal(app.parsePlaceParam('?lat=%2B31&lon=121'), null, '前导 + 号不收');
+  assert.equal(app.parsePlaceParam('?lat=.5&lon=121'), null, '省略整数位的「.5」不收');
+  assert.equal(app.parsePlaceParam('?lat=31.&lon=121'), null, '尾随小数点的「31.」不收');
+  assert.equal(app.parsePlaceParam('?lat=-Infinity&lon=121'), null, '-Infinity 不收');
+
+  // ★真实的零点必须保持合法：0,0（几内亚湾）是个真实地点，不能被「像空值」误杀
+  const zero = app.parsePlaceParam('?lat=0&lon=0');
+  assert.notEqual(zero, null, '0,0 是真实地点，必须解析成功');
+  assert.equal(zero.lat, 0, 'lat 必须是数字 0');
+  assert.equal(zero.lon, 0, 'lon 必须是数字 0');
+
+  // 小数与负数照常放行
+  const dec = app.parsePlaceParam('?lat=-31.2304&lon=121.4737');
+  assert.notEqual(dec, null, '负小数必须合法');
+  assert.equal(dec.lat, -31.2304);
+  assert.equal(dec.lon, 121.4737);
+  assert.notEqual(app.parsePlaceParam('?lat=0.0000&lon=-0.0000'), null, '带小数的零点也合法');
 });
 
 /* ------------------------------------------------------------------ */
@@ -384,4 +443,174 @@ test('我的页：无名字的收藏显示「未命名地点」，链接里 name
     'index.html?lat=0&lon=0&name=',
     'name 为空时链接里也是空串'
   );
+});
+
+/* ------------------------------------------------------------------ */
+/* 6. ★逆地理未返回时点收藏（缺陷 A）                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 造一棵已渲染标题区的 DOM（骨架 + 标题），返回根节点。
+ *
+ * @param {Object} snapshot NowSnapshot。
+ * @returns {Object} 根容器。
+ */
+function renderHeaderOnly(snapshot) {
+  const root = document.createElement('div');
+  now.renderSkeleton(root);
+  now.renderHeader(root, snapshot, {});
+  return root;
+}
+
+test('★首屏 placeName 为 null 时点收藏：存进去的 name 绝不能是空串，必须是坐标串', () => {
+  // 复现 QA 的实测场景：GPS 已成功、逆地理（Photon）还没回来
+  const root = renderHeaderOnly({ atMs: null, coord: { lat: 22.5431, lon: 114.0579, source: 'gps' }, placeName: null, provenance: [] });
+
+  root.querySelector('.fav-btn').click();
+
+  const favs = store.getFavorites();
+  assert.equal(favs.length, 1, '点击必须真的写进 store');
+  assert.equal(favs[0].lat, 22.5431, '坐标必须是当前定位');
+  assert.equal(favs[0].lon, 114.0579);
+  assert.notEqual(favs[0].name, '', '★name 绝不能是空串（空串在「我的」页显示成「未命名地点」）');
+  assert.equal(favs[0].name, '22.5431°N, 114.0579°E', `★必须是可读的坐标串，实际：「${favs[0].name}」`);
+
+  // 落到「我的」页：不得出现「未命名地点」
+  dom.byId['app'].textContent = '';
+  settings.init();
+  const listText = text(dom.byId['app'].querySelector('#fav-list'));
+  assert.ok(listText.indexOf('未命名地点') === -1, `★我的页不得显示「未命名地点」，实际：${listText}`);
+  assert.ok(listText.indexOf('22.5431°N, 114.0579°E') !== -1, `坐标必须显示出来，实际：${listText}`);
+});
+
+test('★同一颗按钮上 placeName 被后台写回后（不重建按钮）点收藏 → 必须拿到真实地名', () => {
+  // 这一条钉的是「click 时现读」而不是「构造时抓闭包」：
+  // 按钮只在首屏渲染过一次，placeName 是渲染之后才被 _background() 写回的。
+  const snapshot = { atMs: null, coord: { lat: 22.5431, lon: 114.0579, source: 'gps' }, placeName: null, provenance: [] };
+  const root = renderHeaderOnly(snapshot);
+
+  // 模拟逆地理返回（app.js 的 _background() 就是这么原地改 placeName 的），**不重画**
+  snapshot.placeName = '深圳 · 福田';
+
+  root.querySelector('.fav-btn').click();
+
+  const favs = store.getFavorites();
+  assert.equal(favs.length, 1);
+  assert.equal(favs[0].name, '深圳 · 福田', `★必须读到写回后的真实地名，实际：「${favs[0].name}」`);
+});
+
+test('★逆地理返回后重新渲染标题再收藏 → 拿到真实地名（坐标兜底不误伤正常路径）', () => {
+  const snapshot = { atMs: null, coord: { lat: 22.5431, lon: 114.0579, source: 'gps' }, placeName: null, provenance: [] };
+  const root = renderHeaderOnly(snapshot);
+
+  // 后台反查写回 + 重画标题（renderHeader 会造一颗新按钮）
+  snapshot.placeName = '深圳 · 福田';
+  now.renderHeader(root, snapshot, {});
+
+  root.querySelector('.fav-btn').click();
+  assert.equal(
+    store.getFavorites()[0].name,
+    '深圳 · 福田',
+    `反查到地名后收藏，存进去的必须是真名，实际：「${store.getFavorites()[0].name}」`
+  );
+});
+
+test('★零点（几内亚湾）无地名时也能兜底成坐标串，不留空', () => {
+  const root = renderHeaderOnly({ atMs: null, coord: { lat: 0, lon: 0, source: 'gps' }, placeName: null, provenance: [] });
+  root.querySelector('.fav-btn').click();
+  const favs = store.getFavorites();
+  assert.notEqual(favs[0].name, '', '0,0 也不得存成空串');
+  assert.equal(favs[0].name, '0.0000°N, 0.0000°E', `实际：「${favs[0].name}」`);
+});
+
+test('★coord.name 已有名字（收藏跳转 / 默认地点）时优先用它，不被坐标串覆盖', () => {
+  const root = renderHeaderOnly({ atMs: null, coord: { lat: 39.9087, lon: 116.3975, source: 'default', name: '北京 · 天安门' }, placeName: null, provenance: [] });
+  root.querySelector('.fav-btn').click();
+  assert.equal(store.getFavorites()[0].name, '北京 · 天安门');
+});
+
+/* ------------------------------------------------------------------ */
+/* 7. ★导入全链路回归（M13 护栏）                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 造一份合法备份 JSON（schema / app / prefs 三件套齐全，否则 inspectBackup 会拒）。
+ *
+ * @param {Array<{lat:number, lon:number, name:string}>} favorites 备份里的收藏。
+ * @returns {string} JSON 文本。
+ */
+function makeBackupJson(favorites) {
+  return JSON.stringify({
+    schema: 1,
+    app: 'geoscope',
+    exportedAt: '2026-01-05T12:34:56.000Z',
+    prefs: {
+      defaultPlace: { lat: 31.2304, lon: 121.4737, name: '上海 · 人民广场' },
+      unitSystem: 'metric',
+      networkType: 'unknown',
+      debug: false,
+      favorites: favorites.map((f) => ({ lat: f.lat, lon: f.lon, name: f.name })),
+    },
+    snapshot: null,
+  });
+}
+
+test('★导入全链路（选文件 → 预览 → 确认）：收藏条数 / 导出卡 {count} / 我的页计数三处同步', async () => {
+  // 起点：本机先有 1 条**别的**收藏 —— 让「导入后条数 = 备份条数」不是碰巧相等，
+  // 也让「三处同步」有可观测的差值（1 → 2）。
+  store.addFavorite({ lat: 23.1291, lon: 113.2644, name: '广州 · 越秀' });
+  dom.byId['app'].textContent = '';
+  dom.byId['export-current'].textContent = '';
+  dom.byId['import-preview'].textContent = '';
+  dom.byId['import-result'].textContent = '';
+  // ★这两个预置节点跨用例复用，而 settings.init() 每次调用都会再挂一遍监听 ——
+  // 前面几个用例各挂过一次，不清干净的话一次 click 会连跑 N 遍 _onConfirm
+  // （第一遍写入成功并把 _plan 清空，后面 N-1 遍都会报「请先选择一个备份文件」）。
+  // 清的是累积下来的旧监听，本次 settings.init() 挂的那一遍不受影响。
+  dom.byId['file-backup'].listeners.clear();
+  dom.byId['btn-confirm'].listeners.clear();
+  settings.init();
+
+  assert.equal(dom.byId['app'].querySelectorAll('.fav-item').length, 1, '导入前本机 1 条');
+  assert.ok(text(dom.byId['export-current']).indexOf('收藏 1 条') !== -1, '导入前导出卡写 1 条');
+
+  // ① 选文件
+  const file = new File(
+    [makeBackupJson([SH, BJ])],
+    'geoscope-backup-20260105-1234.json',
+    { type: 'application/json' }
+  );
+  const input = dom.byId['file-backup'];
+  input.files = [file];
+  await input.fire('change');
+
+  // ② 预览：只校验不写入，本机状态一个字节都不许动
+  assert.equal(store.getFavorites().length, 1, '未确认前不得写入');
+  const preview = text(dom.byId['import-preview']);
+  assert.ok(preview.indexOf('收藏地点：2 条') !== -1, `预览必须列出备份里的收藏条数，实际：${preview}`);
+  assert.equal(dom.byId['btn-confirm'].disabled, false, '确认按钮必须解锁');
+
+  // ③ 确认导入
+  dom.byId['btn-confirm'].click();
+
+  // ④ 三处必须同步（缺任何一处，用户都会以为备份里带着的地点没回来）
+  assert.equal(store.getFavorites().length, 2, '★收藏列表条数必须 = 备份里的条数');
+  assert.equal(persistedFavorites().length, 2, '导入后必须落盘');
+  assert.equal(
+    dom.byId['app'].querySelectorAll('.fav-item').length,
+    2,
+    '★「我的」页列表必须重画成 2 条'
+  );
+  const exportAfter = text(dom.byId['export-current']);
+  assert.ok(exportAfter.indexOf('收藏 2 条') !== -1, `★导出卡 {count} 必须与实际条数一致，实际：${exportAfter}`);
+  const countLine = dom.byId['app'].querySelector('#fav-count');
+  assert.ok(text(countLine).indexOf('共 2 条') !== -1, `★我的页收藏计数文案必须同步，实际：${text(countLine)}`);
+  assert.ok(
+    text(dom.byId['import-result']).indexOf('收藏 2 条') !== -1,
+    `导入结果文案里的条数也要对，实际：${text(dom.byId['import-result'])}`
+  );
+
+  // 导回去的确实是备份里的那两条（顺序与内容都对得上）
+  const names = store.getFavorites().map((f) => f.name);
+  assert.deepEqual(names, ['上海 · 人民广场', '北京 · 天安门'], `实际：${JSON.stringify(names)}`);
 });
