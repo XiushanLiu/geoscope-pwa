@@ -761,6 +761,178 @@ body {
   .compass-rose { transition: none; }
 }
 
+/* ---------------- 底图卡（S57 街道样式 / S58 GRID 降级） ---------------- */
+
+/* 副标题 + 状态标记（S57 `17:7` / `17:4`）：同一行，状态右对齐 */
+.map-sub {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.map-sub-t { font-size: var(--fs-sm); color: var(--c-text-3); }
+.map-status {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 样式切换 chip（S57 `17:36/38/40`）—— 状态色只做填充，文字一律 --c-text-1 */
+.map-chips { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.map-chip {
+  min-height: 32px;
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  color: var(--c-text-1);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.map-chip--active {
+  background: color-mix(in srgb, var(--c-brand) 18%, transparent);
+  border-color: color-mix(in srgb, var(--c-brand) 45%, transparent);
+}
+
+/* 视口：瓦片在此绝对定位叠放，落点恒在正中。
+   max-width:100% 而不是写死宽度 —— 窄屏靠它收缩，瓦片按设计基准裁切（本阶段不做重排）。 */
+.map-viewport {
+  position: relative;
+  overflow: hidden;
+  margin-inline: auto;
+  max-width: 100%;
+  border-radius: var(--r-card-sm);
+  background: color-mix(in srgb, var(--c-text-3) 12%, transparent);
+}
+
+/* 单块瓦片：骨架 → 字节 → 或失败留白（S58 的「空洞瓦片」） */
+.map-cell { position: absolute; overflow: hidden; }
+.map-cell--loading { background: var(--c-card-fill); }
+.map-cell--fail {
+  background: var(--c-card-fill);
+  box-shadow: inset 0 0 0 1px var(--c-divider);
+}
+.map-cell-img { display: block; width: 100%; height: 100%; }
+.map-cell-x {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--c-text-3);
+}
+
+/* 落点（S57 `17:29`–`17:34`）：光环 48×48（品牌青 18% 填充 + 50% 描边）、
+   实心点 8×8、四向准星。位置恒在视口正中 —— 网格按落点对齐铺，不做平移。 */
+.map-pin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 48px;
+  height: 48px;
+  margin: -24px 0 0 -24px;
+  pointer-events: none;
+}
+.map-pin-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--c-brand) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-brand) 50%, transparent);
+}
+.map-pin-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--c-brand);
+}
+.map-pin-tick { position: absolute; background: var(--c-brand); }
+.map-pin-tick--up { left: 23px; top: -14px; width: 2px; height: 14px; }
+.map-pin-tick--down { left: 23px; bottom: -14px; width: 2px; height: 14px; }
+.map-pin-tick--left { top: 23px; left: -14px; width: 14px; height: 2px; }
+.map-pin-tick--right { top: 23px; right: -14px; width: 14px; height: 2px; }
+
+/* 缩放控件（S57 `17:45`，48×64，视口右下） */
+.map-zoom {
+  position: absolute;
+  right: var(--sp-3);
+  bottom: var(--sp-3);
+  width: 48px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--c-card-fill);
+  box-shadow: inset 0 0 0 1px var(--c-card-stroke);
+}
+.map-zoom-btn {
+  display: block;
+  width: 100%;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--c-text-1);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+.map-zoom-btn:disabled { color: var(--c-text-3); cursor: default; }
+.map-zoom-sep { display: block; height: 1px; background: var(--c-divider); }
+
+/* 纯坐标模式（S58 的 no-map 语义）：一块都不请求，明确告诉用户数值不受影响 */
+.map-viewport--nomap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.map-nomap { display: flex; flex-direction: column; gap: var(--sp-1); text-align: center; padding: var(--sp-4); }
+.map-nomap-t { font-size: var(--fs-md); color: var(--c-text-1); }
+.map-nomap-d { font-size: var(--fs-xs); color: var(--c-text-3); }
+
+/* 骨架视口 */
+.map-viewport--sk { display: flex; align-items: center; justify-content: center; }
+.map-sk-note { font-size: var(--fs-sm); color: var(--c-text-3); }
+
+/* 坐标行（S57 `17:42`–`17:44`）：坐标用等宽字体，明细次要色 */
+.map-coord {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.map-coord-v {
+  font-family: var(--ff-mono);
+  font-size: var(--fs-sm);
+  color: var(--c-text-1);
+  font-variant-numeric: tabular-nums;
+}
+.map-coord-d { font-size: var(--fs-xs); color: var(--c-text-3); }
+
+/* 署名（Esri 条款硬要求，设计稿漏画的一行）—— 必须始终可见、不被遮挡 */
+.map-credit {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  line-height: 1.5;
+}
+
+.map-foot {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-chip { transition: none; }
+}
+
 /* ---------------- 小屏微调 ---------------- */
 
 @media (max-width: 360px) {

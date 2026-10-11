@@ -245,6 +245,27 @@ export const ZH = {
   'tile.imagery': '影像图',
   'tile.dark': '暗色图',
 
+  // ---------- 底图渲染（S57 街道样式 / S58 GRID 降级） ----------
+  'card.map': '底图',
+  'map.subtitle': '256 px 瓦片按 z/x/y 拼接 · 街道 / 影像 / 暗色三样式',
+  'map.zoom': 'z{zoom}',
+  'map.trusted': '已授信',
+  'map.untrusted': '未授信',
+  'map.cacheHit': '缓存命中',
+  'map.loading': '瓦片加载中',
+  'map.blocks': '{ok}/{total} 块',
+  'map.detail': '{blocks} · {elapsed} · {tail}',
+  'map.tailBlank': '{n} 块留白',
+  'map.tailFailed': '{n} 块失败',
+  'map.noMap': '底图不可用，已切换为纯坐标模式',
+  'map.noMapNote': '坐标与数值不受影响',
+  'map.zoomIn': '放大',
+  'map.zoomOut': '缩小',
+  'map.footnote': '瓦片按 URL 缓存 7 天 · 授信后发请求 · 6 s 超时不重试',
+  'map.gridFootnote': '底图缺块不影响坐标与数值 · 离线仍可出网格',
+  'map.credit': '底图署名',
+  'map.skeletonNote': '瓦片未到 · 先出骨架',
+
   // ---------- 关于与边界 ----------
   'about.title': '关于与边界',
   'about.noCommercial': '不商业化：自用工具，无广告、无第三方统计、无账号登录、无后端。',

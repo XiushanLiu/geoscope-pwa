@@ -3,6 +3,21 @@
 > 版本：v2（已与阶段一实现代码对齐）· 阶段一（数据源接入层 + 此刻屏 + 数据源自检页）
 > 技术栈：零构建原生 PWA（HTML + CSS + 原生 ES Module，零第三方依赖）
 > 坐标基准：内部一律 WGS84；显示层 GCJ-02 纠偏本阶段仅占位，不实现。
+>
+> **底图坐标系（2026-10-11 实测取证，勿凭印象改）**：Esri 三个瓦片服务（`World_Street_Map` /
+> `World_Imagery` / `Canvas/World_Dark_Gray_Base`）的 `?f=json` 均返回
+> `spatialReference.wkid = 102100`（`latestWkid = 3857`），即 WGS_1984_Web_Mercator_Auxiliary_
+> Sphere；瓦片 256×256，lods 0–23。故渲染层用 WGS84 经纬度**直接**做 Web Mercator 换算
+> （`tiles.js` 的 `lonLatToTile()`），**不做 GCJ-02 纠偏** —— 先转 GCJ-02 反而与瓦片错位。
+>
+> ⚠️ **未确认点（只登记、不猜，本阶段不实现纠偏）**：street 服务的 `serviceDescription` 写有
+> "NGCC data for China"。瓦片金字塔是 WGS84 Web Mercator 无疑，但**中国境内矢量要素是否按
+> GCJ-02 生产**没有官方声明，未确认。若真机发现落点与路网错开数百米，再启用 `core/geo.js`
+> 的 `wgs84ToGcj02()` 占位函数 —— 现在不要实现纠偏。
+>
+> **底图条款（同源实测）**：① 必须显示该样式的 `copyrightText` + "Powered by Esri"，且随样式
+> 切换（地图卡 `.map-credit`）；② 不得用 robots / 自动批量拉取（3×3 探测与按需拉瓦片属正常
+> 浏览，合规）；③ 三个服务 `exportTilesAllowed:false`，不做离线批量导出 / MBTiles。
 > **v2 变更**：按工程师实现过程中产生的 10 条出入（主理人逐条裁定采纳）回写，详见文末 §9 变更记录。
 
 ---
@@ -12,7 +27,7 @@
 | 项 | 结论 |
 |---|---|
 | 交付规模 | **35 个主文件 + 18 个测试文件**（另含测试装置 `tests/harness.mjs` 与本文档），约 15,300 行；全部为零依赖原生 ESM，无任何 npm 运行时包 |
-| 单元测试 | `node --test "tests/*.test.mjs"` → **240/240 通过**（18 个用例文件；此前文档记的 182 只统计了已登记的 15 个文件，漏了 `sw-offline.test.mjs` 的 18 条，已补登记） |
+| 单元测试 | `node --test "tests/*.test.mjs"` → **253/253 通过**（19 个用例文件；此前文档记的 182 只统计了已登记的 15 个文件，漏了 `sw-offline.test.mjs` 的 18 条，已补登记） |
 | 冒烟脚本 | `node tools/smoke.mjs` → **188/188 通过** |
 | 静态检查 | `node tools/check.mjs` → **597/597 通过**（含六路源契约硬断言与隐私红线扫描） |
 | 配色审计 | `node tools/contrast-audit.mjs` → **59 条全覆盖、全部达标（≥ 4.5:1）、退出码 0**（`app.css` 全部 `color:` 声明；v13 起改为数据驱动扫描，v12 及以前只硬编码 9 个选择器，故当年「18 项全达标」只在自己那 9 个里成立）。门槛一律 4.5:1，只有 ≥18pt(24px) 才适用 WCAG 大字 3:1；全清单最低一项 4.57:1（浅色次要文字压屏渐变暗端） |
@@ -75,6 +90,7 @@
 | 21 | `src/ui/now.js` | 此刻屏渲染：天气/空气/海拔/地名卡片、溯源气泡雏形、五种降级态 + `grid` 变体分支渲染 | 454 |
 | 22 | `src/ui/selfcheck.js` | 自检页：预热→取样（瓦片强制 `useCache:false`）→实时上屏→**分样式去重 + 三样式共识**→**样式授信（持久化）**→整批裁决地图模式→三条件合取汇总→网络类型标记→导出 JSON（含 `mapMode`） | 789 |
 | 23b | `src/ui/compass.js` | ★新增：方位屏渲染与装配 —— 磁偏角卡（D/I/F/H + 年变率，超期挂告警态但数值不隐藏）、模型卡（版本/历元/有效期/来源 + 到期提示）、真↔磁方位手动双向换算、**罗盘（有传感器才画指针，无/未授权/桌面一律降级不白屏）**；`computeAt()` 收口米→千米与 `decimalYear` 两处易错点；异常降级为「暂不可用」 | 777 |
+| 23c | `src/ui/map.js` | ★新增：**底图渲染**（S57 街道样式 / S58 GRID 降级）—— 按容器算行列（3×3 起手）、样式切换三 chip、缩放 z10–z16（起手 z12）、落点（光环 48 + 实心点 8 + 四向准星）、骨架态、GRID 失败块留白 + ×、NO_MAP 纯坐标、**署名随样式切换**；换算只走 `lonLatToTile()`（与 `sampleTiles()` 共用一份）；缓存命中走 Blob URL 且必须 `revokeObjectURL`；渲染侧不写缓存（授信门不被绕过） | 560 |
 | 23 | `src/ui/app.js` | 入口装配：注册 SW、初始化 store/health、绑定定位与刷新、首屏串行三源 + reverse/瓦片后台补齐（`probeTileBatch()` 探 `TILE_PROBE_COUNT=3` 块、**整批 8 s 时间预算**内逐块收紧超时，≥2 块才整批裁决，grid 才可达）、`_bannerMode()` 决定横幅态（grid 换如文案，offline/empty/stale 让位）、挂载 `now.js` | 574 |
 | 24 | `tools/serve.mjs` | 零依赖静态服务器（ES Module 需 http 协议，`file://` 不可用），默认 `127.0.0.1:8080`，含 MIME 与目录穿越防护 | 248 |
 | 25 | `tools/smoke.mjs` | 冒烟脚本：mock fetch，188 条断言，离线验证队列/超时/重试/TTL/降级/URL 拼装/隐私红线/瓦片缓存与三态 | 738 |
@@ -86,7 +102,7 @@
 | 30 | `tools/verify-standalone.mjs` | 单文件版校验器：17 条断言，确认产物里 CSS 与每个模块源码**与磁盘当前内容逐字一致**，防止产物悄悄变旧 | 82 |
 | 31 | `tools/contrast-audit.mjs` | **改完配色必跑**：**数据驱动**解析 `app.css`，凡声明 `color:` 的规则全部纳入（59 条；v12 及以前只硬编码 9 个选择器，故当年「18 项全达标」只在自己那 9 个里成立）。基底按「屏渐变（两端取较差者）→ 容器填色 → 自身填色」合成，含 `color-mix` 预乘语义；门槛一律 4.5:1，只有 ≥18pt(24px) 才适用 WCAG 大字 3:1（14pt-bold 那条因 bold 无明确阈值定义不采用）。手工维护的只剩两张**结构表**（不在卡片内的区域 / 父容器自带填色的少数处）。有项 < 4.5:1 则退出码 1 | 430 |
 
-**测试文件 18 个**（`node --test "tests/*.test.mjs"`，240 条断言）：
+**测试文件 19 个**（`node --test "tests/*.test.mjs"`，253 条断言）：
 
 | # | 路径 | 覆盖对象 | 行数 |
 |---|---|---|---|
@@ -107,6 +123,7 @@
 | 17 | `tests/tile-budget.test.mjs` | ★新增：瓦片整批探测的**时间预算** —— 全慢时整批被压到预算量级（远小于 3×6 s）、全快时不误杀（3 块全探且仍判 map）、默认预算生效、`shouldStop()` 仍在循环内（epoch 竞态守卫不许回退）、单块抛异常只记该块失败、预算 < 块数×单块超时的契约、**队列让步点已在 app 层免费实现（`http.js` 无需改动的结论被源码级锁死）** | 193 |
 | 18 | `tests/sw-offline.test.mjs` | Service Worker 离线行为：预缓存清单、cache-first 命中、跨域 API/瓦片不拦截、离线导航按 URL 兜底回对应页面 | 540 |
 | 19 | `tests/compass.test.mjs` | ★新增：方位屏 —— 北京 2025 官方值（D −7.49°/I 59.31°/F 54895 nT）、**超期仍返回数值**且 level='error'/overshoot≈5、真↔磁换算严格互逆、换算卡手动输入双向、有传感器才画盘、无传感器降级不白屏（含端到端 `boot()`）、米→千米换算、**诚实红线（文案不得出现精度/误差、不得直出 warning 原文）** | 297 |
+| 20 | `tests/map-render.test.mjs` | ★新增：底图渲染回归 —— `lonLatToTile` 与 `sampleTiles` 一致（防两份换算漂移）、URL 顺序必须是 `{z}/{y}/{x}`（防写反）、缓存命中走 Blob URL 且被 revoke、**GRID 失败块留白 + ×**、NO_MAP 零请求、**署名非空且随样式切换**、缩放钳位与边界禁用 | 295 |
 | 16 | `tests/contrast.test.mjs` | ★新增：配色红线 —— 扫描 `app.css`，告警红（`--c-alert` / `--c-state-failed`）不得作为文字色（放行红底纹与红边框）；横幅三档色阶递进 partial 7% < grid 14% < empty 20%；chip 状态色不作文字色 | 116 |
 | 15 | `tests/grid-banner.test.mjs` | ★新增：grid 态横幅文案如实（`mode.grid`，不复用 `partial` 那句「其余数据正常」）、`.banner--grid` / `.banner--partial` / `.banner--empty` 样式钩真实存在且色阶递进、端到端 `boot()` 后横幅真挂 `banner--grid` 与 `banner--empty` | 344 |
 

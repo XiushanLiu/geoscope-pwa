@@ -17,6 +17,24 @@
  * （截短后去重语义等价）。导出 JSON 用 fpAlgo 字段标明算法；界面文案统一称「指纹 fp」。
  * 安全上下文缺失（crypto.subtle 不可用）时降级为「字节长度 + 首 64 字节 hex」（algo='size-head'）。
  *
+ * 坐标系（2026-10-11 实测三个服务的 `?f=json` 取证，勿凭印象改）：
+ * 三者 `spatialReference` 均为 **wkid 102100 / latestWkid 3857**，即 WGS_1984_Web_Mercator_
+ * Auxiliary_Sphere（Web Mercator）；瓦片 256×256，lods 0–23。故内部 WGS84 坐标**直接**
+ * 做 Web Mercator 换算即可，**不做 GCJ-02 纠偏** —— 先转 GCJ-02 反而与瓦片错位。
+ *
+ * ⚠️ 未确认点（只登记、不猜；本阶段**不实现**纠偏）：street 服务的 `serviceDescription`
+ *   写有 "NGCC data for China"。瓦片金字塔是 WGS84 Web Mercator 无疑，但**中国境内矢量
+ *   要素是否按 GCJ-02 生产**没有官方声明，未确认。若真机发现落点与路网错开数百米，
+ *   再启用 `core/geo.js` 的 `wgs84ToGcj02()` 占位函数 —— 现在不要实现纠偏。
+ *
+ * 服务条款（同样来自实测响应，改动前先重读）：
+ *   1) **必须署名**：每个服务都返回 `copyrightText`，且 Esri 要求同时显示
+ *      "Powered by Esri"（见 `TILE_CREDITS` / `TILE_POWERED_BY` / `tileAttribution()`）。
+ *      这是条款硬要求，不是可选项；地图卡上的署名必须随样式切换。
+ *   2) 不得用 robots / 自动批量拉取 ArcGIS Online 地图。
+ *      本项目的 3×3 探测与按需拉瓦片属正常浏览，合规；不得改成批量爬取。
+ *   3) 三个服务的 `exportTilesAllowed` 均为 **false** —— 不许做离线批量导出 / MBTiles。
+ *
  * 已被实测剔除、禁止再引用的源：nominatim.openstreetmap.org、basemaps.cartocdn.com、
  * tile.openstreetmap.org、overpass（本阶段不实现 POI）。
  */
@@ -52,8 +70,48 @@ export const TILE_STYLES = {
   },
 };
 
-/** 许可署名。 */
+/** 许可署名（源级，不随样式变化；用于溯源气泡等「只标服务名」的场景）。 */
 export const TILE_ATTRIBUTION = 'Esri ArcGIS Online World Tile Service';
+
+/**
+ * 各样式的**实测** `copyrightText`（2026-10-11 取自三个服务 `?f=json` 的返回，勿手改）。
+ *
+ * 这是条款硬要求：显示了哪一路底图，就必须把那一路的数据提供方名字显示出来。
+ */
+export const TILE_CREDITS = {
+  street:
+    'Sources: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, Esri Japan, METI, ' +
+    'Esri China (Hong Kong), Esri Korea, Esri (Thailand), NGCC, (c) OpenStreetMap contributors, ' +
+    'and the GIS User Community',
+  imagery: 'Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community',
+  dark: 'Esri, HERE, Garmin, (c) OpenStreetMap contributors, and the GIS User Community',
+};
+
+/** Esri 技术署名（与数据署名并列显示，同为条款要求）。 */
+export const TILE_POWERED_BY = 'Powered by Esri';
+
+/**
+ * 取某样式的完整署名串（数据提供方 + Esri 技术署名）。
+ *
+ * @param {string} styleId 样式 id。
+ * @returns {string} 署名串；未知样式回落到 street。
+ */
+export function tileAttribution(styleId) {
+  const credit = TILE_CREDITS[styleId] || TILE_CREDITS.street;
+  return `${credit} · ${TILE_POWERED_BY}`;
+}
+
+/** 瓦片像素尺寸（三个服务的 tileInfo 均为 256×256）。 */
+export const TILE_SIZE = 256;
+
+/** 缩放层级下限（z10：城市级视野）。 */
+export const MIN_ZOOM = 10;
+
+/** 缩放层级上限（z16：街区级视野；再往上 Esri 暗色样式已无覆盖）。 */
+export const MAX_ZOOM = 16;
+
+/** 起手缩放层级（z12）。 */
+export const DEFAULT_ZOOM = 12;
 
 /** 瓦片探测超时（毫秒），retry 恒为 0。 */
 export const TILE_TIMEOUT_MS = 6000;
@@ -228,6 +286,29 @@ function _cacheSet(url, entry) {
  */
 export function clearTileCache() {
   _tileCache.clear();
+}
+
+/**
+ * 取缓存里的瓦片**字节**（渲染层用）。
+ *
+ * 只暴露给 `ui/map.js` 拼 Blob URL：命中缓存就不必再走网络、也不必再等一次 6 s 超时。
+ * 读侧**不判授信**是刻意的：能进缓存的条目必然是该样式授信后写入的（写侧判据见
+ * `probeTile()`），而撤销授信时 `markStyleTrusted()` 已把该样式的缓存清空 ——
+ * 读侧再判一次是重复劳动，还会在「刚授信」的边界上产生假阴性。
+ *
+ * @param {string} url 瓦片 URL（缓存键）。
+ * @returns {{bytes:ArrayBuffer|Uint8Array, contentType:string|null, fp:string,
+ *            httpStatus:number|null}|null} 缓存条目；未命中或已过期时 null。
+ */
+export function tileCachedBytes(url) {
+  const hit = _cacheGet(url);
+  if (!hit) return null;
+  return {
+    bytes: hit.bytes,
+    contentType: hit.contentType,
+    fp: hit.fp,
+    httpStatus: hit.httpStatus,
+  };
 }
 
 /**
@@ -581,7 +662,54 @@ export function isNoMapMode() {
 }
 
 /**
+ * 经纬度 → 瓦片号（Web Mercator，与 Esri 三服务的 102100/3857 一致）。
+ *
+ * **全仓唯一一份换算实现**：`sampleTiles()` 与渲染层 `ui/map.js` 都走它，
+ * 避免两份实现漂移（瓦片号算错不会报错，只会静默错位几百公里，最难查）。
+ *
+ * 两处防御缺一不可：
+ * - 纬度必须先钳到 ±85.0511° 再算 —— Web Mercator 在此之外发散，
+ *   `Math.log(Math.tan())` 会得到 NaN/Infinity，NaN 会一路泄漏进 URL；
+ * - 算完再做一次有限性校验 —— 任何一步出非有限值都退回 0，保证输出永远合法。
+ *
+ * @param {number} lat 纬度（WGS84，度）。非法时按 0 处理。
+ * @param {number} lon 经度（WGS84，度）。非法时按 0 处理。
+ * @param {number} z 缩放层级。非法时按 DEFAULT_ZOOM 处理。
+ * @returns {{z:number, x:number, y:number, fx:number, fy:number}} 瓦片号（x/y 已钳进
+ *   [0, 2^z-1]）；`fx` / `fy` 是落点在该瓦片内的**归一化偏移**（[0,1)），渲染层靠它把
+ *   落点对齐到视口正中 —— 同一份换算同时给出两块信息，避免渲染层再写一份然后漂移。
+ */
+export function lonLatToTile(lat, lon, z) {
+  const rawLat = Number(lat);
+  const rawLon = Number(lon);
+  const rawZ = Number(z);
+  const lv = Number.isFinite(rawZ) ? Math.round(rawZ) : DEFAULT_ZOOM;
+  // 层级也要钳：负数 / 超大 z 会让 2 ** z 变成 0 或 Infinity，同样会污染 URL
+  const zc = Math.min(23, Math.max(0, lv));
+  const n = 2 ** zc;
+
+  const latIn = Number.isFinite(rawLat) ? Math.max(-85.0511, Math.min(85.0511, rawLat)) : 0;
+  const lonIn = Number.isFinite(rawLon) ? rawLon : 0;
+  const latRad = (latIn * Math.PI) / 180;
+  // 先算浮点列/行号：整数部分就是瓦片号，小数部分就是瓦片内偏移
+  const fx0 = ((lonIn + 180) / 360) * n;
+  const fy0 = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+  const x = Math.floor(fx0);
+  const y = Math.floor(fy0);
+
+  return {
+    z: zc,
+    x: Number.isFinite(x) ? Math.min(n - 1, Math.max(0, x)) : 0,
+    y: Number.isFinite(y) ? Math.min(n - 1, Math.max(0, y)) : 0,
+    fx: Number.isFinite(fx0) ? fx0 - Math.floor(fx0) : 0.5,
+    fy: Number.isFinite(fy0) ? fy0 - Math.floor(fy0) : 0.5,
+  };
+}
+
+/**
  * 生成自检用的瓦片取样坐标：同一缩放层级下 3 个彼此远离的位置，用于识破「假成功源」。
+ *
+ * 换算与渲染层共用 `lonLatToTile()`（见该函数注释），这里只负责挑位置。
  *
  * @param {{lat:number, lon:number}} [coord] 参考坐标（默认北京天安门）。
  * @returns {Array<{z:number, x:number, y:number}>} 3 个瓦片坐标。
@@ -592,8 +720,6 @@ export function sampleTiles(coord) {
   // 坐标缺失/非法时回落到默认地点（北京天安门）
   const lat = Number.isFinite(rawLat) ? Math.max(-85.0511, Math.min(85.0511, rawLat)) : 39.9087;
   const lon = Number.isFinite(rawLon) ? rawLon : 116.3975;
-  const z = 12;
-  const n = 2 ** z;
 
   const centers = [
     { lat, lon },
@@ -602,19 +728,8 @@ export function sampleTiles(coord) {
   ];
 
   return centers.map((c) => {
-    // Web Mercator 在 ±85.0511° 之外发散：Math.log(Math.tan()) 会得到 NaN/Infinity，
-    // 必须先钳制再算，否则 NaN 会一路泄漏到 URL，把「坐标越界」伪装成「底图不可用」。
-    const cLat = Math.max(-85.0511, Math.min(85.0511, c.lat));
-    const latRad = (cLat * Math.PI) / 180;
-    const x = Math.floor(((c.lon + 180) / 360) * n);
-    const y = Math.floor(
-      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n
-    );
-    // 二次有限性校验：任何一步算出非有限值都退回 0，保证输出永远合法
-    return {
-      z,
-      x: Number.isFinite(x) ? Math.min(n - 1, Math.max(0, x)) : 0,
-      y: Number.isFinite(y) ? Math.min(n - 1, Math.max(0, y)) : 0,
-    };
+    const tl = lonLatToTile(c.lat, c.lon, DEFAULT_ZOOM);
+    // 自检只认瓦片号；fx/fy 是渲染层对齐落点用的，不外带（保持本函数输出形状不变）
+    return { z: tl.z, x: tl.x, y: tl.y };
   });
 }

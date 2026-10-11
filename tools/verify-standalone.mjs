@@ -1,7 +1,7 @@
 /**
  * 校验 selfcheck-standalone.html（单文件自检页）是否装配正确：
  * 1. HTML 里不能残留任何相对资源引用（模块 src / 样式 href / manifest / index.html 死链）
- * 2. 内联的 15 个模块能按真实目录结构落盘并被 Node 正常 import
+ * 2. 内联的 16 个模块能按真实目录结构落盘并被 Node 正常 import
  * 3. 关键导出可用（apiSources 应为 5 路、SOURCE_LIST 6 条、瓦片 URL 路径正确）
  *
  * 用法：node tools/verify-standalone.mjs
@@ -43,7 +43,9 @@ try {
   process.exit(1);
 }
 const keys = Object.keys(MODULES);
-ok('模块数量 = 15', keys.length === 15, `实际 ${keys.length}`);
+// ★登记值：与 build-standalone.mjs 的模块列表长度绑定。新增模块时**两处一起改**，
+//   否则这条守卫会直接失败（它就是要拦「产物悄悄变旧 / 少内联一个模块」）。
+ok('模块数量 = 16', keys.length === 16, `实际 ${keys.length}`);
 ok('含入口 src/ui/selfcheck.js', keys.includes('src/ui/selfcheck.js'));
 
 console.log('\n[3] 落盘后按真实结构 import');

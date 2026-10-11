@@ -138,6 +138,10 @@ export function renderSkeleton(root) {
   root.appendChild(_slot(root, 'weather')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'air')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'place')).appendChild(h('div', { class: 'sk' }));
+  // 底图槽：这里**只建槽不填内容**，由 ui/map.js 的 renderMapSkeleton / renderMapCard 填充
+  // （now.js 不 import map.js —— map.js 要用 now.js 的 h()，反方向依赖会成环）。
+  // ★顺序必须在 prov 之前建：槽位顺序由首次创建那一刻决定，建错位置就再也挪不回去。
+  root.appendChild(_slot(root, 'map'));
   root.appendChild(_slot(root, 'prov'));
 }
 

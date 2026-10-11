@@ -24,6 +24,7 @@ const SHELL_ASSETS = [
   './src/ui/now.js',
   './src/ui/selfcheck.js',
   './src/ui/compass.js',
+  './src/ui/map.js',
   './src/i18n/zh.js',
   './src/core/http.js',
   './src/core/cache.js',

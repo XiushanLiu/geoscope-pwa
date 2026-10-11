@@ -44,6 +44,7 @@ import {
   renderSnapshot,
   applyI18n,
 } from './now.js';
+import { renderMapCard, renderMapSkeleton } from './map.js';
 
 /** 定位超时（毫秒）。 */
 const GEO_TIMEOUT_MS = 8000;
@@ -447,6 +448,9 @@ export async function boot() {
 
   // 骨架屏立即上屏（不转圈等待定位与网络）
   renderSkeleton(root);
+  // 底图骨架：槽位已在 renderSkeleton 里建好（位置卡之后、溯源之前），这里只填内容。
+  // 瓦片比三路 API 慢得多（真机中位 693 ms、峰值 3198 ms），先出骨架再等字节。
+  renderMapSkeleton(root);
 
   const coord = await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS });
   if (epoch !== _epoch) return; // 定位期间已被新一轮接管
@@ -463,6 +467,9 @@ export async function boot() {
   // 离线：不发任何请求
   if (!isOnline()) {
     _renderOffline(root, bannerEl, snapshot, isDefaultPlace);
+    // 离线也把底图卡渲出来：瓦片取不到会逐块留白 + ×（GRID 呈现），
+    // 比让骨架屏永久挂着诚实 —— 用户至少看得到坐标与「底图这次没取到」。
+    renderMapCard(root, { coord: snapshot.coord });
     return;
   }
 
@@ -539,6 +546,10 @@ export async function boot() {
     log('background failed', err && err.message);
   }
   if (epoch !== _epoch) return;
+  // ★底图卡放在瓦片探测**之后**渲染：三态（map / grid / no-map）由 degradeMapMode()
+  //   在 _background 里按整批裁决完，此时读 mapMode() 才是本轮真实结论，
+  //   而不是上一轮的残留 —— 否则会渲染出与横幅互相矛盾的地图。
+  renderMapCard(root, { coord: snapshot.coord });
   setLastSnapshot(snapshot);
 }
 

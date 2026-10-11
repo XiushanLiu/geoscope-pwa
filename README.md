@@ -131,6 +131,7 @@ src/data/wmm2025.js        WMM2025 系数表（G/H/DG/DH）+ 模型装配（换�
 src/ui/now.js              此刻屏渲染 + 降级态横幅
 src/ui/selfcheck.js        自检页渲染 + 导出 JSON + 网络类型手动选择
 src/ui/compass.js          方位屏渲染 + 入口装配（磁偏角 / 模型卡 / 换算 / 罗盘降级）
+src/ui/map.js              底图渲染（瓦片拼接 / 样式切换 / 缩放 / 落点 / GRID 降级 / 署名）
 src/ui/app.js              此刻屏入口装配
 tools/serve.mjs            本地静态服务
 tools/smoke.mjs            无网冒烟脚本
