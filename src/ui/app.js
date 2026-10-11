@@ -453,11 +453,16 @@ function _maxStaleAge(snapshot) {
 const DECIMAL_LITERAL_RE = /^-?\d+(\.\d+)?$/;
 
 /**
- * 从 URL 查询串解析「指定地点」（跨页传参：收藏列表 → 此刻页）。
+ * 从 URL 查询串解析「指定地点」（跨页传参：收藏列表 / 地点搜索 → 此刻页）。
  *
  * 为什么必须有它：本项目**无 SPA 路由**，四个 HTML 页靠 `<nav class="tabbar">` 的
  * `<a href>` 整页跳转，页面间没有任何共享内存（每次导航都是全新的 JS 环境）。
- * 收藏列表要点一下就跳到那个地点，只能把坐标写在 URL 上。
+ * 收藏列表要点一下就跳到那个地点、搜索结果点一下就切过去，只能把坐标写在 URL 上。
+ *
+ * ★`source` 为什么叫 'explicit' 而不是 'favorite'：这条通路现在承载**两种**来源
+ * （收藏跳转 + 地点搜索结果），写死 'favorite' 就是假话 —— 搜索出来的城市从来没被
+ * 收藏过。'explicit' 的含义是「用户显式指定的地点」，两种来源都成立。
+ * 判断「是不是默认地点」仍只看 `source === 'default'`（见 resolveCoord）。
  *
  * 严格十进制解析（不做 Number() 宽容转换）：空串 / 空白 / 非十进制字面量一律判为非法。
  * 理由与 store.js 的 _normPlace() 同一条 —— `Number('')` 与 `Number(null)` 都是 0，
@@ -471,7 +476,7 @@ const DECIMAL_LITERAL_RE = /^-?\d+(\.\d+)?$/;
  * 参数非法 / 缺失一律返回 null，调用方退回原有的定位流程，行为不变。
  *
  * @param {string} [search] 查询串（可带或不带前导 '?'）；缺省读 location.search。
- * @returns {{lat:number, lon:number, name:string, source:'favorite'}|null} 解析结果；非法时 null。
+ * @returns {{lat:number, lon:number, name:string, source:'explicit'}|null} 解析结果；非法时 null。
  */
 export function parsePlaceParam(search) {
   let raw = '';
@@ -509,15 +514,15 @@ export function parsePlaceParam(search) {
   } catch (err) {
     name = '';
   }
-  return { lat, lon, name, source: 'favorite' };
+  return { lat, lon, name, source: 'explicit' };
 }
 
 /**
  * 由 coord 解析出 base 坐标与「是否默认地点」。
  *
  * ★`isDefaultPlace` 只认 `source === 'default'`（真正走了 geo.js 兜底），
- * 不能写成 `base.source !== 'gps'`：收藏跳转带的是 `source:'favorite'`，
- * 按旧写法会被判成「默认地点」，于是用户明明点的是自己收藏的上海，
+ * 不能写成 `base.source !== 'gps'`：收藏跳转与搜索结果带的是 `source:'explicit'`，
+ * 按旧写法会被判成「默认地点」，于是用户明明点的是自己收藏的上海或刚搜到的北京，
  * 界面却写着「未取得定位，正在显示默认地点」—— 一句彻头彻尾的假话。
  * 抽成函数是为了让这条语义能被单测直接钉死（见 tests/favorites.test.mjs）。
  *

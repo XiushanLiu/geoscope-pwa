@@ -128,6 +128,20 @@ export const ZH = {
   'aqi.very-poor.advice': '敏感人群应避免外出',
   'aqi.extreme.advice': '尽量避免外出，必要时佩戴口罩',
 
+  // ---------- 地点搜索 ----------
+  // 搜索是「看别的地方」的唯一入口：没有它，用户只能看自己站的那一处（定位）或
+  // 已经收藏过的那几处，形成「只能看当前位置 → 收藏它 → 在收藏之间跳」的死锁。
+  // ★'search.failed' 与 'search.empty' 必须是**两句不同的话**：合成一句「没找到」
+  // 会把超时 / 断网伪装成「这地方不存在」，用户会以为自己打错了而不是网络坏了。
+  'search.open': '搜索地点',
+  'search.close': '收起搜索',
+  'search.placeholder': '输入城市或地名',
+  'search.minChars': '至少输入 {n} 个字再搜索',
+  'search.loading': '正在搜索…',
+  'search.empty': '没有找到这个地方',
+  'search.failed': '搜索失败，不是「没有这个地方」',
+  'search.unnamed': '（未命名）',
+
   // ---------- 自检页 ----------
   'sc.title': '数据源自检',
   'sc.subtitle': '真机复验：逐源串行取样，瓦片做指纹去重判定',

@@ -8,7 +8,9 @@
  * 覆盖：
  *   1) removeFavorite 命中 / 未命中 / 删后落盘；
  *   2) URL 参数解析：合法 / 缺参 / 只有 lat / 越界 / 非数字 / 空串；
- *   3) ★source:'favorite' 时 isDefaultPlace 必须是 false（旧写法 !== 'gps' 会判错）；
+ *   3) ★source:'explicit' 时 isDefaultPlace 必须是 false（旧写法 !== 'gps' 会判错）；
+ *      （'explicit' 由 'favorite' 改名而来：这条 URL 通路现在还承载地点搜索结果，
+ *        继续叫「收藏」是假话。语义未变，只是名字中性化。）
  *   4) 收藏按钮 toggle 往返（加 → 已收藏 → 取消 → 未收藏）；
  *   5) 我的页收藏列表渲染 + 删除后条数变化 + 空态 + 导出卡计数同步；
  *   6) ★逆地理未返回时点收藏：name 用坐标串兜底，绝不留空（缺陷 A 护栏）；
@@ -162,20 +164,20 @@ test('isFavorite 与 addFavorite 去重口径一致（精确 lat+lon）', () => 
 /* 2. URL 参数解析                                                       */
 /* ------------------------------------------------------------------ */
 
-test('URL 参数合法：解析出坐标与中文名，source 标记为 favorite', () => {
+test('URL 参数合法：解析出坐标与中文名，source 标记为 explicit', () => {
   const got = app.parsePlaceParam('?lat=31.2304&lon=121.4737&name=' + encodeURIComponent('上海 · 人民广场'));
   assert.notEqual(got, null, '合法参数必须解析出结果');
   assert.equal(got.lat, 31.2304);
   assert.equal(got.lon, 121.4737);
   assert.equal(got.name, '上海 · 人民广场', '中文名必须解出来');
-  assert.equal(got.source, 'favorite');
+  assert.equal(got.source, 'explicit');
 });
 
 test('URL 参数：没有 name 时退化为空串，不崩', () => {
   const got = app.parsePlaceParam('?lat=31.2304&lon=121.4737');
   assert.notEqual(got, null, 'name 是可选的，缺了也要能跳');
   assert.equal(got.name, '', '缺 name 必须退化成空串');
-  assert.equal(got.source, 'favorite');
+  assert.equal(got.source, 'explicit');
 });
 
 test('URL 参数非法：缺参 / 只有 lat / 越界 / 非数字 / 空串 全部返回 null', () => {
@@ -228,10 +230,10 @@ test('★URL 参数只收十进制字面量：十六进制 / 科学计数法 / �
 /* 3. ★isDefaultPlace 语义                                              */
 /* ------------------------------------------------------------------ */
 
-test('★source=favorite 时 isDefaultPlace 必须为 false（旧写法 !== "gps" 会判成 true）', () => {
-  const r = app.resolveCoord({ lat: SH.lat, lon: SH.lon, name: SH.name, source: 'favorite' });
-  assert.equal(r.isDefaultPlace, false, '从收藏跳过去绝不能显示「未取得定位，正在显示默认地点」');
-  assert.equal(r.base.source, 'favorite');
+test('★source=explicit 时 isDefaultPlace 必须为 false（旧写法 !== "gps" 会判成 true）', () => {
+  const r = app.resolveCoord({ lat: SH.lat, lon: SH.lon, name: SH.name, source: 'explicit' });
+  assert.equal(r.isDefaultPlace, false, '从收藏 / 搜索跳过去绝不能显示「未取得定位，正在显示默认地点」');
+  assert.equal(r.base.source, 'explicit');
   assert.equal(r.base.lat, SH.lat);
   assert.equal(r.base.lon, SH.lon);
 });
@@ -239,7 +241,7 @@ test('★source=favorite 时 isDefaultPlace 必须为 false（旧写法 !== "gps
 test('resolveCoord：default 为真、gps 为假，三条来源互斥', () => {
   assert.equal(app.resolveCoord({ lat: 1, lon: 2, source: 'default' }).isDefaultPlace, true, '兜底地点才算默认地点');
   assert.equal(app.resolveCoord({ lat: 1, lon: 2, source: 'gps' }).isDefaultPlace, false, 'GPS 定位不是默认地点');
-  assert.equal(app.resolveCoord({ lat: 1, lon: 2, source: 'favorite' }).isDefaultPlace, false, '收藏不是默认地点');
+  assert.equal(app.resolveCoord({ lat: 1, lon: 2, source: 'explicit' }).isDefaultPlace, false, '用户显式指定的地点不是默认地点');
 });
 
 test('★boot 带收藏参数：跳过定位、渲染该地点，且不出现「未取得定位」提示', async () => {

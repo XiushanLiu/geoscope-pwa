@@ -39,6 +39,7 @@ const ORDER = [
   'src/data/sources.js',
   'src/data/health.js',
   'src/ui/theme.js',
+  'src/ui/placesearch.js',
   'src/ui/now.js',
   'src/ui/map.js',
   'src/ui/download.js',

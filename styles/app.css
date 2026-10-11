@@ -105,6 +105,102 @@ body {
   font-size: var(--fs-xs);
 }
 
+/* ---------------- 地点搜索（此刻页） ---------------- */
+/* 入口是一颗放大镜按钮，点开才内联展开面板 —— 标题那一排已经有地名 / 坐标 / 观测时刻 /
+   收藏按钮，把输入框常驻进去会挤到断行。
+   配色全部复用既有 token，不新增任何色值：每一条 `color:` 都会自动进入
+   tools/contrast-audit.mjs 的全量扫描（深浅两套主题、门槛 4.5:1），新色值等于新债。 */
+
+.hd-place-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* 不写 color：继承 .btn 的 --c-text-1（已过审计）；这里只把它压成一颗图标按钮的尺寸 */
+.hd-search-btn {
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-md);
+  line-height: 1;
+}
+
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-radius: var(--r-card-sm);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--touch-min);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-chip);
+  border: 1px solid var(--c-card-stroke);
+  background: var(--c-card-fill);
+  color: var(--c-text-1);
+  font-family: inherit;
+  font-size: var(--fs-md);
+}
+
+.search-status {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+}
+
+.search-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 结果项：主行地名，次行 `admin1 · country`（同名多地全靠次行分开） */
+.search-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: var(--sp-2) 0;
+  border: none;
+  border-top: 1px solid var(--c-divider);
+  /* 用 --c-card-fill 而不是 transparent / none：按钮的 UA 底色（buttonface）要盖掉，
+     而 contrast-audit 的取色器不认 `none` / `transparent` 这两个关键字（会直接抛错）。
+     与面板同色，视觉上就是一条分隔线下的纯文字行。 */
+  background: var(--c-card-fill);
+  color: var(--c-text-1);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-item:first-child {
+  border-top: none;
+}
+
+.search-item-name {
+  font-size: var(--fs-md);
+  color: var(--c-text-1);
+}
+
+.search-item-sub {
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+}
+
 /* ---------------- 收藏列表（我的页） ---------------- */
 
 .fav-list {

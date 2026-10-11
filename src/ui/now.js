@@ -15,6 +15,13 @@ import { wmo, aqi, uv, windDir16, beaufort } from '../core/wmo.js';
 import { isDaylight } from '../core/sun.js';
 // 收藏状态读写走 store（唯一真相源）。依赖方向 ui → core，与 settings.js 一致。
 import { isFavorite, addFavorite, removeFavorite } from '../core/store.js';
+// 地点搜索：状态机在 placesearch.js（纯逻辑），这里只负责把 state 画成 DOM。
+import {
+  createPlaceSearch,
+  placeHref,
+  SEARCH_MIN_CHARS,
+  SEARCH_STATUS,
+} from './placesearch.js';
 
 /** 收藏反馈文案的停留时长（毫秒）：给一眼就够，不长驻、不挡内容。 */
 const FAV_HINT_MS = 2000;
@@ -140,6 +147,9 @@ export function renderSkeleton(root) {
       h('div', { class: 'hd-time', text: t('app.loading') }),
     ])
   );
+  // ★搜索槽必须在 weather / air / place / map / prov **之前**建：槽位顺序由首次创建
+  //   那一刻决定（appendChild 的先后），建晚了搜索面板会掉到页面最底下。
+  root.appendChild(_slot(root, 'search'));
   root.appendChild(_slot(root, 'weather')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'air')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'place')).appendChild(h('div', { class: 'sk' }));
@@ -290,8 +300,185 @@ function _favButton(snapshot) {
   return h('div', { class: 'hd-fav' }, [btn, hint]);
 }
 
+/* ------------------------------------------------------------------ */
+/* 地点搜索（放大镜入口 + 内联展开面板）                                 */
+/* ------------------------------------------------------------------ */
+
+/** @type {Object|null} 搜索控制器单例（状态必须活过整槽重建）。 */
+let _placeSearch = null;
+
+/** @type {HTMLElement|null} 当前面板里的「状态行 + 结果列表」容器。 */
+let _searchBodyEl = null;
+
 /**
- * 渲染标题区（地点名 + 坐标 + 观测时刻 + 收藏按钮）。
+ * 搜索控制器单例（懒建）。
+ *
+ * 为什么必须是**模块级**：`renderHeader()` 每次都整槽 `_fill` 重建（一次 boot 至少三次：
+ * 定位后 / weather 回来后 / reverse 回来后）。面板里的字与结果如果跟着 DOM 一起被重建，
+ * 用户打了一半的关键词会被抹掉 —— 所以状态住在 `placesearch.js` 的控制器里，这里只是
+ * 每次照着 `state` 重画一遍。
+ *
+ * @returns {Object} 控制器。
+ */
+function _search() {
+  if (_placeSearch) return _placeSearch;
+  _placeSearch = createPlaceSearch({
+    onPick: (place) => {
+      // 跳回此刻页并带上坐标：app.js 的 parsePlaceParam 会解析它并**跳过定位**，
+      // 与收藏跳转走的是同一条通路（source 都是 'explicit'）。
+      const href = placeHref(place);
+      if (!href) return; // 坐标非法：宁可不跳，也不跳到一个会静默定位的页面
+      if (typeof location === 'undefined' || !location) return; // Node 侧无 location
+      location.href = href;
+    },
+    onChange: () => _renderSearchBody(),
+  });
+  return _placeSearch;
+}
+
+/**
+ * 重画面板里的状态行与结果列表（**不动输入框**）。
+ *
+ * 为什么只画这一块：每敲一个字都会触发 `input()` → 状态变化 → 重画。若连输入框一起重画，
+ * 每敲一下节点就被换掉，光标与焦点当场丢失，中文输入法的候选也会被打断。
+ *
+ * @returns {void}
+ */
+function _renderSearchBody() {
+  if (!_searchBodyEl) return;
+  _fill(_searchBodyEl, _searchBodyNodes());
+}
+
+/**
+ * 按当前状态生成「状态行 / 结果列表」节点。
+ *
+ * 五种状态各自的文案都走 i18n。**失败与无结果必须是两句不同的话**：合成一句「没找到」
+ * 会把超时 / 断网伪装成「这地方不存在」。
+ *
+ * @returns {Array<HTMLElement>} 节点列表。
+ */
+function _searchBodyNodes() {
+  const ps = _search();
+  const nodes = [];
+  const st = ps.status;
+  if (st === SEARCH_STATUS.SHORT) {
+    nodes.push(h('p', { class: 'search-status', text: t('search.minChars', { n: SEARCH_MIN_CHARS }) }));
+  } else if (st === SEARCH_STATUS.LOADING) {
+    nodes.push(h('p', { class: 'search-status', text: t('search.loading') }));
+  } else if (st === SEARCH_STATUS.EMPTY) {
+    nodes.push(h('p', { class: 'search-status', text: t('search.empty') }));
+  } else if (st === SEARCH_STATUS.ERROR) {
+    nodes.push(h('p', { class: 'search-status', text: t('search.failed') }));
+    // 第二行是 http.js 已经本地化好的具体原因（「请求超时（6000 ms 内未响应）」之类）
+    if (ps.errorMessage) {
+      nodes.push(h('p', { class: 'search-status', text: ps.errorMessage }));
+    }
+  } else if (st === SEARCH_STATUS.OK) {
+    nodes.push(h('div', { class: 'search-list' }, ps.results.map((p) => _searchItem(p))));
+  }
+  return nodes;
+}
+
+/**
+ * 渲染一条搜索结果。
+ *
+ * 次行的 `admin1 · country` 是**同名多地消歧的唯一凭据** —— 「北京 · 北京市 · 中国」
+ * 与别处的同名地全靠它分开。两者都可能为 null（Open-Meteo 对小地方经常只给一半），
+ * 那种情况整行不渲染，绝不能拼出 "null" 或孤零零的 " · "。
+ *
+ * @param {Object} place 地点（name/lat/lon/admin1/country）。
+ * @returns {HTMLElement} 可点击的结果项。
+ */
+function _searchItem(place) {
+  const p = place && typeof place === 'object' ? place : {};
+  const name = String(p.name || '').trim();
+  const sub = [p.admin1, p.country].filter(Boolean).join(' · ');
+  const btn = h('button', { type: 'button', class: 'search-item' }, [
+    h('span', { class: 'search-item-name', text: name || t('search.unnamed') }),
+  ]);
+  if (sub) btn.appendChild(h('span', { class: 'search-item-sub', text: sub }));
+  btn.addEventListener('click', () => _search().pick(p));
+  return btn;
+}
+
+/**
+ * 渲染（或收起）搜索面板。
+ *
+ * 面板挂在**独立槽位** `#card-search` 上，不在 `.hd` 里 —— `.hd` 会被 renderHeader
+ * 整槽重建，放进去等于每次重画都把面板连根拔掉。槽位由 renderSkeleton 在 `.hd` 之后
+ * 建好（顺序由首次创建那一刻决定，见 renderSkeleton 的注释）。
+ *
+ * @param {HTMLElement} root 根容器。
+ * @returns {void}
+ */
+function _renderSearchPanel(root) {
+  const ps = _search();
+  const slot = _slot(root, 'search');
+  if (!ps.isOpen) {
+    _searchBodyEl = null;
+    slot.textContent = '';
+    slot.hidden = true;
+    return;
+  }
+  slot.hidden = false;
+
+  const input = h('input', {
+    class: 'search-input',
+    type: 'search',
+    placeholder: t('search.placeholder'),
+    'aria-label': t('search.open'),
+  });
+  // value 是**属性**不是特性：h() 只管 setAttribute，值必须单独写进去
+  input.value = ps.text;
+  input.addEventListener('input', () => {
+    const raw = input.value === null || input.value === undefined ? '' : input.value;
+    ps.input(String(raw));
+  });
+
+  const body = h('div', { class: 'search-body' });
+  _searchBodyEl = body;
+  _fill(slot, [
+    h('div', { class: 'search-panel' }, [
+      h('div', { class: 'search-field' }, [input]),
+      body,
+    ]),
+  ]);
+  _renderSearchBody();
+  if (typeof input.focus === 'function') input.focus();
+}
+
+/**
+ * 放大镜入口按钮（点击才展开面板）。
+ *
+ * 不把搜索框常驻在标题那一排：那一排已经有地名 + 坐标 + 观测时刻 + 收藏按钮，
+ * 再塞一个输入框会挤到断行。默认收起，用户想搜再点。
+ *
+ * @param {HTMLElement} root 根容器（展开后面板要挂到它的槽位上）。
+ * @returns {HTMLElement} 按钮。
+ */
+function _searchButton(root) {
+  const ps = _search();
+  const label = ps.isOpen ? t('search.close') : t('search.open');
+  const btn = h('button', {
+    type: 'button',
+    class: 'btn hd-search-btn',
+    'aria-expanded': ps.isOpen ? 'true' : 'false',
+    'aria-label': label,
+    title: label,
+  }, ['🔍']);
+  btn.addEventListener('click', () => {
+    ps.toggle();
+    const next = ps.isOpen ? t('search.close') : t('search.open');
+    btn.setAttribute('aria-expanded', ps.isOpen ? 'true' : 'false');
+    btn.setAttribute('aria-label', next);
+    btn.setAttribute('title', next);
+    _renderSearchPanel(root);
+  });
+  return btn;
+}
+
+/**
+ * 渲染标题区（地点名 + 坐标 + 观测时刻 + 收藏按钮 + 搜索入口）。
  *
  * 整槽替换（_fill）会重建 .hd 里的全部节点，所以按钮上的 click 监听不会重复绑定 ——
  * 每次渲染都是一颗新按钮，状态也顺带从 store 重新读一遍。
@@ -318,7 +505,11 @@ export function renderHeader(root, snapshot, opts = {}) {
 
   _fill(hd, [
     h('div', {}, [
-      h('h1', { class: 'hd-place', text: placeName }),
+      // 地名与搜索入口同一行：地名本身的位置与层级不变，只是在它右侧多一颗按钮
+      h('div', { class: 'hd-place-row' }, [
+        h('h1', { class: 'hd-place', text: placeName }),
+        _searchButton(root),
+      ]),
       h('p', { class: 'hd-coord num', text: snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.dash') }),
       opts.isDefaultPlace ? h('p', { class: 'hd-coord', text: t('now.defaultPlaceNotice') }) : null,
       // 收藏的是**当前显示的地点**：坐标取 snapshot.coord，名字优先用反查出来的地名
@@ -328,6 +519,8 @@ export function renderHeader(root, snapshot, opts = {}) {
     ]),
     h('div', { class: 'hd-time', text: right }),
   ]);
+  // 搜索面板不在 .hd 里：整槽重建会把它连根拔掉，所以挂到独立槽位上重画一次
+  _renderSearchPanel(root);
 }
 
 /* ------------------------------------------------------------------ */
