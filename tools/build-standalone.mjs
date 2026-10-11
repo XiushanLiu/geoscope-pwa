@@ -40,6 +40,7 @@ const ORDER = [
   'src/data/health.js',
   'src/ui/now.js',
   'src/ui/map.js',
+  'src/ui/download.js',
   'src/ui/selfcheck.js',
 ];
 
@@ -156,10 +157,10 @@ html = html.replace(
 );
 // 2. 移除 manifest 链接（file:// 下不可用，留着只会 404）
 html = html.replace(/\s*<link rel="manifest" href="manifest\.webmanifest" \/>/, '');
-// 3. 导航里指向别页的链接（index / compass）在单文件版里不存在，改成不可点。
+// 3. 导航里指向别页的链接（此刻 / 自检 / 方位）在单文件版里不存在，改成不可点。
 //    连闭合标签一起换（</a> → </span>）：只换开标签会留下 <span>…</a> 的错配标记。
 html = html.replace(
-  /<a class="tab" href="(?:index|compass)\.html"([^>]*)>([^<]*)<\/a>/g,
+  /<a class="tab" href="(?:index|compass|settings)\.html"([^>]*)>([^<]*)<\/a>/g,
   '<span class="tab tab--disabled" aria-disabled="true"$1>$2</span>'
 );
 // 4. 模块脚本 → 引导脚本

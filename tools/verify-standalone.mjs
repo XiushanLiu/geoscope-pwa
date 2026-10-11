@@ -35,6 +35,9 @@ ok('无残留 manifest 链接', !/manifest\.webmanifest/.test(html));
 ok('无 index.html 死链', !/href=["']index\.html["']/.test(html));
 // 方位屏是第三个页面：它的导航链接同样必须被单文件版改成不可点，否则发到手机上是死链
 ok('无 compass.html 死链', !/href=["']compass\.html["']/.test(html));
+// 同上：第四个页面「我的 · 设置」也一样。这条 checks build-standalone.mjs 的替换正则里
+// 有没有把 settings 列进去 —— 那边漏列的后果是「产物里留一条可点但 404 的链接」。
+ok('无 settings.html 死链', !/href=["']settings\.html["']/.test(html));
 ok('含引导脚本 MODULES', /var MODULES = \{/.test(html));
 
 console.log('\n[2] 提取内联模块');

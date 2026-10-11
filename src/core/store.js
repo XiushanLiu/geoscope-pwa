@@ -18,12 +18,24 @@ const KEY_SNAPSHOT = makeKey('store', 'snapshot');
 /** store 条目 TTL：十年（等同长期有效；读用 get() 不做三态判定，故 TTL 无实际影响）。 */
 const PREFS_TTL_MS = 10 * 365 * 24 * 3600 * 1000;
 
+/** 主题模式之一：跟随系统（等价于不设 data-theme，由 CSS 的 prefers-color-scheme 决定）。 */
+const THEME_SYSTEM = 'system';
+
 /** 默认状态。 */
 const DEFAULT_STATE = {
   /** @type {{lat:number, lon:number, name:string}} 定位失败时的默认地点（北京天安门）。 */
   defaultPlace: { lat: 39.9087, lon: 116.3975, name: '北京 · 天安门' },
   /** @type {'metric'|'imperial'} 单位制（阶段一只有 metric 生效）。 */
   unitSystem: 'metric',
+  /**
+   * @type {'system'|'light'|'dark'} 主题模式。
+   *
+   * 默认必须是 'system'：CSS 侧（styles/tokens.css）「不设 data-theme」这条路径本就等于
+   * 跟随系统偏好（prefers-color-scheme）。默认值若写成 'light' 或 'dark'，会出现
+   * 「store 说 dark、CSS 实际浅色」的错位 —— 用户第一次进设置页，看到的选中项与眼中
+   * 画面不一致。
+   */
+  themeMode: 'system',
   /** @type {'wifi'|'cellular'|'unknown'} 网络类型（手动点选，默认未知）。 */
   networkType: 'unknown',
   /** @type {boolean} 调试开关。 */
@@ -115,7 +127,13 @@ function _normPlace(p) {
  *
  * 不改变任何既有 API 的语义，也不删除任何既有导出。
  *
- * @param {Object} next 新状态（{ defaultPlace, unitSystem, networkType, debug, favorites }）。
+ * ⚠️ `themeMode` 的特殊处理（漏了这条就会把用户的主题抹回去）：本函数整体重建
+ * `_state`，而**备份里没有 themeMode 字段**（主题是这台机器的属性，不是用户数据，
+ * 理由同 backup.js 里「debug 不从备份带入」那条）。若照其它字段一律读 `src.themeMode`，
+ * 那么 `src` 里根本没有这个字段 → 一律回落 'system' → 导入一次备份就把用户手选的主题
+ * 静默清掉了。所以这里也走 「有明确值就用它，否则保持当前值」。
+ *
+ * @param {Object} next 新状态（{ defaultPlace, unitSystem, networkType, debug, favorites, themeMode? }）。
  * @returns {Object} 实际落地的状态副本（与 getState() 同形状）。
  */
 export function replaceState(next) {
@@ -126,6 +144,8 @@ export function replaceState(next) {
     unitSystem: src.unitSystem === 'imperial' ? 'imperial' : DEFAULT_STATE.unitSystem,
     networkType: src.networkType === 'wifi' || src.networkType === 'cellular' ? src.networkType : DEFAULT_STATE.networkType,
     debug: !!src.debug,
+    // themeMode 不在备份里（见本函数 JSDoc）：src 没带就保持当前值，不许回落默认。
+    themeMode: src.themeMode === 'light' || src.themeMode === 'dark' ? src.themeMode : _state.themeMode,
     favorites: (Array.isArray(src.favorites) ? src.favorites : [])
       .filter((f) => f && typeof f === 'object' && typeof f.lat === 'number' && Number.isFinite(f.lat) && typeof f.lon === 'number' && Number.isFinite(f.lon))
       .map((f) => ({ lat: f.lat, lon: f.lon, name: String(f.name === null || f.name === undefined ? '' : f.name) })),
@@ -177,6 +197,27 @@ export function setUnitSystem(unit) {
 export function getUnitSystem() {
   _load();
   return _state.unitSystem;
+}
+
+/**
+ * 设置主题模式。
+ *
+ * 白名单钳位：只认 'light' / 'dark'，其它任何值（含 undefined / 拼错的字符串）一律
+ * 回落 'system' —— 宁可跟随系统，也不把一个 UI 认不出来的值写进 <html data-theme>。
+ *
+ * @param {'system'|'light'|'dark'} mode 主题模式。
+ * @returns {void}
+ */
+export function setThemeMode(mode) {
+  _load();
+  _state.themeMode = mode === 'light' || mode === 'dark' ? mode : THEME_SYSTEM;
+  _persist();
+}
+
+/** @returns {'system'|'light'|'dark'} 当前主题模式。 */
+export function getThemeMode() {
+  _load();
+  return _state.themeMode;
 }
 
 /**

@@ -26,6 +26,7 @@ node tools/serve.mjs 8123            # 位置参数，旧写法仍支持
 - 此刻屏 → http://127.0.0.1:8080/index.html
 - 自检页 → http://127.0.0.1:8080/selfcheck.html
 - 方位屏 → http://127.0.0.1:8080/compass.html（磁偏角 / 真磁方位换算，**本机计算，断网可用**）
+- 我的 · 设置 → http://127.0.0.1:8080/settings.html（备份导出 / 导入 + 主题切换）
 
 > Service Worker 只在 `http://127.0.0.1`、`http://localhost` 或 `https://` 下可用（安全上下文要求）。
 
@@ -114,6 +115,7 @@ node tools/verify-standalone.mjs     # 校验可用
 index.html                 此刻屏
 selfcheck.html             数据源自检 / 真机复验页
 compass.html               方位屏（磁偏角 WMM2025 + 罗盘，本机计算不联网）
+settings.html              「我的」设置页（备份导出 / 备份导入 / 主题切换）
 manifest.webmanifest       PWA 清单（图标为内联 SVG data URI，不外链）
 sw.js                      Service Worker：只预缓存静态壳，不缓存任何 API 响应
 styles/tokens.css          设计令牌（--c-* / --sp-* / --fs-* / --r-* / --sh-*）
@@ -138,6 +140,8 @@ src/ui/selfcheck.js        自检页渲染 + 导出 JSON + 网络类型手动选
 src/ui/compass.js          方位屏渲染 + 入口装配（磁偏角 / 模型卡 / 换算 / 罗盘降级）
 src/ui/map.js              底图渲染（瓦片拼接 / 样式切换 / 缩放 / 落点 / GRID 降级 / 署名）
 src/ui/app.js              此刻屏入口装配
+src/ui/settings.js         「我的」设置页：导出 / 导入（先预览后写入）/ 主题三档
+src/ui/download.js         本地下载（Blob + <a download>，含延后释放 objectURL 的坑）
 tools/serve.mjs            本地静态服务
 tools/smoke.mjs            无网冒烟脚本
 tools/check.mjs            语法 + 引用 + 红线静态检查

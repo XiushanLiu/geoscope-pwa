@@ -44,6 +44,7 @@ const ENTRY_OF_PAGE = {
   'index.html': 'src/ui/app.js',
   'selfcheck.html': 'src/ui/selfcheck.js',
   'compass.html': 'src/ui/compass.js',
+  'settings.html': 'src/ui/settings.js',
   // 生成产物：入口写在内联引导脚本的 `var ENTRY = "src/ui/selfcheck.js"` 里，
   // 不是 <script src=…> 属性，所以也能被同一条断言覆盖到。
   'selfcheck-standalone.html': 'src/ui/selfcheck.js',
@@ -57,7 +58,7 @@ const ENTRY_OF_PAGE = {
  *
  * @type {string[]}
  */
-const PAGES = ['index.html', 'selfcheck.html', 'compass.html'];
+const PAGES = ['index.html', 'selfcheck.html', 'compass.html', 'settings.html'];
 
 /** 禁止出现的关键词（CDN / 统计 / 账号 / 广告）。 */
 const FORBIDDEN_PATTERNS = [

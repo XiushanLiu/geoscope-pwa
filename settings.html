@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title data-i18n="settings.title">我的 · 设置</title>
+
+  <!-- PWA 元数据：全部内联，无任何外链资源 -->
+  <meta name="description" content="地候 GeoScope —— 备份导出与导入、主题切换，数据只留本机，不联网。" />
+  <meta name="theme-color" content="#1E9C8C" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="地候" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%231E9C8C'/%3E%3Ccircle%20cx='256'%20cy='256'%20r='120'%20fill='none'%20stroke='%23ffffff'%20stroke-width='24'/%3E%3Cpath%20d='M256%2096v320M96%20256h320'%20stroke='%23ffffff'%20stroke-width='16'%20opacity='.85'/%3E%3C/svg%3E" />
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/app.css" />
+</head>
+<body data-page="settings">
+  <!-- 顶部降级横幅：由 ui/settings.js 填充，无降级时隐藏 -->
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="app" class="app" aria-live="polite">
+    <!-- 骨架屏在 settings.js 挂载前由内联样式占位，避免白屏 -->
+    <div class="skeleton-note" data-i18n="app.loading">正在装载…</div>
+  </main>
+
+  <!-- 关于与边界：文案全部来自 i18n，由 settings.js 的 applyI18n() 填充 -->
+  <footer id="about" class="about">
+    <h2 class="about-title" data-i18n="about.title">关于与边界</h2>
+    <ul class="about-list">
+      <!-- data-i18n 由 settings.js 填充；这里保留中文兜底，保证无 JS 环境下列表不是空白 -->
+      <li data-i18n="about.noCommercial">不商业化：自用工具，无广告、无第三方统计、无账号登录、无后端。</li>
+      <li data-i18n="about.noE2ee">不做端到端加密同步：数据只存本机 localStorage，搬家靠导出 JSON。</li>
+      <li data-i18n="about.noAlert">预警不采购数据源：本阶段不实现预警推送。</li>
+    </ul>
+    <p class="about-note" data-i18n="about.privacy">除六路数据源之外，本应用不向任何域名发起请求；你的坐标不会被上传到数据源以外的地方。</p>
+  </footer>
+
+  <!-- 底部自绘玻璃胶囊 Tab：选中态实心青 -->
+  <nav class="tabbar" aria-label="主导航">
+    <a class="tab" href="index.html" data-i18n="tab.now">此刻</a>
+    <a class="tab" href="selfcheck.html" data-i18n="tab.selfcheck">自检</a>
+    <a class="tab" href="compass.html" data-i18n="tab.compass">方位</a>
+    <a class="tab tab--active" href="settings.html" aria-current="page" data-i18n="tab.settings">我的</a>
+  </nav>
+
+  <script type="module" src="src/ui/settings.js"></script>
+</body>
+</html>

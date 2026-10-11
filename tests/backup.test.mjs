@@ -336,3 +336,107 @@ test('backupFilename 复用 core/format.js 的时间戳，不重复实现', () =
   assert.equal(backup.backupFilename(at), 'geoscope-backup-20250105-1423.json');
   assert.match(backup.backupFilename(), /^geoscope-backup-\d{8}-\d{4}\.json$/);
 });
+
+test('inspectBackup 只读不写：预览阶段本机状态一个字段都不许动', () => {
+  store.setDefaultPlace({ lat: 39.9087, lon: 116.3975, name: '本机原地' });
+  store.addFavorite({ lat: 22.5431, lon: 114.0579, name: '本机收藏' });
+  store.setLastSnapshot({ tempC: 20, code: 1, placeName: '本机' });
+  const before = readAll();
+
+  const ins = backup.inspectBackup(
+    JSON.stringify(
+      makePayload({
+        defaultPlace: { lat: 31.2304, lon: 121.4737, name: '上海' },
+        favorites: [{ lat: 1, lon: 1, name: 'A' }, { lat: 91, lon: 1, name: '越界' }],
+      })
+    )
+  );
+  assert.equal(ins.ok, true, `预览必须成功：${ins.reason || ''}`);
+  assert.equal(ins.plan.defaultPlace.name, '上海');
+  assert.equal(ins.plan.favorites.length, 1, '预览的收藏条数按生效后的结果算');
+  assert.equal(ins.plan.favoritesDropped, 1);
+  assert.equal(ins.plan.exportedAt, '2025-01-05T06:23:00.000Z', '导出时间要能给人看');
+  assert.equal(ins.applied, undefined, '预览阶段不得返回 applied');
+
+  const after = readAll();
+  assert.deepEqual(after.defaultPlace, before.defaultPlace, '预览不得改动默认地点');
+  assert.deepEqual(after.favorites, before.favorites, '预览不得改动收藏');
+  assert.deepEqual(after.snapshot, before.snapshot, '预览不得改动快照');
+  assert.equal(after.unitSystem, before.unitSystem);
+});
+
+test('applyBackup：拿到计划才写，脏计划一律拒绝且不留下半截状态', () => {
+  store.setDefaultPlace({ lat: 39.9087, lon: 116.3975, name: '本机原地' });
+  const before = readAll();
+
+  for (const bad of [null, undefined, 'not-a-plan', {}, { defaultPlace: { lat: 91, lon: 0, name: '越界' } }]) {
+    const r = backup.applyBackup(bad);
+    assert.equal(r.ok, false, `计划 ${JSON.stringify(bad)} 必须被拒绝`);
+    assert.equal(r.applied, undefined, '失败时不得返回 applied');
+    assert.deepEqual(readAll().defaultPlace, before.defaultPlace, '拒绝后默认地点必须原样');
+    assert.deepEqual(readAll().favorites, before.favorites, '拒绝后收藏必须原样');
+  }
+
+  const ins = backup.inspectBackup(
+    makePayload({
+      defaultPlace: { lat: 31.2304, lon: 121.4737, name: '上海' },
+      favorites: [{ lat: 1, lon: 1, name: 'A' }],
+    })
+  );
+  const app = backup.applyBackup(ins.plan);
+  assert.equal(app.ok, true, `写入必须成功：${app.reason || ''}`);
+  assert.equal(store.getDefaultPlace().name, '上海');
+  assert.deepEqual(store.getFavorites(), [{ lat: 1, lon: 1, name: 'A' }]);
+});
+
+test('importBackup 严格等价于 inspect + apply（拆分没有改变对外行为）', () => {
+  const payload = makePayload({
+    defaultPlace: { lat: 45, lon: 9, name: '米兰' },
+    unitSystem: 'imperial',
+    networkType: 'cellular',
+    favorites: [{ lat: 1, lon: 1, name: 'A' }, { lat: 2, lon: 2, name: 'B' }],
+  });
+
+  const viaImport = backup.importBackup(payload);
+  const afterImport = readAll();
+
+  store.resetStore();
+  store.setLastSnapshot(null);
+  const ins = backup.inspectBackup(payload);
+  const viaTwoSteps = backup.applyBackup(ins.plan);
+  const afterTwoSteps = readAll();
+
+  assert.equal(viaImport.ok, true);
+  assert.equal(viaTwoSteps.ok, true);
+  assert.deepEqual(viaTwoSteps.applied, viaImport.applied, '两条路径必须产出同一个 applied');
+  assert.deepEqual(afterTwoSteps.defaultPlace, afterImport.defaultPlace);
+  assert.deepEqual(afterTwoSteps.favorites, afterImport.favorites);
+  assert.equal(afterTwoSteps.unitSystem, afterImport.unitSystem);
+});
+
+test('导入备份不得把本机主题模式抹回 system（themeMode 不在备份里）', () => {
+  store.setThemeMode('dark');
+  assert.equal(store.getThemeMode(), 'dark', '前置条件：本机主题已手动设为 dark');
+
+  const res = backup.importBackup(makePayload({ defaultPlace: { lat: 0, lon: 0, name: '原点' } }));
+  assert.equal(res.ok, true, `导入必须成功：${res.reason || ''}`);
+  assert.equal(store.getThemeMode(), 'dark', '备份里没有 themeMode，导入后必须保持本机选择');
+
+  // 反向：system 也不该被意外改成别的
+  store.setThemeMode('system');
+  backup.importBackup(makePayload({ defaultPlace: { lat: 0, lon: 0, name: '原点' } }));
+  assert.equal(store.getThemeMode(), 'system');
+});
+
+test('setThemeMode 白名单钳位：只认 light / dark，其余回落 system', () => {
+  for (const bad of ['neon', '', null, undefined, 0, {}, 'Dark']) {
+    store.setThemeMode(bad);
+    assert.equal(store.getThemeMode(), 'system', `非法值 ${JSON.stringify(bad)} 必须回落到 system`);
+  }
+  store.setThemeMode('light');
+  assert.equal(store.getThemeMode(), 'light');
+  store.setThemeMode('dark');
+  assert.equal(store.getThemeMode(), 'dark');
+  store.setThemeMode('system');
+  assert.equal(store.getThemeMode(), 'system', 'system 必须能显式设回去');
+});

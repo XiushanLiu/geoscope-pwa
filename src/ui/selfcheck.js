@@ -31,6 +31,7 @@ import {
 import { getNetworkType, setNetworkType as storeSetNetworkType, log } from '../core/store.js';
 import { stamp, latency as fmtLatency, bytes as fmtBytes } from '../core/format.js';
 import { h, applyI18n } from './now.js';
+import { downloadJson } from './download.js';
 
 /** 每源正式取样次数默认值。 */
 export const DEFAULT_SAMPLES = 3;
@@ -486,21 +487,12 @@ export function exportReport(report) {
   const data = report || _report;
   if (!data) return;
   const name = t('sc.exportName', { stamp: stamp(data.generatedAt) });
-  const json = JSON.stringify(data, null, 2);
-  try {
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  // 下载手法统一走 ui/download.js（含「延后释放 objectURL」那条不可删的细节），
+  // 这里只负责取名与结果反馈，导出签名与产物格式均不变。
+  if (downloadJson(name, data)) {
     _pageLog(`export → ${name}`);
-  } catch (err) {
-    _pageLog(`export failed: ${err && err.message}`);
+  } else {
+    _pageLog(t('sc.exportFail'));
   }
 }
 

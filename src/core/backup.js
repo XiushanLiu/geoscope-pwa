@@ -16,7 +16,9 @@
  * 分层：本模块属 core 层，只依赖同层的 store 与 format。四层单向依赖是
  * core ← data ← ui，**严禁反向依赖 src/data/* 下的任何模块**。
  *
- * 失败语义：`importBackup()` **永不抛异常**，一律返回 `{ ok:false, reason }`。
+ * 失败语义：`inspectBackup()` / `applyBackup()` / `importBackup()` **皆永不抛异常**，
+ * 一律返回 `{ ok:false, reason }`。其中 `inspectBackup()` 只读不写（可反复预览），
+ * `applyBackup()` 才动本机状态 —— UI 侧若要「先预览确认再导入」就走这两步的组合。
  * 面向用户的文案由 UI 层走 i18n，这里的 reason 是给开发者 / 排障看的兜底串。
  */
 
@@ -122,6 +124,12 @@ function isUsableSnapshot(s) {
  *
  * 不含瓦片缓存（Esri exportTilesAllowed=false）、不含任何 API 响应原文。
  *
+ * ⚠️ `themeMode` **不在这里导出**（prefs 保持 5 个字段，SCHEMA_VERSION 保持 1）：
+ * 主题是「这台机器的属性」而不是「用户数据」—— 把一台偏好深色的 Mac 上的备份导到
+ * 一台常开浅色的手机上，顺手把人家的主题改掉是没有道理的。这条与下面 `debug`
+ * 不看齐的地方在于：debug 照实写进 prefs（便于排障时看清来源机器），导入时不生效；
+ * themeMode 干脆不进来，避免 reader 误以为它是可搬家数据。
+ *
  * @returns {{schema:number, app:string, exportedAt:string, prefs:Object, snapshot:Object|null}} 备份载荷。
  */
 export function exportBackup() {
@@ -144,26 +152,19 @@ export function exportBackup() {
 }
 
 /**
- * 导入备份。
+ * 【只校验、不写入】解析一份备份，产出可预览的「导入计划」。
  *
- * 入参既可以是 JSON 字符串，也可以是已解析的对象，两种形态行为完全一致。
- * **永不抛异常**：任何失败都返回 `{ ok:false, reason }`。
+ * 存在理由：导入是**覆盖性**操作（本机 defaultPlace 与 favorites 会被整份替换），
+ * 让用户选完文件就直接覆盖，等于把「误选一个月前的旧备份」做成不可逆事故。
+ * 所以 UI 侧必须先拿到这份计划给人看一眼，用户点头才调 `applyBackup()` 落盘。
  *
- * 原子性：先把完整的 next state 算出来、全部校验通过，再**一次性**经
- * `store.replaceState()` 写入；中途任何一步失败都不落任何状态，本机状态保持原样。
- *
- * ⚠️ `debug` **不从备份带入**，导入后保持当前值。理由：debug 是排障开关，从别处
- * 导入一个 `debug:true` 会让用户莫名其妙看到一堆日志（甚至以为应用坏了）。
- * 它是「这台机器的临时开关」，不是「用户数据」，不该跟着备份搬家。
- *
- * 宽容度是分层的：涉及位置正确性的（defaultPlace）**非法就整体拒绝**，绝不静默拿
- * 默认值糊过去 —— 那会让用户以为导入成功了；不涉及位置隐私的枚举值（unitSystem /
- * networkType）非法就回退默认值；可重建的派生数据（snapshot）不合法就当 null。
+ * 本函数**不触碰任何本机状态**（除读取当前 debug 值用于填计划），可以放心反复调用 ——
+ * 同一个文件调两次，得到的计划完全一致。
  *
  * @param {string|Object} input JSON 字符串或已解析对象。
- * @returns {{ok:boolean, applied?:Object, reason?:string}} 导入结果。
+ * @returns {{ok:boolean, plan?:Object, reason?:string}} 校验结果；plan 含写入所需的全部字段。
  */
-export function importBackup(input) {
+export function inspectBackup(input) {
   /* ---------- 1. 解析 ---------- */
   let data = input;
   if (typeof input === 'string') {
@@ -225,6 +226,67 @@ export function importBackup(input) {
   /* ---------- 10. snapshot：不合法就当 null ---------- */
   const snapshot = isUsableSnapshot(data.snapshot) ? data.snapshot : null;
 
+  return {
+    ok: true,
+    plan: {
+      defaultPlace: { ...defaultPlace },
+      unitSystem,
+      networkType,
+      debug,
+      favorites: favorites.map((f) => ({ ...f })),
+      /** 因坐标非法 / 重复 / 超出 200 上限而未被导入的条数（UI 预览时据此提示）。 */
+      favoritesDropped,
+      snapshot,
+      /** 备份本身的导出时刻（预览用；不是本机写入时刻）。 */
+      exportedAt: typeof data.exportedAt === 'string' ? data.exportedAt : '',
+    },
+  };
+}
+
+/**
+ * 【真正写入】把 `inspectBackup()` 产出的计划落到本机状态。
+ *
+ * 原子性：先把完整的 next state 算出来、全部校验通过，再**一次性**经
+ * `store.replaceState()` 写入；中途任何一步失败都不落任何状态，本机状态保持原样。
+ *
+ * 为什么把「算」和「写」拆成两个函数：设置页要先把这份计划列给人看（导出时间、
+ * 默认地点、收藏条数、会被丢弃的条数），人确认后才允许调用本函数。拆分前后
+ * `importBackup()` 的对外行为完全一致 —— 它就是这两步的串接。
+ *
+ * @param {Object} plan `inspectBackup()` 返回的计划对象。
+ * @returns {{ok:boolean, applied?:Object, reason?:string}} 导入结果。
+ */
+export function applyBackup(plan) {
+  const src = plan && typeof plan === 'object' && !Array.isArray(plan) ? plan : {};
+
+  /* ---------- 1. defaultPlace：非法就整体拒绝 ---------- */
+  const defaultPlace = normalizePlace(src.defaultPlace);
+  if (defaultPlace === null) {
+    return { ok: false, reason: '导入计划里没有合法的 defaultPlace（请先调用 inspectBackup）' };
+  }
+
+  /* ---------- 2. 枚举值再钳一次（plan 可能被人手工构造 / 跨版本搬运） ---------- */
+  const unitSystem = UNIT_SYSTEMS.indexOf(src.unitSystem) === -1 ? 'metric' : src.unitSystem;
+  const networkType = NETWORK_TYPES.indexOf(src.networkType) === -1 ? 'unknown' : src.networkType;
+  const debug = !!isDebug();
+
+  /* ---------- 3. favorites 再过一遍同一把尺子 ---------- */
+  const favorites = [];
+  const seen = new Set();
+  for (const item of Array.isArray(src.favorites) ? src.favorites : []) {
+    const place = normalizePlace(item);
+    if (place === null) continue;
+    const key = `${place.lat},${place.lon}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    favorites.push(place);
+    if (favorites.length >= MAX_FAVORITES) break;
+  }
+
+  /* ---------- 4. snapshot：不合法就当 null ---------- */
+  const snapshot = isUsableSnapshot(src.snapshot) ? src.snapshot : null;
+  const favoritesDropped = Number.isInteger(src.favoritesDropped) && src.favoritesDropped > 0 ? src.favoritesDropped : 0;
+
   /* ---------- 一次性写入（原子） ---------- */
   try {
     replaceState({ defaultPlace, unitSystem, networkType, debug, favorites });
@@ -249,4 +311,32 @@ export function importBackup(input) {
       snapshot,
     },
   };
+}
+
+/**
+ * 导入备份（校验 + 写入一步到位）。
+ *
+ * 入参既可以是 JSON 字符串，也可以是已解析的对象，两种形态行为完全一致。
+ * **永不抛异常**：任何失败都返回 `{ ok:false, reason }`。
+ *
+ * ⚠️ 需要「先预览再写入」的 UI（设置页）请用 `inspectBackup()` → 给人看 → `applyBackup()`。
+ * 本函数是这两步的严格串接，行为与拆分前一致，保留它为了不让既有调用方改造。
+ *
+ * ⚠️ `debug` **不从备份带入**，导入后保持当前值。理由：debug 是排障开关，从别处
+ * 导入一个 `debug:true` 会让用户莫名其妙看到一堆日志（甚至以为应用坏了）。
+ * 它是「这台机器的临时开关」，不是「用户数据」，不该跟着备份搬家。
+ * `themeMode` 同理（根本不进备份，见 exportBackup 的 JSDoc），
+ * 所以导入**不会**改主题 —— store.replaceState() 里也按这条口径处理。
+ *
+ * 宽容度是分层的：涉及位置正确性的（defaultPlace）**非法就整体拒绝**，绝不静默拿
+ * 默认值糊过去 —— 那会让用户以为导入成功了；不涉及位置隐私的枚举值（unitSystem /
+ * networkType）非法就回退默认值；可重建的派生数据（snapshot）不合法就当 null。
+ *
+ * @param {string|Object} input JSON 字符串或已解析对象。
+ * @returns {{ok:boolean, applied?:Object, reason?:string}} 导入结果。
+ */
+export function importBackup(input) {
+  const inspected = inspectBackup(input);
+  if (!inspected.ok) return inspected;
+  return applyBackup(inspected.plan);
 }

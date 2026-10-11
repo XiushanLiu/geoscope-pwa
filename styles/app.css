@@ -389,11 +389,19 @@ body {
   z-index: 20;
 }
 
+/* 四个 Tab 均分一行：`flex: 1 1 0` 让宽屏上四项等宽（不再按文字长度参差），
+   `min-width` 从 88px 降到 64px 是为了窄屏。为什么必须降：tabbar 是 `padding: 4px` +
+   `gap: 4px` 的浮动胶囊，旧值下四个 tab 天然要占 4×88 + 3×4（间距）+ 2×4（内边距）
+   = **372px**，iPhone SE（320px 视口）会溢出 52px —— 第 4 个「我的」被挤出屏幕。
+   降到 64px 后底面积 = 4×64 + 12 + 8 = **276px**，320px 视口还剩 44px 余量；
+   而 flex-basis 为 0 意味着真正决定宽度的是均分后的剩余空间，所以宽屏观感不变、
+   没有「挤在一起」的副作用。 */
 .tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 88px;
+  flex: 1 1 0;
+  min-width: 64px;
   min-height: var(--touch-min);
   padding: 0 var(--sp-5);
   border-radius: var(--r-pill);

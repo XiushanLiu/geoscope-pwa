@@ -31,6 +31,7 @@ export const ZH = {
   'tab.now': '此刻',
   'tab.selfcheck': '自检',
   'tab.compass': '方位',
+  'tab.settings': '我的',
 
   // ---------- 数据源名 ----------
   'source.weather': '天气（Open-Meteo Forecast）',
@@ -172,6 +173,7 @@ export const ZH = {
   'sc.warmup': '预热 1 次（不计入统计）',
   'sc.sampleDone': '第 {i}/{n} 次取样完成',
   'sc.exportName': 'geoscope-selfcheck-{stamp}.json',
+  'sc.exportFail': '导出失败：本机浏览器不支持文件下载',
   'sc.offlineSkip': '设备离线，自检未发起请求',
   'sc.tileOk': '{label} · {ms} ms · {bytes} B',
   'sc.tileFail': '{label} · 失败 · {message}',
@@ -272,6 +274,46 @@ export const ZH = {
   'about.noE2ee': '不做端到端加密同步：数据只存本机 localStorage，搬家靠导出 JSON。',
   'about.noAlert': '预警不采购数据源：本阶段不实现预警推送。',
   'about.privacy': '除六路数据源之外，本应用不向任何域名发起请求；你的坐标不会被上传到数据源以外的地方。',
+
+  // ---------- 设置 / 我的 ----------
+  'settings.title': '我的 · 设置',
+  'settings.subtitle': '备份搬家与外观：整机数据不出设备，导出与导入都在本机完成。',
+
+  'settings.exportTitle': '备份导出',
+  'settings.exportBtn': '导出备份文件',
+  'settings.exportCurrent': '当前可导出：默认地点 {place} · 收藏 {count} 条 · 天气快照 {snapshot}',
+  'settings.snapshotYes': '已保存',
+  'settings.snapshotNo': '暂无',
+  'settings.exportDone': '已导出 {name}',
+  'settings.exportFail': '导出失败：本机浏览器不支持文件下载',
+  // exportBackup() 的 JSDoc 明确要求：导出前必须告知用户这份文件含位置信息。
+  // 这句话常驻在按钮下方，不是点完才闪一下的提示 —— 用户要在按之前就知道。
+  'settings.backupPrivacy': '这份文件含你的位置信息：默认地点、{count} 个收藏地点和最近一次天气快照。导出不联网、不上传，文件只存到你选择的位置；别把它随手发给别人。',
+
+  'settings.importTitle': '备份导入',
+  'settings.importHint': '选择 geoscope-backup-*.json。先看清楚内容再决定 —— 确认后会覆盖本机的默认地点、收藏与天气快照。',
+  'settings.importPick': '选择备份文件',
+  'settings.importReady': '已读取 {name}，内容如下。本机数据此刻还没动。',
+  'settings.pickFirst': '请先选择一个备份文件。',
+  'settings.previewTitle': '这份备份的内容',
+  'settings.previewExportedAt': '导出时间：{time}',
+  'settings.previewPlace': '默认地点：{name}',
+  'settings.previewFavorites': '收藏地点：{count} 条',
+  'settings.previewDropped': '其中 {count} 条不会被导入：坐标非法、与前面的重复，或超出 200 条上限。',
+  'settings.previewNoPlace': '未命名地点',
+  'settings.confirmBtn': '确认导入',
+  'settings.confirmHint': '这一步才会写入本机，并把上面的内容覆盖到当前数据。',
+  'settings.importOk': '导入完成：默认地点 {name} · 收藏 {count} 条',
+  'settings.importFail': '导入失败：{reason}',
+  'settings.readFail': '读取文件失败：{message}',
+  'settings.readEmpty': '文件内容是空的，可能不是文本格式的备份文件。',
+
+  'settings.themeTitle': '主题',
+  'settings.themeHint': '跟随系统＝由系统的深浅色设置决定；手动指定后会一直保持，直到你改回来。',
+  'settings.theme.system': '跟随系统',
+  'settings.theme.light': '浅色',
+  'settings.theme.dark': '深色',
+  'settings.themeDone': '主题已切换为「{mode}」',
 };
 
 /**
