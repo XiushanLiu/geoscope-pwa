@@ -1133,3 +1133,199 @@ body {
   .hero-temp { font-size: var(--fs-hero-sm); }
   .kv { grid-template-columns: 1fr; }
 }
+
+/* ---------------- 指标释义（图例） ---------------- */
+
+/* 类名一律 .legend- 前缀，与上面任何既有规则零重叠、零覆盖。
+   颜色只取 --c-text-1 / -2 / -3 三档，全部已经过 tools/contrast-audit.mjs 的
+   深浅双主题全量扫描；这里**不新增任何色值** —— 每多一条 color: 就多一笔要审计的债。
+   唯一带底色的那条（风向胶囊 .legend-scale--wrap .legend-scale-row）用 --c-text-2 而不是
+   --c-text-3：胶囊底是 --c-card-stroke，浅色屏下 --c-text-3 压它实测 4.46:1（差 0.04 不达标），
+   --c-text-2 是 7.26:1（深色 7.93:1）。 */
+
+.legend-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.legend-note {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+  line-height: 1.6;
+}
+
+.legend-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.legend-group-title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  font-weight: 600;
+}
+
+.legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* 条目分隔线画在**顶部**而不是底部：最后一条下面不该拖一条多余的线 */
+.legend-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--c-divider);
+}
+
+.legend-item:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.legend-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.legend-item-name {
+  font-size: var(--fs-md);
+  color: var(--c-text-1);
+  font-weight: 600;
+}
+
+.legend-item-unit {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.legend-item-body {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  line-height: 1.6;
+}
+
+/* 档位表：竖排（蒲福 / AQI / UV） */
+.legend-scale {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend-scale-row {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+/* 档位表：横排换行（风向 16 方位，竖排会拉出一条 16 行的长条） */
+.legend-scale--wrap {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+}
+
+/* 方位胶囊：底色 --c-card-stroke，文字 --c-text-2（取值理由见本节开头注释） */
+.legend-scale--wrap .legend-scale-row {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-chip);
+  background: var(--c-card-stroke);
+  color: var(--c-text-2);
+  font-size: var(--fs-xs);
+}
+
+.legend-none {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+/* ==========================================================================
+   Pad 横屏（≥ 768px）
+   --------------------------------------------------------------------------
+   纯 CSS：这一个媒体块是**追加**在文件末尾的，上面任何一条既有规则都没被改动；
+   不新增 JS、不改 HTML 结构、不改 tokens.css 的色值、不改 --sp-* / --fs-*
+   （那是全局栅格与字号阶梯，一动影响全站）。需要放大字号时这里一律给具体 px 值。
+
+   改了什么（逐条理由）：
+     1) .app → 两列栅格 + 960 上限居中：横屏下原来 390 的单列会被拉成一条很窄的长条，
+        两列才用得上横向空间；上限 960 是为了不让正文拉成 1000px 一行的长句。
+     2) 天气卡 / 空气卡并排（原先上下堆叠）；底图卡独占一行以便放大。
+        行号写死而不是靠自动排布：DOM 顺序是固定的（search → weather → air →
+        place → map → prov → legend），显式给 grid-row 比依赖自动排布可预测。
+     3) .map-viewport → zoom 1.8：底图 350×260 → 630×468（★为什么是 zoom 而不是
+        width/height，见下面该条注释 —— 直接改宽高会把地图搞歪）。
+     4) .tab 放大到 96px / 15px：平板该有的触控尺寸。**不动 .tabbar 的居中方式**。
+   ========================================================================== */
+
+@media (min-width: 768px) {
+  /* 1) 内容区：两列栅格 + 上限居中 */
+  .app {
+    max-width: 960px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: var(--sp-4);
+  }
+
+  /* 行位显式给定：DOM 顺序固定，写死比自动排布可预测（见本节开头） */
+  .app > .hd { grid-column: 1 / -1; grid-row: 1; }
+  #card-search { grid-column: 1 / -1; grid-row: 2; }
+  #card-weather { grid-column: 1 / 2; grid-row: 3; }
+  #card-air { grid-column: 2 / 3; grid-row: 3; }
+  #card-place { grid-column: 1 / -1; grid-row: 4; }
+  #card-map { grid-column: 1 / -1; grid-row: 5; }
+  #card-prov { grid-column: 1 / -1; grid-row: 6; }
+  #card-legend { grid-column: 1 / -1; grid-row: 7; }
+
+  /* 并排的这两张卡等高：让卡填满它那一格（只针对这一对，不波及其它槽位 ——
+     #card-prov 里是「标题 + 气泡」两个兄弟，套同样的规则会把它们拉成左右两半） */
+  #card-weather, #card-air { display: flex; }
+  #card-weather > .card, #card-air > .card { flex: 1 1 auto; min-width: 0; }
+
+  /* 2) 顶部横幅与内容区同宽（原本 640，横屏下比内容区窄一截，看着像没对齐） */
+  .banner { max-width: 960px; }
+
+  /* 3) 英雄温度放大：--fs-hero 是 56px，横屏下 64px（给具体值，不改变量） */
+  .hero-temp { font-size: 64px; }
+
+  /* 4) 底图：350×260 → 630×468
+     ★为什么用 zoom 而不是 width/height：视口宽高是 JS 写在 inline style 上的
+       （src/ui/map.js 的 VIEW_W / VIEW_H），而瓦片是**按这两个常量算出来的像素坐标**
+       绝对定位的（_layTiles 的 left0/top0 = VIEW_W/2 − …），落点又是 50%/50%。
+       若只把容器改成 520×390，瓦片仍按 350×260 的中心铺，落点却跑到新中心 ——
+       地图整体偏移、右下留白，落点和地图对不上。
+       zoom 是**整体缩放**：瓦片、落点、缩放控件一起放大，相对关系原样保留，
+       不需要任何补偿数字，也不会因为将来改 VIEW_W 而失配。
+       不支持 zoom 的浏览器（Firefox 126 之前）就保持 350×260 —— 优雅降级，不会裂。 */
+  .map-viewport { zoom: 1.8; }
+
+  /* 5) 底部 tab：只放大 tab 本身，**不改 .tabbar 的居中方式**
+       —— .tabbar 是 position: fixed 且**没有设 width**（shrink-to-fit，宽度由内容决定）。
+       给它加 width 或改成靠边，会重演真机上「四个 tab 文字断成两行」那个 bug
+       （commit fa1ec49，根因见上面 .tab 那一大段注释）。横屏左右余量充足，
+       把 tab 放大到 96px 也不会挤压：4×96 + 3×4 + 2×4 = 404px，远小于 768px。 */
+  .tab { min-width: 96px; padding: 0 var(--sp-4); font-size: 15px; }
+
+  /* 6) 图例：横屏下两列排布 —— 单列会变成又窄又长的两三条，短行更好读。
+       两列时每行的第一条不该带分隔线，所以把 :first-child 的例外扩到 :nth-child(2)。 */
+  .legend-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--sp-3) var(--sp-4);
+  }
+  .legend-list > .legend-item:nth-child(2) { border-top: none; padding-top: 0; }
+}

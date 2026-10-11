@@ -193,3 +193,66 @@ export function beaufort(ms) {
   while (level < BEAUFORT.length - 1 && speed >= BEAUFORT[level]) level += 1;
   return { level, zh: BEAUFORT_ZH[level] };
 }
+
+/* ------------------------------------------------------------------ */
+/* 分级表的只读视图（供「指标释义」图例直接消费）                        */
+/* ------------------------------------------------------------------ */
+/*
+ * 为什么要有这几个访问器：图例要把「清风（4 级）」解释成一张档位表，而阈值必须来自
+ * **既有实现** —— 若在 legend.js 里另抄一份数字，就等于新造一套标准，将来改了换算表
+ * 图例会静默说谎。这里只把上面那几张常量表原样吐出去（不新增、不改写任何数值），
+ * legend.js 拿到的永远是界面真正用的那一份。
+ *
+ * 返回的是**副本**：调用方改不动模块内的常量表。
+ */
+
+/**
+ * 蒲福风级全表（0–12 级）。
+ *
+ * `maxMs` 是该级的**上限（不含）**：`speed < maxMs` 且 `speed >= 上一级的 maxMs` 即本级。
+ * 最高级（12 级）的 maxMs 为 Infinity。
+ *
+ * @returns {Array<{level:number, zh:string, maxMs:number}>} 13 级全表副本。
+ */
+export function beaufortScale() {
+  return BEAUFORT.map((maxMs, level) => ({ level, zh: BEAUFORT_ZH[level], maxMs }));
+}
+
+/**
+ * 欧洲 AQI 六档全表。
+ *
+ * @returns {Array<{level:string, zh:string, max:number, advice:string}>} 六档副本。
+ */
+export function aqiScale() {
+  return AQI_LEVELS.map((l) => ({
+    level: l.level,
+    zh: l.zh,
+    max: l.max,
+    advice: t(l.adviceKey),
+  }));
+}
+
+/**
+ * UV 五档全表。
+ *
+ * @returns {Array<{level:string, zh:string, max:number, advice:string}>} 五档副本。
+ */
+export function uvScale() {
+  return UV_LEVELS.map((l) => ({
+    level: l.level,
+    zh: l.zh,
+    max: l.max,
+    advice: t(l.adviceKey),
+  }));
+}
+
+/**
+ * 风向 16 方位名（顺时针，0 = 北）。
+ *
+ * 后缀「风」与 windDir16() 保持一致（界面显示的是「西北偏北风」）。
+ *
+ * @returns {string[]} 16 个方位名副本。
+ */
+export function windRose16() {
+  return DIR16.map((zh) => `${zh}风`);
+}

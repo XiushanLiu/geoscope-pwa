@@ -22,6 +22,9 @@ import {
   SEARCH_MIN_CHARS,
   SEARCH_STATUS,
 } from './placesearch.js';
+// 指标释义（图例）：静态内容，不依赖任何数据源，所以骨架期就建槽上屏 ——
+// 离线 / 取数失败时它也必须在，释义不是「有数据才配看」的东西。
+import { renderLegend } from './legend.js';
 
 /** 收藏反馈文案的停留时长（毫秒）：给一眼就够，不长驻、不挡内容。 */
 const FAV_HINT_MS = 2000;
@@ -158,6 +161,9 @@ export function renderSkeleton(root) {
   // ★顺序必须在 prov 之前建：槽位顺序由首次创建那一刻决定，建错位置就再也挪不回去。
   root.appendChild(_slot(root, 'map'));
   root.appendChild(_slot(root, 'prov'));
+  // 指标释义入口放**最后**（页面底部）：它是查阅物，不该插在数据卡之间把首屏撑长。
+  // 槽位顺序由首次创建那一刻决定，建在 prov 之后就再也挪不回去了。
+  renderLegend(root);
 }
 
 /* ------------------------------------------------------------------ */

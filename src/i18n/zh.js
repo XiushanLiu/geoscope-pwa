@@ -354,6 +354,110 @@ export const ZH = {
   'settings.theme.light': '浅色',
   'settings.theme.dark': '深色',
   'settings.themeDone': '主题已切换为「{mode}」',
+
+  // ---------- 图例与指标释义 ----------
+  // 「指标释义」是此刻页底部一个可展开的面板，把界面上那些专业数字讲成人话。
+  // ★阈值纪律（改这段文案前必须知道）：下面凡是出现**分档数字**的，全部由
+  //   src/ui/legend.js 从 src/core/wmo.js 的既有换算表**读出来**再拼进占位符，
+  //   这里一个阈值都不写死 —— 抄死数字等于将来改了换算表图例还在说谎。
+  //   代码里找不到现成分档的指标（气温 / 湿度 / 气压 / 能见度 / 污染物浓度 / 海拔 /
+  //   坐标 / 时区），一律只写「是什么 + 单位」，并如实标注 legend.noScale。
+  'legend.title': '指标释义',
+  'legend.open': '展开指标释义',
+  'legend.close': '收起指标释义',
+  'legend.note': '下面每一条对应界面上一个数字。分档只列本应用「已经实现」的那几套（蒲福风级、欧洲 AQI、UV 五档、风向 16 方位）；其余指标只说明含义与单位，不另立标准。',
+  'legend.noScale': '本应用没有对这项设分档，只显示数值与单位。',
+
+  'legend.group.weather': '天气',
+  'legend.group.air': '空气',
+  'legend.group.place': '位置与时间',
+
+  'legend.temp.title': '气温',
+  'legend.temp.unit': '°C',
+  'legend.temp.body': '离地 2 米高处的气温，取自数据源的 temperature_2m。',
+
+  'legend.feels.title': '体感温度',
+  'legend.feels.unit': '°C',
+  'legend.feels.body': '数据源给出的体感温度（apparent_temperature）：在气温之外还把风与湿度的影响算了进去。它是算出来的，不是另测一个数 —— 夏天比气温高、冬天比气温低都属正常。',
+
+  'legend.humidity.title': '相对湿度',
+  'legend.humidity.unit': '%',
+  'legend.humidity.body': '空气中实际水汽压与同温度下饱和水汽压之比（relative_humidity_2m）。100% 表示已饱和，此时容易起雾或结露。',
+
+  'legend.precip.title': '降水量',
+  'legend.precip.unit': 'mm',
+  'legend.precip.body': '当前时次累计的降水量（precipitation），单位毫米。注意这里是「降水量」不是降水概率 —— 界面上没有降水概率这一项。',
+
+  'legend.wind.title': '风速',
+  'legend.wind.unit': 'm/s',
+  'legend.wind.body': '离地 10 米处的风速（wind_speed_10m），单位米每秒；界面同时给出公里每小时换算（1 m/s = 3.6 km/h）。',
+
+  'legend.beaufort.title': '蒲福风级',
+  'legend.beaufort.unit': '级',
+  'legend.beaufort.body': '把风速分成 0–12 级，界面上「清风（4 级）」就是这么来的。级名与阈值取自本应用的换算表：',
+  'legend.beaufort.row': '{level} 级 · {zh} · 小于 {max} m/s',
+  'legend.beaufort.rowLast': '{level} 级 · {zh} · {min} m/s 及以上',
+
+  'legend.winddir.title': '风向',
+  'legend.winddir.unit': '°',
+  'legend.winddir.body': '风的**来向**（wind_direction_10m），按每 22.5° 一段切成 16 个方位。「西北偏北风」说的是风从西北偏北吹来，不是吹向那边：',
+  'legend.winddir.row': '{zh}',
+
+  'legend.pressure.title': '气压',
+  'legend.pressure.unit': 'hPa',
+  'legend.pressure.body': '地面气压（surface_pressure），单位百帕。数值随海拔与天气系统起伏，单看一个绝对值意义不大。',
+
+  'legend.visibility.title': '能见度',
+  'legend.visibility.unit': 'm / km',
+  'legend.visibility.body': '水平方向能看清的最远距离（visibility）。不足 1000 米时按米显示，达到 1000 米后换算成公里并保留一位小数。',
+
+  'legend.uv.title': '紫外线指数',
+  'legend.uv.unit': '无量纲',
+  'legend.uv.body': '当天的紫外线指数最大值（uv_index_max），是个无量纲指数。五档与对应建议取自本应用既有的换算表：',
+  'legend.uv.row': '{min}–{max} · {zh} · {advice}',
+  'legend.uv.rowLast': '{min} 及以上 · {zh} · {advice}',
+
+  'legend.sun.title': '日出与日落',
+  'legend.sun.unit': '本地时刻',
+  'legend.sun.body': '由数据源按当地时区给出（daily.sunrise / sunset）。数据源没给时，改用本机内置的 NOAA 算法推算。',
+
+  'legend.dayLength.title': '昼长',
+  'legend.dayLength.unit': '时 · 分',
+  'legend.dayLength.body': '日落减日出，即白昼时长。极昼或极夜时数据源可能给不出这两个时刻，那一刻显示占位符「—」。',
+
+  'legend.today.title': '今日最高 / 最低',
+  'legend.today.unit': '°C',
+  'legend.today.body': '数据源给出的当日最高温与最低温（temperature_2m_max / _min）。这是**全天预报值**，不是此刻的实测值。',
+
+  'legend.wmo.title': '天气现象',
+  'legend.wmo.unit': 'WMO 码',
+  'legend.wmo.body': '图标与描述由 WMO 天气码翻译而来（0–99，例如 0 是晴、61 是小雨）。取不到码、或码非法时显示「未知天气」—— 不会把「没数据」误报成晴天。',
+
+  'legend.observedAt.title': '观测时刻',
+  'legend.observedAt.unit': '本地时刻',
+  'legend.observedAt.body': '数据源给出的当前数据时次，已按当地时间偏移换算成本地时间显示。',
+
+  'legend.aqi.title': '欧洲 AQI',
+  'legend.aqi.unit': '无量纲',
+  'legend.aqi.body': '数据源直接给出的欧洲 AQI（european_aqi）：把多种污染物折算成一个数，越小越好。本应用只负责把它分成六档，档位与建议如下：',
+  'legend.aqi.row': '{min}–{max} · {zh} · {advice}',
+  'legend.aqi.rowLast': '{min} 及以上 · {zh} · {advice}',
+
+  'legend.pollutants.title': 'PM2.5 / PM10 / O₃ / NO₂',
+  'legend.pollutants.unit': 'µg/m³',
+  'legend.pollutants.body': '四种污染物浓度，单位微克每立方米。本应用不对单项污染物分级 —— 分级只针对上面那个欧洲 AQI，这四项只是构成它的原料，所以这里也就不给档位。',
+
+  'legend.elevation.title': '海拔',
+  'legend.elevation.unit': 'm',
+  'legend.elevation.body': '所在地点的海拔（Open-Meteo Elevation），单位米。取不到时显示占位符「—」。',
+
+  'legend.coord.title': '坐标',
+  'legend.coord.unit': '度（WGS84）',
+  'legend.coord.body': 'WGS84 经纬度，保留四位小数（约 11 米精度）。收藏与跨页跳转都以这两个数作为地点的身份。',
+
+  'legend.tz.title': '时区偏移',
+  'legend.tz.unit': '秒',
+  'legend.tz.body': '数据源返回的「当地时区相对 UTC 的偏移」（utc_offset_seconds）。日出日落与观测时刻都是按它换算的 —— 它一变，这几个时刻会跟着变。',
 };
 
 /**

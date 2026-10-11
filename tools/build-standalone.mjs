@@ -40,6 +40,9 @@ const ORDER = [
   'src/data/health.js',
   'src/ui/theme.js',
   'src/ui/placesearch.js',
+  // 指标释义：now.js 在 renderSkeleton() 里建它的槽位，所以必须在 now.js **之前**。
+  // 自检页本身不显示图例，但闭包校验是「import 了就必须在闭包内」，少登记会直接打包中止。
+  'src/ui/legend.js',
   'src/ui/now.js',
   'src/ui/map.js',
   'src/ui/download.js',
