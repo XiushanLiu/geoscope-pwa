@@ -13,6 +13,11 @@ import { t } from '../i18n/zh.js';
 import * as fmt from '../core/format.js';
 import { wmo, aqi, uv, windDir16, beaufort } from '../core/wmo.js';
 import { isDaylight } from '../core/sun.js';
+// 收藏状态读写走 store（唯一真相源）。依赖方向 ui → core，与 settings.js 一致。
+import { isFavorite, addFavorite, removeFavorite } from '../core/store.js';
+
+/** 收藏反馈文案的停留时长（毫秒）：给一眼就够，不长驻、不挡内容。 */
+const FAV_HINT_MS = 2000;
 
 /**
  * 把静态 HTML 里带 data-i18n 的占位节点替换成真实文案。
@@ -183,7 +188,71 @@ export function renderBanner(bannerEl, mode, extra = {}) {
 /* ------------------------------------------------------------------ */
 
 /**
- * 渲染标题区（地点名 + 坐标 + 观测时刻）。
+ * 收藏按钮（toggle：已收藏再点一次就是取消）。
+ *
+ * 三件事必须同时成立，缺一个这颗按钮就是死的：
+ *   1) **状态从 store 读**（isFavorite），不是从上次渲染的记忆里读 —— 标题区会被
+ *      renderHeader 整槽重建多次，靠记忆会与 store 漂移；
+ *   2) **点了就地翻转**（改文案 / 改配色 / 改 aria-pressed），用户立刻看得见；
+ *   3) **aria-pressed** 跟着状态走，读屏软件才知道这是开关而不是普通按钮。
+ *
+ * 配色两态复用既有的 `.btn`（未收藏）与 `.btn--primary`（已收藏）—— 这两条规则的
+ * 白字/实心底组合已经过 tools/contrast-audit.mjs，不新增任何 color 声明。
+ *
+ * @param {{lat:number, lon:number, name:string}} place 要收藏的地点。
+ * @returns {HTMLElement} 按钮容器（按钮 + 行内反馈）。
+ */
+function _favButton(place) {
+  const lat = Number(place.lat);
+  const lon = Number(place.lon);
+  const name = String(place.name || '');
+
+  const btn = h('button', { type: 'button', class: 'btn fav-btn' });
+  // 反馈位用「有没有字」表示显隐，不用 hidden 属性：整槽重建后属性容易被落下，
+  // 空 span 本来就不占版面，比一个可能卡住的 hidden 更省心。
+  const hint = h('span', { class: 'hd-hint' });
+  /** @type {any} 反馈计时器（浏览器给 number，Node 给 Timeout 对象）。 */
+  let timer = null;
+
+  /** 把按钮刷成当前收藏态。 */
+  const sync = () => {
+    const on = isFavorite(lat, lon);
+    btn.className = on ? 'btn btn--primary fav-btn fav-btn--on' : 'btn fav-btn';
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.textContent = on ? `★ ${t('fav.added')}` : `☆ ${t('fav.add')}`;
+  };
+  sync();
+
+  btn.addEventListener('click', () => {
+    const was = isFavorite(lat, lon);
+    // toggle：已收藏 → 取消；未收藏 → 存进来。removeFavorite 的返回值区分
+    // 「删掉了」与「本来就没有」，但按钮只按**最新**状态刷新，所以两种情况
+    // 都会收敛到「未收藏」，不需要分支。
+    if (was) removeFavorite(lat, lon);
+    else addFavorite({ lat, lon, name });
+    sync();
+
+    hint.textContent = was ? t('fav.removedHint') : t('fav.addedHint');
+    if (timer) clearTimeout(timer);
+    // 用完就清成空串 —— 反馈不该常驻，它只是确认「这次点击生效了」
+    timer = setTimeout(() => {
+      hint.textContent = '';
+    }, FAV_HINT_MS);
+    // Node 侧（测试）挂着这个定时器会把进程多吊 2 s；浏览器返回的是数字，没有 unref。
+    if (timer && typeof timer.unref === 'function') timer.unref();
+  });
+
+  return h('div', { class: 'hd-fav' }, [btn, hint]);
+}
+
+/**
+ * 渲染标题区（地点名 + 坐标 + 观测时刻 + 收藏按钮）。
+ *
+ * 整槽替换（_fill）会重建 .hd 里的全部节点，所以按钮上的 click 监听不会重复绑定 ——
+ * 每次渲染都是一颗新按钮，状态也顺带从 store 重新读一遍。
+ *
+ * 无坐标时不给收藏按钮：store 的收藏以 lat+lon 为身份，没有坐标就存不出一条
+ * 能跳回去的收藏，放一颗点了没反应的按钮比不放更糟。
  *
  * @param {HTMLElement} root 根容器。
  * @param {Object} snapshot NowSnapshot。
@@ -195,12 +264,18 @@ export function renderHeader(root, snapshot, opts = {}) {
   if (!hd) return;
   const placeName = snapshot.placeName || (snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.unknown'));
   const right = snapshot.atMs ? t('now.observeAt', { time: fmt.hhmm(snapshot.atMs, snapshot.weather && snapshot.weather.tzOffsetSec ? snapshot.weather.tzOffsetSec : 0) }) : t('app.loading');
+  // 收藏的是**当前显示的地点**：坐标取 snapshot.coord，名字优先用反查出来的地名
+  // （coord 自带的 name 只在收藏跳转 / 默认地点这类已知名字的场景下存在）。
+  const favPlace = snapshot.coord
+    ? { lat: snapshot.coord.lat, lon: snapshot.coord.lon, name: snapshot.placeName || snapshot.coord.name || '' }
+    : null;
 
   _fill(hd, [
     h('div', {}, [
       h('h1', { class: 'hd-place', text: placeName }),
       h('p', { class: 'hd-coord num', text: snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.dash') }),
       opts.isDefaultPlace ? h('p', { class: 'hd-coord', text: t('now.defaultPlaceNotice') }) : null,
+      favPlace ? _favButton(favPlace) : null,
     ]),
     h('div', { class: 'hd-time', text: right }),
   ]);

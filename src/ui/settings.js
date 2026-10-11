@@ -23,7 +23,16 @@
  */
 
 import { t } from '../i18n/zh.js';
-import { getState, getLastSnapshot, getThemeMode, setThemeMode, log } from '../core/store.js';
+import * as fmt from '../core/format.js';
+import {
+  getState,
+  getLastSnapshot,
+  getThemeMode,
+  setThemeMode,
+  getFavorites,
+  removeFavorite,
+  log,
+} from '../core/store.js';
 import { exportBackup, inspectBackup, applyBackup, backupFilename } from '../core/backup.js';
 import { downloadJson } from './download.js';
 import { h, applyI18n } from './now.js';
@@ -39,6 +48,20 @@ let _plan = null;
 
 /** @type {string} 待确认备份的文件名（仅用于预览回放给用户看）。 */
 let _fileName = '';
+
+/**
+ * 收藏列表容器（由 _renderPage 建好后留在这里）。
+ *
+ * 为什么不用 _el('fav-list')：这个节点是 JS 造的、不在静态 HTML 里，浏览器里
+ * getElementById 拿得到，但测试台的假 DOM 只索引预置 id —— 留一个直接引用，
+ * 两边都能拿到同一个节点，不必为测试改生产代码的取节点方式。
+ *
+ * @type {HTMLElement|null}
+ */
+let _favBox = null;
+
+/** @type {HTMLElement|null} 收藏条数那一行（同上，留引用而不是靠 getElementById）。 */
+let _favCountBox = null;
 
 /**
  * 取 DOM 元素（缺失返回 null，不抛）。
@@ -174,6 +197,95 @@ function _refreshExport() {
 }
 
 /**
+ * 收藏项的跳转链接（跨页传参）。
+ *
+ * 无 SPA 路由，页面之间只有 URL 这一条通路，所以目的地写成
+ * `index.html?lat=…&lon=…&name=…` 这个完整链接（app.js 的 parsePlaceParam 接）。
+ * ★中文名必须 encodeURIComponent：直接拼进查询串，非 ASCII 字节在部分浏览器上
+ * 会被按 Latin-1 解释成乱码，跳过去显示成一串问号。
+ *
+ * @param {{lat:number, lon:number, name:string}} f 收藏项。
+ * @returns {string} 跳转链接。
+ */
+function _favHref(f) {
+  const lat = encodeURIComponent(String(f.lat));
+  const lon = encodeURIComponent(String(f.lon));
+  const name = encodeURIComponent(String(f.name || ''));
+  return `index.html?lat=${lat}&lon=${lon}&name=${name}`;
+}
+
+/**
+ * 渲染一条收藏（地点名 + 经纬度 + 跳转链接 + 删除按钮）。
+ *
+ * @param {{lat:number, lon:number, name:string}} f 收藏项。
+ * @returns {HTMLElement} 行节点。
+ */
+function _renderFavoriteRow(f) {
+  const label = f.name ? String(f.name) : t('fav.unnamed');
+  const link = h(
+    'a',
+    { class: 'fav-link', href: _favHref(f), title: t('fav.go') },
+    [
+      h('span', { class: 'fav-name', text: label }),
+      // 经纬度走 .num（等宽 + tabular-nums），与位置卡 / 溯源气泡的写法一致
+      h('span', { class: 'fav-coord num', text: fmt.coord(f.lat, f.lon) }),
+    ]
+  );
+  const del = h('button', {
+    class: 'btn',
+    type: 'button',
+    'aria-label': t('fav.deleteOf', { name: label }),
+    text: t('fav.delete'),
+  });
+  del.addEventListener('click', () => {
+    removeFavorite(f.lat, f.lon);
+    // 删完必须整段重画：条数、空态、导出卡概要三处都要跟着变
+    _refreshFavorites();
+  });
+  return h('div', { class: 'fav-item' }, [link, del]);
+}
+
+/**
+ * 重画收藏列表（含空态），并同步导出卡。
+ *
+ * ★末尾必须调 _refreshExport()：导出卡概要与隐私文案里的 {count} 就是收藏条数，
+ * 漏掉这一步，删完收藏导出卡还写着旧数字 —— 用户会以为备份里还有那些地点。
+ *
+ * @returns {void}
+ */
+function _refreshFavorites() {
+  const box = _favBox;
+  if (!box) return;
+  const list = getFavorites();
+  box.textContent = '';
+  if (list.length === 0) {
+    box.appendChild(h('p', { class: 'card-note', text: t('fav.empty') }));
+  } else {
+    list.forEach((f) => box.appendChild(_renderFavoriteRow(f)));
+  }
+  if (_favCountBox) _favCountBox.textContent = t('fav.count', { count: list.length });
+  _refreshExport();
+}
+
+/**
+ * 渲染收藏卡（列表容器先建好，内容由 _refreshFavorites 填）。
+ *
+ * @returns {HTMLElement} 卡片节点。
+ */
+function _renderFavoriteCard() {
+  const list = h('div', { class: 'fav-list', id: 'fav-list' });
+  const count = h('p', { class: 'card-note', id: 'fav-count' });
+  _favBox = list;
+  _favCountBox = count;
+  return h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('fav.title') }),
+    count,
+    list,
+    h('p', { class: 'card-note', text: t('fav.hint') }),
+  ]);
+}
+
+/**
  * 渲染主题卡。
  *
  * @returns {HTMLElement} 卡片节点。
@@ -241,7 +353,10 @@ function _renderPage() {
     ])
   );
 
-  // (a) 备份导出
+  // (a) 收藏地点（放在备份之前：先让用户有东西可收藏，再说怎么把它们带走）
+  app.appendChild(_renderFavoriteCard());
+
+  // (b) 备份导出
   app.appendChild(
     h('div', { class: 'card' }, [
       h('p', { class: 'card-title', text: t('settings.exportTitle') }),
@@ -255,7 +370,7 @@ function _renderPage() {
     ])
   );
 
-  // (b) 备份导入（先预览，确认后才写）
+  // (c) 备份导入（先预览，确认后才写）
   app.appendChild(
     h('div', { class: 'card' }, [
       h('p', { class: 'card-title', text: t('settings.importTitle') }),
@@ -271,8 +386,12 @@ function _renderPage() {
     ])
   );
 
-  // (c) 主题
+  // (d) 主题
   app.appendChild(_renderThemeCard());
+
+  // 收藏列表内容最后填：卡片刚建好时 _favBox / _favCountBox 才指向真实节点，
+  // 这一步顺带把导出卡的 {count} 也算对。
+  _refreshFavorites();
 }
 
 /* ------------------------------------------------------------------ */
@@ -378,7 +497,8 @@ function _onConfirm() {
   if (confirmBtn) confirmBtn.disabled = true;
   const preview = _el('import-preview');
   if (preview) preview.textContent = '';
-  _refreshExport();
+  // 导入是覆盖性写入，收藏也被整份换掉 —— 列表必须重画（_refreshFavorites 内部会调 _refreshExport）
+  _refreshFavorites();
   // 主题不受导入影响（themeMode 不在备份里），这里不需要重新应用，也不需要重画
 }
 

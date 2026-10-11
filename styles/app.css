@@ -83,6 +83,76 @@ body {
   white-space: nowrap;
 }
 
+/* 收藏按钮：两态的**配色**复用既有 .btn（未收藏）与 .btn--primary（已收藏），
+   这两条规则的底色/文字组合已经过 tools/contrast-audit.mjs；这里只补排版，
+   不新增任何 color: 声明 —— 新增色值等于新增一笔要审计的债。 */
+.hd-fav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.hd-fav .btn {
+  min-height: 36px;
+  min-width: 0;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.hd-hint {
+  font-size: var(--fs-xs);
+}
+
+/* ---------------- 收藏列表（我的页） ---------------- */
+
+.fav-list {
+  display: flex;
+  flex-direction: column;
+  margin: var(--sp-2) 0 0;
+}
+
+.fav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-top: 1px solid var(--c-divider);
+}
+
+.fav-item:first-child { border-top: none; }
+
+.fav-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-decoration: none;
+  color: var(--c-text-2);
+}
+
+.fav-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--c-text-1);
+}
+
+.fav-coord {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.fav-item .btn {
+  min-height: 36px;
+  min-width: 0;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  flex: 0 0 auto;
+}
+
 /* ---------------- 卡片 ---------------- */
 
 .card {

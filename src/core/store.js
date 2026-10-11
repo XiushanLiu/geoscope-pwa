@@ -299,7 +299,7 @@ export function getFavorites() {
 }
 
 /**
- * 追加收藏（阶段二启用；阶段一保留 schema 与去重逻辑）。
+ * 追加收藏。
  *
  * @param {{lat:number, lon:number, name:string}} place 地点。
  * @returns {void}
@@ -311,6 +311,49 @@ export function addFavorite(place) {
   if (_state.favorites.some((f) => f.lat === lat && f.lon === lon)) return;
   _state.favorites.push({ lat, lon, name: String(place.name || '') });
   _persist();
+}
+
+/**
+ * 判断某个坐标是否已收藏（口径与 addFavorite 的去重一致：lat + lon 精确相等）。
+ *
+ * 为什么单独给一个：now.js 的收藏按钮每次渲染都要问一次「现在是不是已收藏」，
+ * 让 UI 层自己 `getFavorites().some(...)` 等于把去重口径抄一份到界面层 ——
+ * 哪天去重规则从「精确相等」改成「四舍五入到 4 位」，界面就会和 store 判出两种结论。
+ *
+ * @param {number} lat 纬度。
+ * @param {number} lon 经度。
+ * @returns {boolean} 是否已收藏。
+ */
+export function isFavorite(lat, lon) {
+  _load();
+  const la = Number(lat);
+  const lo = Number(lon);
+  return _state.favorites.some((f) => f.lat === la && f.lon === lo);
+}
+
+/**
+ * 删除收藏（按 lat + lon 精确匹配，口径与 addFavorite 的去重一致）。
+ *
+ * 返回值必须区分「删掉了」和「本来就没有」：UI 要用它区分成功反馈与无效点击，
+ * 若一律返回 undefined，取消收藏按钮在「条目已被另一处删掉」时会假报成功。
+ *
+ * 未命中时**不写盘**：无意义的 _persist() 会给 localStorage 增加一次写入，
+ * 在配额紧张的 iOS 上是不必要的消耗。
+ *
+ * @param {number} lat 纬度。
+ * @param {number} lon 经度。
+ * @returns {boolean} 是否真的删掉了（false = 本来就没有这一条）。
+ */
+export function removeFavorite(lat, lon) {
+  _load();
+  const la = Number(lat);
+  const lo = Number(lon);
+  const before = _state.favorites.length;
+  const next = _state.favorites.filter((f) => !(f.lat === la && f.lon === lo));
+  if (next.length === before) return false;
+  _state.favorites = next;
+  _persist();
+  return true;
 }
 
 /**

@@ -437,6 +437,78 @@ function _maxStaleAge(snapshot) {
 }
 
 /**
+ * 从 URL 查询串解析「指定地点」（跨页传参：收藏列表 → 此刻页）。
+ *
+ * 为什么必须有它：本项目**无 SPA 路由**，四个 HTML 页靠 `<nav class="tabbar">` 的
+ * `<a href>` 整页跳转，页面间没有任何共享内存（每次导航都是全新的 JS 环境）。
+ * 收藏列表要点一下就跳到那个地点，只能把坐标写在 URL 上。
+ *
+ * 严格解析（不做 Number() 宽容转换）：空串 / 非数字一律判为非法。理由与
+ * store.js 的 _normPlace() 同一条 —— `Number('')` 与 `Number(null)` 都是 0，
+ * 宽容解析会把「参数坏了」静默变成「几内亚湾 0,0」这个真实存在的地点，
+ * 用户会看到一片陌生的天气却毫无提示。
+ *
+ * 参数非法 / 缺失一律返回 null，调用方退回原有的定位流程，行为不变。
+ *
+ * @param {string} [search] 查询串（可带或不带前导 '?'）；缺省读 location.search。
+ * @returns {{lat:number, lon:number, name:string, source:'favorite'}|null} 解析结果；非法时 null。
+ */
+export function parsePlaceParam(search) {
+  let raw = '';
+  if (typeof search === 'string') raw = search;
+  else if (typeof location !== 'undefined' && location && typeof location.search === 'string') raw = location.search;
+
+  let params = null;
+  try {
+    params = new URLSearchParams(raw.replace(/^\?/, ''));
+  } catch (err) {
+    return null;
+  }
+
+  const rawLat = params.get('lat');
+  const rawLon = params.get('lon');
+  // 缺任一参数 → null（「只有 lat 没有 lon」是非法，不是「lon 取 0」）
+  if (rawLat === null || rawLon === null) return null;
+  // 空串 / 空白 / 非数字全部拦下（见上方 JSDoc：0,0 是真实地点，不能靠 Number() 兜出来）
+  if (!String(rawLat).trim() || !String(rawLon).trim()) return null;
+  const lat = Number(rawLat);
+  const lon = Number(rawLon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+
+  // name 可有可无；中文名由 encodeURIComponent 编过，解不出来（乱码）也只是名字难看，
+  // 坐标与天气照常工作 —— 所以这里退化成空串，绝不因为它抛异常。
+  let name = '';
+  try {
+    name = String(params.get('name') || '');
+  } catch (err) {
+    name = '';
+  }
+  return { lat, lon, name, source: 'favorite' };
+}
+
+/**
+ * 由 coord 解析出 base 坐标与「是否默认地点」。
+ *
+ * ★`isDefaultPlace` 只认 `source === 'default'`（真正走了 geo.js 兜底），
+ * 不能写成 `base.source !== 'gps'`：收藏跳转带的是 `source:'favorite'`，
+ * 按旧写法会被判成「默认地点」，于是用户明明点的是自己收藏的上海，
+ * 界面却写着「未取得定位，正在显示默认地点」—— 一句彻头彻尾的假话。
+ * 抽成函数是为了让这条语义能被单测直接钉死（见 tests/favorites.test.mjs）。
+ *
+ * @param {{lat:number, lon:number, source:string, name?:string|null}} coord 定位结果。
+ * @returns {{base:{lat:number, lon:number, source:string, name?:string|null}, isDefaultPlace:boolean}} 解析结果。
+ */
+export function resolveCoord(coord) {
+  const src = coord && typeof coord === 'object' ? coord : {};
+  const fallback = src.source === 'default' ? getDefaultPlace() : null;
+  const base = src.source === 'default' && fallback
+    ? { lat: fallback.lat, lon: fallback.lon, source: 'default', name: fallback.name }
+    : src;
+  return { base, isDefaultPlace: base.source === 'default' };
+}
+
+/**
  * 此刻屏启动流程。
  *
  * @returns {Promise<void>}
@@ -461,14 +533,15 @@ export async function boot() {
   // 瓦片比三路 API 慢得多（真机中位 693 ms、峰值 3198 ms），先出骨架再等字节。
   renderMapSkeleton(root);
 
-  const coord = await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS });
+  // ① URL 指定地点（从收藏列表跳过来）优先：用户已经明确选了这个地点，
+  //    再去要一次系统定位既慢（最多 8 s）又是和用户意图对着干 —— 直接跳过 geo.js。
+  //    参数缺失/非法时 parsePlaceParam 返回 null，退回原有定位流程，行为不变。
+  const fromUrl = parsePlaceParam();
+  const coord = fromUrl || (await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS }));
   if (epoch !== _epoch) return; // 定位期间已被新一轮接管
 
-  const fallback = coord.source === 'default' ? getDefaultPlace() : null;
-  const base = coord.source === 'default' && fallback
-    ? { lat: fallback.lat, lon: fallback.lon, source: 'default', name: fallback.name }
-    : coord;
-  const isDefaultPlace = base.source !== 'gps';
+  const { base, isDefaultPlace } = resolveCoord(coord);
+  if (fromUrl) log('coord from url param', base.lat, base.lon, base.name);
 
   const snapshot = _blankSnapshot(base);
   renderHeader(root, snapshot, { isDefaultPlace });
