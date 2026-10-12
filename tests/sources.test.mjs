@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const { SOURCES, SOURCE_LIST, getSource, criticalSourceIds } = await import('../src/data/sources.js');
-const { t, hasKey, allKeys, ZH } = await import('../src/i18n/zh.js');
+const { t, hasKey, allKeys, ZH } = await import('../src/i18n/index.js');
 
 const ROOT = path.resolve(process.cwd());
 const WALK = ['src', 'sw.js', 'index.html', 'selfcheck.html', 'styles', 'manifest.webmanifest'];
@@ -165,6 +165,10 @@ test('i18n：所有 t() 字面量 key 与模板 key 的枚举都必须存在于�
     'settings.theme.': ['system', 'light', 'dark'],
     // ★无障碍字号三档：与 src/ui/settings.js 的 FONT_SCALES 一一对应（同 THEME_MODES 的道理）
     'settings.font.': ['normal', 'large', 'xlarge'],
+    // ★界面语言两档：与 src/ui/settings.js 的 LOCALES 一一对应。
+    //   ★注意 ['zh','en'] 这两个选项名**故意不翻译**（中文界面写着 English），
+    //   所以这里查的是「两张表里都有这两条 key」，不是「英文表里写的是 English」。
+    'settings.lang.': ['zh', 'en'],
   };
 
   for (const rel of FILES.filter((f) => f.endsWith('.js'))) {

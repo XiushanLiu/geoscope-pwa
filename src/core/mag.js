@@ -452,7 +452,16 @@ export function createMagneticModel({ model, maxDegree, epoch, referenceRadiusKm
   };
 
   /**
-   * 判定给定年份是否落在模型有效期内，产出可直接展示的中文提示。
+   * 判定给定年份是否落在模型有效期内，产出模型有效期提示。
+   *
+   * ★这里的中文是**故意留下的**，不属于本次中英改造范围，理由如下：
+   *   1) `warning` 是**开发者 / 排障**看的诊断串，不是给最终用户读的界面文案 ——
+   *      compass.js 被明确禁止把 warning 原样上屏（tests 里有 `!/mag\.warning/` 断言守着），
+   *      真要上屏必须另走 i18n 键；
+   *   2) 本模块在 core 层，**不许 import src/i18n/**（core ← data ← ui ← html 单向依赖），
+   *      而 mag 的 throw 消息只在参数用错时出现（程序员的错，线上的用户永远不会触发）。
+   *   把这两类串搬进文案表，只会让「漏翻即报红」的护栏多出一堆永远用不上的键，
+   *   反而稀释真正要看的那 568 条。
    *
    * @param {number} decimalYear 十进制年。
    * @returns {{valid:boolean, expired:boolean, ahead:boolean, overshootYears:number, warning:string|null, level:string}} 判定结果。

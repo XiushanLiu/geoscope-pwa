@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="description" content="" data-i18n-attr="content" data-i18n-key="desc.selfcheck" />
   <title data-i18n="sc.title">数据源自检</title>
 
   <meta name="theme-color" content="#1E9C8C" />
   <meta name="color-scheme" content="dark light" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="地候" />
+  <meta name="apple-mobile-web-app-title" content="地候" data-i18n-attr="content" data-i18n-key="app.shortName" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%231E9C8C'/%3E%3Ccircle%20cx='256'%20cy='256'%20r='120'%20fill='none'%20stroke='%23ffffff'%20stroke-width='24'/%3E%3Cpath%20d='M256%2096v320M96%20256h320'%20stroke='%23ffffff'%20stroke-width='16'%20opacity='.85'/%3E%3C/svg%3E" />
 
@@ -39,7 +40,7 @@
   </header>
 
   <!-- 控制面板：网络类型手动点选 + 取样次数可调 -->
-  <section class="panel" aria-label="自检参数">
+  <section class="panel" aria-label="自检参数" data-i18n-aria="a11y.checkParams">
     <div class="field">
       <span class="field-label" data-i18n="sc.networkType">网络类型</span>
       <div class="seg" id="network-type" role="group">
@@ -86,7 +87,7 @@
     <pre id="log" class="sc-log"></pre>
   </section>
 
-  <nav class="tabbar" aria-label="主导航">
+  <nav class="tabbar" aria-label="主导航" data-i18n-aria="a11y.mainNav">
     <a class="tab" href="index.html" data-i18n="tab.now">此刻</a>
     <a class="tab tab--active" href="selfcheck.html" aria-current="page" data-i18n="tab.selfcheck">自检</a>
     <a class="tab" href="compass.html" data-i18n="tab.compass">方位</a>

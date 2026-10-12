@@ -9,7 +9,7 @@
  * 降级原则：有任何陈旧数据就上屏并标注陈旧时长，**绝不显示空白**。
  */
 
-import { t } from '../i18n/zh.js';
+import { t, tr } from '../i18n/index.js';
 import * as fmt from '../core/format.js';
 import { wmo, aqi, uv, windDir16, beaufort } from '../core/wmo.js';
 import { isDaylight } from '../core/sun.js';
@@ -30,9 +30,20 @@ import { renderLegend } from './legend.js';
 const FAV_HINT_MS = 2000;
 
 /**
- * 把静态 HTML 里带 data-i18n 的占位节点替换成真实文案。
+ * 把静态 HTML 外壳里的占位替换成真实文案。
  *
- * 目的：HTML 外壳不硬编码任何中文，文案统一由 i18n/zh.js 提供（架构约定第 11 条）。
+ * 目的：HTML 不硬编码任何中文，文案统一由 i18n 提供（架构约定第 11 条）。
+ * 三种占位，缺哪一种都会漏掉一类「界面上其实是中文」的地方：
+ *
+ *   - `data-i18n="key"`                → 元素**文本**（标题、按钮、tab、列表项）
+ *   - `data-i18n-attr="content"`       → `content` **属性值**（<meta> 的 description /
+ *                                        apple-mobile-web-app-title —— 它们没有子元素，
+ *                                        文本替换够不着，而 iOS 主屏图标名是**看得见**的）
+ *   - `data-i18n-aria="key"`           → `aria-label`（读屏软件念的导航名，同样看得见 ——
+ *                                        只是用耳朵看）
+ *
+ * ★只认这三个显式属性，不去做「扫描所有属性找中文」那种聪明事：那会把 URL、
+ *   CSS 类名、data-* 数据一起误伤，而且一旦误伤是静默的。
  *
  * @param {ParentNode} [root] 根节点，默认 document。
  * @returns {void}
@@ -43,6 +54,15 @@ export function applyI18n(root) {
   scope.querySelectorAll('[data-i18n]').forEach((el) => {
     const key = el.getAttribute('data-i18n');
     if (key) el.textContent = t(key);
+  });
+  scope.querySelectorAll('[data-i18n-attr]').forEach((el) => {
+    const attr = el.getAttribute('data-i18n-attr');
+    const key = el.getAttribute(`data-i18n-key`);
+    if (attr && key) el.setAttribute(attr, t(key));
+  });
+  scope.querySelectorAll('[data-i18n-aria]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-aria');
+    if (key) el.setAttribute('aria-label', t(key));
   });
 }
 
@@ -194,7 +214,8 @@ export function renderBanner(bannerEl, mode, extra = {}) {
   const nodes = [h('span', { class: `badge badge--${mode === 'offline' ? 'offline' : 'stale'}` })];
   nodes.push(h('span', { text: t(`mode.${mode}`) }));
   if (extra.staleAgeMs && extra.staleAgeMs > 0) {
-    nodes.push(h('span', { class: 'num', text: `（${fmt.staleFor(extra.staleAgeMs)}）` }));
+    // 陈旧时长：format.staleFor() 给的是结构化量，tr() 才翻译成话（英文是 "3 min"）
+    nodes.push(h('span', { class: 'num', text: `（${tr(fmt.staleFor(extra.staleAgeMs))}）` }));
   }
   _fill(bannerEl, nodes);
 }
@@ -571,18 +592,21 @@ export function renderWeatherCard(root, snapshot) {
     // 两者都缺失时各显示占位符「—」，绝不把概率的空值显示成 0%（那会被读成「确定不下雨」）。
     _kv(t('w.precip'), fmt.precipMm(w.precipMm)),
     _kv(t('w.pop'), fmt.percent(w.popNowPct)),
-    _kv(t('w.wind'), `${fmt.num(w.windMs, 1, 'm/s')} · ${wind.zh}`),
+    // 风向：core 只给键（core 不许读 locale 表），「风」这个字由 w.windFrom 一条模板补上
+    // —— 中文是后缀（西北偏北风）、英文是介词（wind from NNW），语序不同，不能拼片段。
+    _kv(t('w.wind'), `${fmt.num(w.windMs, 1, 'm/s')} · ${t('w.windFrom', { dir: t(wind.abbrKey) })}`),
     _kv(t('w.pressure'), fmt.pressure(w.pressureHpa)),
     _kv(t('w.visibility'), fmt.visibility(w.visibilityM)),
     _kv(t('w.sunrise'), fmt.hhmm(w.sunriseAt, tzOffset)),
     _kv(t('w.sunset'), fmt.hhmm(w.sunsetAt, tzOffset)),
-    _kv(t('w.dayLength'), w.sunriseAt && w.sunsetAt ? fmt.duration(w.sunsetAt - w.sunriseAt) : t('app.dash')),
+    // 昼长：format.duration() 产出结构化量（中英语序不同），tr() 才翻译成话
+    _kv(t('w.dayLength'), w.sunriseAt && w.sunsetAt ? tr(fmt.duration(w.sunsetAt - w.sunriseAt)) : t('app.dash')),
     // UV：缺失仍显示占位符「—」；有值时用 displayValue（钳制负值，避免显示「低 · -3」）
     _kv(
       t('w.uv'),
       w.uvMax === null || w.uvMax === undefined
         ? fmt.num(w.uvMax, 0)
-        : `${fmt.num(uvInfo.displayValue, 0)}（${uvInfo.zh}）`
+        : `${fmt.num(uvInfo.displayValue, 0)}（${t(uvInfo.levelKey)}）`
     ),
     _kv(t('w.todayMax'), fmt.tempC(w.todayMaxC)),
     _kv(t('w.todayMin'), fmt.tempC(w.todayMinC)),
@@ -594,9 +618,9 @@ export function renderWeatherCard(root, snapshot) {
       h('div', { class: 'hero' }, [
         tempNode,
         h('div', { class: 'hero-desc' }, [
-          h('span', { class: 'hero-wmo', text: `${desc.icon} ${desc.zh}` }),
-          h('span', { class: 'hero-sub', text: `${t('w.feels')} ${fmt.tempC(w.feelsC)} · ${t('w.beaufortLevel', { zh: bf.zh, level: bf.level })}` }),
-          h('span', { class: 'hero-sub', text: uvInfo.advice }),
+          h('span', { class: 'hero-wmo', text: `${desc.icon} ${t(desc.key)}` }),
+          h('span', { class: 'hero-sub', text: `${t('w.feels')} ${fmt.tempC(w.feelsC)} · ${t('w.beaufortLevel', { name: t(bf.key), level: bf.level })}` }),
+          h('span', { class: 'hero-sub', text: t(uvInfo.adviceKey) }),
         ]),
       ]),
       kvGrid,
@@ -628,7 +652,7 @@ export function renderAirCard(root, snapshot) {
       h('div', { class: 'card--row' }, [
         h('p', { class: 'card-title', text: t('card.air') }),
         // AQI 用 displayValue（钳制负值），避免出现「优 · AQI -10」这类自相矛盾文案
-        h('span', { class: `chip chip--${info.level === 'good' || info.level === 'fair' ? 'ok' : info.level === 'extreme' ? 'failed' : 'stale'}`, text: `${info.zh} · AQI ${info.displayValue}` }),
+        h('span', { class: `chip chip--${info.level === 'good' || info.level === 'fair' ? 'ok' : info.level === 'extreme' ? 'failed' : 'stale'}`, text: `${t(info.levelKey)} · AQI ${info.displayValue}` }),
       ]),
       h('div', { class: 'kv' }, [
         _kv(t('w.pm10'), fmt.pollutant(a.pm10)),
@@ -636,7 +660,7 @@ export function renderAirCard(root, snapshot) {
         _kv(t('w.ozone'), fmt.pollutant(a.ozone)),
         _kv(t('w.no2'), fmt.pollutant(a.no2)),
       ]),
-      h('p', { class: 'card-title', text: info.advice }),
+      h('p', { class: 'card-title', text: t(info.adviceKey) }),
     ]),
   ]);
 }

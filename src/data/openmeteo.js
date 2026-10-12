@@ -18,7 +18,15 @@ export const GEOCODE_HOST = 'https://geocoding-api.open-meteo.com';
 export const ELEVATION_HOST = 'https://api.open-meteo.com';
 
 /** 许可署名（数据源归属，界面溯源气泡与导出报告共用）。 */
-export const OPENMETEO_ATTRIBUTION = 'Open-Meteo.com（CC-BY 4.0）';
+/**
+ * 许可署名的**文案键**（不是成品串）。
+ *
+ * ★为什么这里存键而不存串：data/sources.js 的 SOURCES 是模块级常量，若在模块求值那一刻
+ * 就把 `t()` 的结果写死，那么入口模块顶层的 `applyLocale(getLocale())` 根本来不及生效
+ * （ES Module 的 import 先于调用方 body 求值），存的语言偏好是英文、界面却还是中文源名。
+ * 存键 + getter 才能保证「取用时才翻译」。英文界面下不出现中文，靠的就是这一条。
+ */
+export const OPENMETEO_ATTRIBUTION_KEY = 'attr.openmeteo';
 
 /** forecast 请求字段（实测定稿，不可增删）。 */
 export const WEATHER_CURRENT_FIELDS =

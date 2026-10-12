@@ -29,7 +29,7 @@ dom.document.readyState = 'loading';
 const now = await import('../src/ui/now.js');
 const fmt = await import('../src/core/format.js');
 const om = await import('../src/data/openmeteo.js');
-const { t, hasKey } = await import('../src/i18n/zh.js');
+const { t, hasKey } = await import('../src/i18n/index.js');
 const legend = await import('../src/ui/legend.js');
 
 /**

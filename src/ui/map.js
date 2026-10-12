@@ -26,7 +26,7 @@
  * 依赖方向：ui ← data（`tiles.js`）/ core（`format.js`）/ i18n。`h()` 复用 `now.js` 的实现。
  */
 
-import { t } from '../i18n/zh.js';
+import { t } from '../i18n/index.js';
 import * as fmt from '../core/format.js';
 import { h } from './now.js';
 import {

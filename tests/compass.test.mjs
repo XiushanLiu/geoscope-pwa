@@ -30,7 +30,7 @@ dom.document.readyState = 'loading';
 const compass = await import('../src/ui/compass.js');
 const { WMM_MODEL } = await import('../src/data/wmm2025.js');
 const { normalizeSignedAngle } = await import('../src/core/mag.js');
-const { t } = await import('../src/i18n/zh.js');
+const { t } = await import('../src/i18n/index.js');
 
 /** 北京天安门（WGS84），与 geo.js 的 DEFAULT_PLACE 一致。 */
 const BEIJING = { lat: 39.9087, lon: 116.3975 };
@@ -272,14 +272,23 @@ test('米 → 千米：单位换算正确，且真的传给了模型', () => {
 });
 
 test('诚实红线：文案表里不得出现任何精度/误差数字，源码不得直出 warning', () => {
-  const zhSrc = readFileSync(new URL('../src/i18n/zh.js', import.meta.url), 'utf8');
-  const compassKeys = zhSrc
-    .split('\n')
-    .filter((line) => /^\s*'compass\./.test(line))
-    .join('\n');
-  assert.ok(compassKeys.length > 0, '应能取到 compass.* 文案段');
-  assert.doesNotMatch(compassKeys, /误差|精度|±/, '模型不导出不确定度，界面不得宣称任何精度/误差');
-  assert.doesNotMatch(zhSrc, /残差/, '「与官方参考实现的残差」是吻合度不是精度，不得进文案表');
+  // ★两张表都要查：文案表现在有中英两份，「英文版里多写了一句 ±0.3°」同样是在谎报精度。
+  //   （原先只查 zh.js —— 那是单语言时代的写法。）
+  for (const table of ['zh', 'en']) {
+    const tableSrc = readFileSync(new URL(`../src/i18n/${table}.js`, import.meta.url), 'utf8');
+    const compassKeys = tableSrc
+      .split('\n')
+      .filter((line) => /^\s*'compass\./.test(line))
+      .join('\n');
+    assert.ok(compassKeys.length > 0, `${table}.js 应能取到 compass.* 文案段`);
+    // 英文表里「误差 / 精度」对应的英文词同样不许出现
+    assert.doesNotMatch(
+      compassKeys,
+      /误差|精度|±|error|accuracy|uncertainty/i,
+      `${table}.js：模型不导出不确定度，界面不得宣称任何精度/误差`
+    );
+    assert.doesNotMatch(tableSrc, /残差/, `${table}.js：「与官方参考实现的残差」是吻合度不是精度，不得进文案表`);
+  }
 
   const src = readFileSync(new URL('../src/ui/compass.js', import.meta.url), 'utf8');
   assert.doesNotMatch(src, /mag\.warning/, '不得直接渲染 warning 原文');

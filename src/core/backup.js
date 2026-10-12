@@ -17,9 +17,15 @@
  * core ← data ← ui，**严禁反向依赖 src/data/* 下的任何模块**。
  *
  * 失败语义：`inspectBackup()` / `applyBackup()` / `importBackup()` **皆永不抛异常**，
- * 一律返回 `{ ok:false, reason }`。其中 `inspectBackup()` 只读不写（可反复预览），
- * `applyBackup()` 才动本机状态 —— UI 侧若要「先预览确认再导入」就走这两步的组合。
- * 面向用户的文案由 UI 层走 i18n，这里的 reason 是给开发者 / 排障看的兜底串。
+ * 一律返回 `{ ok:false, reasonKey, reasonParams? }`。其中 `inspectBackup()` 只读不写
+ * （可反复预览），`applyBackup()` 才动本机状态 —— UI 侧若要「先预览确认再导入」就走
+ * 这两步的组合。
+ *
+ * ★失败原因为什么是「键」而不是成品串：本模块在 core 层，**不许 import src/i18n/**
+ * （core 是四层依赖的底下那层，反向依赖上层会让分层断言直接红）。可这些原因串是
+ * 真的要上屏的（`settings.importFail` 把它塞进 {reason}），写死中文就等于英文界面里
+ * 蹦出一句中文。故与 core/wmo.js 同一套做法：core 只产 `{ reasonKey, reasonParams }`，
+ * 由 UI 层 tr() 成句。键缺失时 t() 会把键名原样显示 —— 漏翻当场可见，不会被静默兜住。
  */
 
 import { getState, getLastSnapshot, replaceState, setLastSnapshot, isDebug } from './store.js';
@@ -162,7 +168,7 @@ export function exportBackup() {
  * 同一个文件调两次，得到的计划完全一致。
  *
  * @param {string|Object} input JSON 字符串或已解析对象。
- * @returns {{ok:boolean, plan?:Object, reason?:string}} 校验结果；plan 含写入所需的全部字段。
+ * @returns {{ok:boolean, plan?:Object, reasonKey?:string, reasonParams?:Object}} 校验结果；plan 含写入所需的全部字段。
  */
 export function inspectBackup(input) {
   /* ---------- 1. 解析 ---------- */
@@ -171,27 +177,27 @@ export function inspectBackup(input) {
     try {
       data = JSON.parse(input);
     } catch (err) {
-      return { ok: false, reason: '不是合法 JSON' };
+      return { ok: false, reasonKey: 'backup.badJson' };
     }
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { ok: false, reason: '备份内容不是 JSON 对象' };
+    return { ok: false, reasonKey: 'backup.notObject' };
   }
 
   /* ---------- 2. 格式版本 ---------- */
   if (!Number.isInteger(data.schema) || data.schema !== SCHEMA_VERSION) {
-    return { ok: false, reason: `备份格式版本不支持（schema=${String(data.schema)}）` };
+    return { ok: false, reasonKey: 'backup.badSchema', reasonParams: { schema: String(data.schema) } };
   }
 
   /* ---------- 3. 是不是地候的备份 ---------- */
   if (data.app !== APP_ID) {
-    return { ok: false, reason: '不是地候的备份文件' };
+    return { ok: false, reasonKey: 'backup.notGeoscope' };
   }
 
   /* ---------- 4. prefs 必须在 ---------- */
   const prefs = data.prefs;
   if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) {
-    return { ok: false, reason: '缺少 prefs' };
+    return { ok: false, reasonKey: 'backup.noPrefs' };
   }
 
   /* ---------- 5. defaultPlace：非法就整体拒绝 ---------- */
@@ -199,7 +205,7 @@ export function inspectBackup(input) {
   if (defaultPlace === null) {
     return {
       ok: false,
-      reason: 'defaultPlace 坐标非法（lat/lon 必须是有限数字，纬度 ±90、经度 ±180 内）',
+      reasonKey: 'backup.badDefaultPlace',
     };
   }
 
@@ -263,7 +269,7 @@ export function inspectBackup(input) {
  * 正常路径下这两项 `inspectBackup()` 必然给出，所以收紧不影响任何既有行为。
  *
  * @param {Object} plan `inspectBackup()` 返回的计划对象。
- * @returns {{ok:boolean, applied?:Object, reason?:string}} 导入结果。
+ * @returns {{ok:boolean, applied?:Object, reasonKey?:string, reasonParams?:Object}} 导入结果。
  */
 export function applyBackup(plan) {
   const src = plan && typeof plan === 'object' && !Array.isArray(plan) ? plan : {};
@@ -271,7 +277,7 @@ export function applyBackup(plan) {
   /* ---------- 1. defaultPlace：非法就整体拒绝 ---------- */
   const defaultPlace = normalizePlace(src.defaultPlace);
   if (defaultPlace === null) {
-    return { ok: false, reason: '导入计划里没有合法的 defaultPlace（请先调用 inspectBackup）' };
+    return { ok: false, reasonKey: 'backup.planNoDefaultPlace' };
   }
 
   /* ---------- 2. 枚举值再钳一次（plan 可能被人手工构造 / 跨版本搬运） ---------- */
@@ -283,7 +289,7 @@ export function applyBackup(plan) {
   // 宽容成 `[]` 会得到一个 ok:true + 收藏被清空的写入 —— 用户数据没了还不知道。
   // plan 由 inspectBackup() 产出时必然带 favorites，缺了只可能是手工构造 / 跨版本搬运。
   if (!Array.isArray(src.favorites)) {
-    return { ok: false, reason: '导入计划里没有 favorites 数组（请先调用 inspectBackup）' };
+    return { ok: false, reasonKey: 'backup.planNoFavorites' };
   }
   const favorites = [];
   const seen = new Set();
@@ -309,7 +315,7 @@ export function applyBackup(plan) {
     setLastSnapshot(snapshot);
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
-    return { ok: false, reason: `写入本机状态失败：${msg}` };
+    return { ok: false, reasonKey: 'backup.writeFailed', reasonParams: { msg } };
   }
 
   return {
@@ -331,7 +337,7 @@ export function applyBackup(plan) {
  * 导入备份（校验 + 写入一步到位）。
  *
  * 入参既可以是 JSON 字符串，也可以是已解析的对象，两种形态行为完全一致。
- * **永不抛异常**：任何失败都返回 `{ ok:false, reason }`。
+ * **永不抛异常**：任何失败都返回 `{ ok:false, reasonKey, reasonParams? }`。
  *
  * ⚠️ 需要「先预览再写入」的 UI（设置页）请用 `inspectBackup()` → 给人看 → `applyBackup()`。
  * 本函数是这两步的严格串接，行为与拆分前一致，保留它为了不让既有调用方改造。
@@ -347,7 +353,7 @@ export function applyBackup(plan) {
  * networkType）非法就回退默认值；可重建的派生数据（snapshot）不合法就当 null。
  *
  * @param {string|Object} input JSON 字符串或已解析对象。
- * @returns {{ok:boolean, applied?:Object, reason?:string}} 导入结果。
+ * @returns {{ok:boolean, applied?:Object, reasonKey?:string, reasonParams?:Object}} 导入结果。
  */
 export function importBackup(input) {
   const inspected = inspectBackup(input);

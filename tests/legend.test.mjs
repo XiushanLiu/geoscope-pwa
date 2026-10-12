@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { createFakeDom, uninstallDom, text } from './harness.mjs';
-import { t, hasKey } from '../src/i18n/zh.js';
+import { t, hasKey } from '../src/i18n/index.js';
 import { beaufortScale, aqiScale, uvScale, windRose16 } from '../src/core/wmo.js';
 import { renderLegend, legendModel, isLegendOpen } from '../src/ui/legend.js';
 
@@ -119,7 +119,7 @@ test('④ 蒲福风级 13 级：级数 / 级名 / 阈值全部与 beaufortScale(
   assert.equal(rows.length, bf.length, `蒲福应有 ${bf.length} 级，实际 ${rows.length}`);
   bf.forEach((r, i) => {
     assert.ok(rows[i].includes(`${r.level} 级`), `第 ${i} 行缺级数：${rows[i]}`);
-    assert.ok(rows[i].includes(r.zh), `第 ${i} 行缺级名「${r.zh}」：${rows[i]}`);
+    assert.ok(rows[i].includes(t(r.key)), `第 ${i} 行缺级名「${t(r.key)}」：${rows[i]}`);
     if (i < bf.length - 1) {
       assert.ok(rows[i].includes(String(Number(r.maxMs))), `第 ${i} 行缺上限 ${r.maxMs}：${rows[i]}`);
     } else {
@@ -136,9 +136,9 @@ test('⑤ 欧洲 AQI 六档 / UV 五档：档名 + 下界 + 建议全部对拍',
   assert.equal(aqiRows.length, aqi.length, `AQI 应有 ${aqi.length} 档`);
   aqi.forEach((r, i) => {
     const min = i === 0 ? 0 : aqi[i - 1].max + 1;
-    assert.ok(aqiRows[i].includes(r.zh), `AQI 第 ${i} 行缺档名「${r.zh}」：${aqiRows[i]}`);
+    assert.ok(aqiRows[i].includes(t(r.levelKey)), `AQI 第 ${i} 行缺档名「${t(r.levelKey)}」：${aqiRows[i]}`);
     assert.ok(aqiRows[i].includes(String(min)), `AQI 第 ${i} 行缺下界 ${min}：${aqiRows[i]}`);
-    assert.ok(aqiRows[i].includes(r.advice), `AQI 第 ${i} 行缺建议：${aqiRows[i]}`);
+    assert.ok(aqiRows[i].includes(t(r.adviceKey)), `AQI 第 ${i} 行缺建议：${aqiRows[i]}`);
   });
 
   const uv = uvScale();
@@ -146,7 +146,7 @@ test('⑤ 欧洲 AQI 六档 / UV 五档：档名 + 下界 + 建议全部对拍',
   assert.equal(uvRows.length, uv.length, `UV 应有 ${uv.length} 档`);
   uv.forEach((r, i) => {
     const min = i === 0 ? 0 : uv[i - 1].max + 1;
-    assert.ok(uvRows[i].includes(r.zh), `UV 第 ${i} 行缺档名「${r.zh}」：${uvRows[i]}`);
+    assert.ok(uvRows[i].includes(t(r.levelKey)), `UV 第 ${i} 行缺档名「${t(r.levelKey)}」：${uvRows[i]}`);
     assert.ok(uvRows[i].includes(String(min)), `UV 第 ${i} 行缺下界 ${min}：${uvRows[i]}`);
   });
 });
@@ -155,8 +155,10 @@ test('⑥ 风向 16 方位与 windRose16() 逐项对拍', () => {
   const rose = windRose16();
   const rows = byId().winddir.rows;
   assert.equal(rows.length, rose.length, `风向应有 ${rose.length} 个方位`);
-  rose.forEach((zh, i) => {
-    assert.ok(rows[i].includes(zh), `风向第 ${i} 项应为「${zh}」：${rows[i]}`);
+  // windRose16() 给的是 16 个方位**键**，图例那一行由 legend.js 补上「风」这个字
+  rose.forEach((key, i) => {
+    const want = t('w.windFrom', { dir: t(key) });
+    assert.ok(rows[i].includes(want), `风向第 ${i} 项应为「${want}」：${rows[i]}`);
   });
 });
 

@@ -23,10 +23,18 @@
  * 顶层只做两件全站属性的引导（主题 / 字号），其余 DOM 访问全在 init() / run() 内。
  */
 
-import { t } from '../i18n/zh.js';
+import { t } from '../i18n/index.js';
+import { errorText } from './errtext.js';
+import { applyLocale } from './locale.js';
 import * as fmt from '../core/format.js';
 import { aqi } from '../core/wmo.js';
-import { getFavorites, getThemeMode, getFontScale, log } from '../core/store.js';
+import {
+  getFavorites,
+  getThemeMode,
+  getFontScale,
+  getLocale,
+  log,
+} from '../core/store.js';
 import { request, isOnline } from '../core/http.js';
 import { h, applyI18n } from './now.js';
 // ★必须 import 源注册表（哪怕本页一个符号都不用它）：core/http.js 不认识任何源 id，
@@ -38,11 +46,14 @@ import { h, applyI18n } from './now.js';
 import '../data/sources.js';
 // 主题 / 字号是全站属性，本页作为入口之一必须各引导一次（实现见 ui/theme.js）。
 import { applyThemeMode, applyFontScale } from './theme.js';
+// 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
+// （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
 
 // ★主题引导（模块顶层，行首无缩进）：与 index/settings/compass/selfcheck 同一时机。
 applyThemeMode(getThemeMode());
 // ★字号档位引导（与主题同一时机、同一理由）。放大乘数在 styles/tokens.css。
 applyFontScale(getFontScale());
+applyLocale(getLocale());
 
 /** 单页最多对比的地点数。 */
 export const MAX_PLACES = 6;
@@ -134,12 +145,12 @@ export async function fetchRow(row, opts = {}) {
         gotAny = true;
         // stale 是 http.js 的显式标记：值是缓存里的旧数据，不是这次新取的
         if (res.stale) row.stale = true;
-      } else if (res && res.error && res.error.message) {
-        lastErr = String(res.error.message);
+      } else if (res && res.error) {
+        lastErr = errorText(res.error);
       }
     } catch (err) {
       // request() 已经把网络/解析异常收成 SourceError 了，这里接的是兜底之外的意外
-      lastErr = err && err.message ? String(err.message) : t('app.unknown');
+      lastErr = errorText(err);
     }
   }
 

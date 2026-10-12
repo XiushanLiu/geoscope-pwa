@@ -28,9 +28,14 @@
  * 其余 DOM 访问都在 boot / render 内，便于 Node 侧检查与单测。
  */
 
-import { t } from '../i18n/zh.js';
+import { t } from '../i18n/index.js';
 import * as fmt from '../core/format.js';
-import { getThemeMode, getFontScale, log } from '../core/store.js';
+import {
+  getThemeMode,
+  getFontScale,
+  getLocale,
+  log,
+} from '../core/store.js';
 import { getCurrentPosition } from '../core/geo.js';
 import { computeGeomagnetic, WMM_MODEL } from '../data/wmm2025.js';
 import {
@@ -42,6 +47,9 @@ import {
 } from '../core/mag.js';
 import { h, applyI18n } from './now.js';
 import { applyThemeMode, applyFontScale } from './theme.js';
+// 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
+// （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
+import { applyLocale } from './locale.js';
 
 // ★主题引导（模块顶层）：本页是四个入口之一，必须在 module 求值那一刻就把 store 里的
 // themeMode 写到 <html data-theme> 上，不能等 boot() —— 否则用户会先看到一帧系统色。
@@ -50,6 +58,7 @@ applyThemeMode(getThemeMode());
 // ★字号档位引导（模块顶层，与主题同一时机）：字号是全站属性，本页那个大号磁偏角
 // 与一堆要素数字同样要跟着放大档走。乘数在 styles/tokens.css，这里只落属性。
 applyFontScale(getFontScale());
+applyLocale(getLocale());
 
 /** 定位超时（毫秒）：与此刻屏一致，超时即降级为默认地点，不阻塞渲染。 */
 const GEO_TIMEOUT_MS = 8000;

@@ -42,7 +42,7 @@ const compare = await import('../src/ui/compare.js');
 const settings = await import('../src/ui/settings.js');
 const store = await import('../src/core/store.js');
 const cache = await import('../src/core/cache.js');
-const { t } = await import('../src/i18n/zh.js');
+const { t } = await import('../src/i18n/index.js');
 
 /** 三个对比地点（气温刻意差得很开，填错数据一眼能看出来）。 */
 const A = { lat: 39.9087, lon: 116.3975, name: '北京' };

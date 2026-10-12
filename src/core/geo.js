@@ -10,8 +10,19 @@
 /** 定位超时（毫秒）：超时即降级为默认地点，不阻塞首屏。 */
 export const GEO_TIMEOUT_MS = 8000;
 
+/**
+ * 出厂默认地点的**标记名**。
+ *
+ * ★它是一个**地名**，界面上必须跟着语言走（英文界面下要写成 "Beijing · Tian'anmen"），
+ *   而 core 不许读 locale 表 —— 所以这里存的是**中文那一份原文**，UI 层拿它和
+ *   `place.default` 这条文案键对应起来（src/ui/locale.js 的 placeDisplayName()）。
+ *   不改成一个抽象标记（比如 'default'）的理由：这个名字会被**写进备份 JSON**，
+ *   换成一个标记会让老备份里的默认地点显示成一个词不是地名的值。
+ */
+export const DEFAULT_PLACE_NAME = '北京 · 天安门';
+
 /** 定位被拒 / 超时 / 无权限时的默认地点：北京天安门（WGS84）。 */
-export const DEFAULT_PLACE = { lat: 39.9087, lon: 116.3975, name: '北京 · 天安门' };
+export const DEFAULT_PLACE = { lat: 39.9087, lon: 116.3975, name: DEFAULT_PLACE_NAME };
 
 /**
  * 四位小数取整（≈11 m），用于缓存键与对外传参。

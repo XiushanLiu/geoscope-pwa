@@ -20,13 +20,13 @@
 import { makeKey } from '../core/cache.js';
 import { setSourceResolver } from '../core/http.js';
 import { round4 } from '../core/geo.js';
-import { t } from '../i18n/zh.js';
+import { t } from '../i18n/index.js';
 import {
   WEATHER_HOST,
   AIR_HOST,
   GEOCODE_HOST,
   ELEVATION_HOST,
-  OPENMETEO_ATTRIBUTION,
+  OPENMETEO_ATTRIBUTION_KEY,
   buildWeatherRequest,
   parseWeather,
   buildAirRequest,
@@ -38,15 +38,23 @@ import {
 } from './openmeteo.js';
 import {
   PHOTON_HOST,
-  PHOTON_ATTRIBUTION,
+  PHOTON_ATTRIBUTION_KEY,
   buildReverseRequest,
   parseReverse,
 } from './photon.js';
-import { TILE_BASE, TILE_ATTRIBUTION, tileUrl, fingerprint } from './tiles.js';
+import { TILE_BASE, TILE_ATTRIBUTION_KEY, tileUrl, fingerprint } from './tiles.js';
 
 /**
+ * ★label 与 attribution 是**惰性 getter**，不是写死的字符串：
+ *   SOURCES 在模块求值那一刻构造，而入口模块（app.js / selfcheck.js …）顶层的
+ *   `applyLocale(getLocale())` 要等它 import 完才轮得到自己执行 —— 若在此处就调 `t()`，
+ *   存的语言偏好是英文、六路源名却永远是中文（import 先于 body 求值，改不了的顺序）。
+ *   所以这里只存 labelKey / attributionKey，真正的翻译留到**被读取时**发生。
+ *   调用方写法不变（照旧 `spec.label` / `spec.attribution`），故无需改任何消费点。
+ *
  * @typedef {Object} SourceSpec
  * @property {string} id
+ * @property {string} labelKey
  * @property {string} label
  * @property {string} host
  * @property {number} timeoutMs
@@ -57,6 +65,7 @@ import { TILE_BASE, TILE_ATTRIBUTION, tileUrl, fingerprint } from './tiles.js';
  * @property {(ctx:Object)=>Object} build
  * @property {(payload:*, ctx:Object)=>*} parse
  * @property {(bytes:*, headers:*)=>Promise<{fp:string, algo:string}>} [fingerprint]
+ * @property {string} attributionKey
  * @property {string} attribution
  * @property {number} priority
  * @property {boolean} critical
@@ -72,7 +81,8 @@ function _coordKey(id, ctx) {
 export const SOURCES = {
   weather: {
     id: 'weather',
-    label: t('source.weather'),
+    labelKey: 'source.weather',
+    get label() { return t(this.labelKey); },
     host: WEATHER_HOST,
     timeoutMs: 6000,
     retry: 1,
@@ -81,7 +91,8 @@ export const SOURCES = {
     critical: true,
     kind: 'api',
     priority: 1,
-    attribution: OPENMETEO_ATTRIBUTION,
+    attributionKey: OPENMETEO_ATTRIBUTION_KEY,
+    get attribution() { return t(this.attributionKey); },
     cacheKey: (ctx) => _coordKey('weather', ctx),
     build: buildWeatherRequest,
     parse: parseWeather,
@@ -89,7 +100,8 @@ export const SOURCES = {
 
   air: {
     id: 'air',
-    label: t('source.air'),
+    labelKey: 'source.air',
+    get label() { return t(this.labelKey); },
     host: AIR_HOST,
     timeoutMs: 6000,
     retry: 1,
@@ -98,7 +110,8 @@ export const SOURCES = {
     critical: true,
     kind: 'api',
     priority: 2,
-    attribution: OPENMETEO_ATTRIBUTION,
+    attributionKey: OPENMETEO_ATTRIBUTION_KEY,
+    get attribution() { return t(this.attributionKey); },
     cacheKey: (ctx) => _coordKey('air', ctx),
     build: buildAirRequest,
     parse: parseAir,
@@ -106,7 +119,8 @@ export const SOURCES = {
 
   geocode: {
     id: 'geocode',
-    label: t('source.geocode'),
+    labelKey: 'source.geocode',
+    get label() { return t(this.labelKey); },
     host: GEOCODE_HOST,
     timeoutMs: 6000,
     retry: 1,
@@ -115,7 +129,8 @@ export const SOURCES = {
     critical: false,
     kind: 'api',
     priority: 5,
-    attribution: OPENMETEO_ATTRIBUTION,
+    attributionKey: OPENMETEO_ATTRIBUTION_KEY,
+    get attribution() { return t(this.attributionKey); },
     cacheKey: (ctx) => makeKey('geocode', encodeURIComponent(String(ctx.keyword || '')), ctx.lang || 'zh'),
     build: buildGeocodeRequest,
     parse: parseGeocode,
@@ -123,7 +138,8 @@ export const SOURCES = {
 
   elevation: {
     id: 'elevation',
-    label: t('source.elevation'),
+    labelKey: 'source.elevation',
+    get label() { return t(this.labelKey); },
     host: ELEVATION_HOST,
     timeoutMs: 6000,
     retry: 1,
@@ -132,7 +148,8 @@ export const SOURCES = {
     critical: false,
     kind: 'api',
     priority: 3,
-    attribution: OPENMETEO_ATTRIBUTION,
+    attributionKey: OPENMETEO_ATTRIBUTION_KEY,
+    get attribution() { return t(this.attributionKey); },
     cacheKey: (ctx) => _coordKey('elevation', ctx),
     build: buildElevationRequest,
     parse: parseElevation,
@@ -140,7 +157,8 @@ export const SOURCES = {
 
   reverse: {
     id: 'reverse',
-    label: t('source.reverse'),
+    labelKey: 'source.reverse',
+    get label() { return t(this.labelKey); },
     host: PHOTON_HOST,
     timeoutMs: 6000,
     retry: 1,
@@ -149,7 +167,8 @@ export const SOURCES = {
     critical: false,
     kind: 'api',
     priority: 4,
-    attribution: PHOTON_ATTRIBUTION,
+    attributionKey: PHOTON_ATTRIBUTION_KEY,
+    get attribution() { return t(this.attributionKey); },
     cacheKey: (ctx) => _coordKey('reverse', ctx),
     build: buildReverseRequest,
     parse: parseReverse,
@@ -157,7 +176,8 @@ export const SOURCES = {
 
   tile: {
     id: 'tile',
-    label: t('source.tile'),
+    labelKey: 'source.tile',
+    get label() { return t(this.labelKey); },
     host: TILE_BASE,
     timeoutMs: 6000,
     retry: 0,
@@ -173,7 +193,8 @@ export const SOURCES = {
     // 需要的 ctx 字段完全不同），必须靠 kind 区分，不能靠源 id 猜。
     kind: 'tile',
     priority: 6,
-    attribution: TILE_ATTRIBUTION,
+    attributionKey: TILE_ATTRIBUTION_KEY,
+    get attribution() { return t(this.attributionKey); },
     // 瓦片不缓存字节：键仅用于会话内标识，不落 localStorage
     cacheKey: (ctx) => makeKey('tile', ctx.styleId || 'street', ctx.z, ctx.x, ctx.y),
     build: (ctx) => ({

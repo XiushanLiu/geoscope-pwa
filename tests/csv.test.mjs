@@ -21,7 +21,7 @@ import {
   csvFilename,
   snapshotToCsv,
 } from '../src/core/csv.js';
-import { hasKey } from '../src/i18n/zh.js';
+import { hasKey, t } from '../src/i18n/index.js';
 import { beaufort, windDir16, wmo } from '../src/core/wmo.js';
 
 /* ------------------------------------------------------------------ */
@@ -168,7 +168,7 @@ function rowsOf(text) {
 }
 
 test('snapshotToCsv：一行数据 + 表头，且表头全部是中文（不是 key 本身）', () => {
-  const out = snapshotToCsv(SNAP, { atMs: Date.UTC(2025, 0, 5, 6, 5) });
+  const out = snapshotToCsv(SNAP, { atMs: Date.UTC(2025, 0, 5, 6, 5), tr: t });
   const rows = rowsOf(out.text);
   assert.equal(rows.length, 2, '表头 + 一行数据');
   const headers = rows[0].split(',');
@@ -192,12 +192,12 @@ test('snapshotToCsv：每一列的 i18n key 都真实存在于文案表（防止
     'csv.h.declination', 'csv.h.sources',
   ];
   for (const k of keys) assert.ok(hasKey(k), `文案表缺 ${k}`);
-  const out = snapshotToCsv(SNAP, { atMs: Date.UTC(2025, 0, 5, 6, 5) });
+  const out = snapshotToCsv(SNAP, { atMs: Date.UTC(2025, 0, 5, 6, 5), tr: t });
   assert.equal(out.columns, keys.length, '列数与 key 清单不一致（加列请同步两边）');
 });
 
 test('snapshotToCsv：数值按界面口径算出（含时区偏移换算的观测时刻）', () => {
-  const out = snapshotToCsv(SNAP, { atMs: Date.UTC(2025, 0, 5, 6, 5), declinationDeg: -7.4863 });
+  const out = snapshotToCsv(SNAP, { atMs: Date.UTC(2025, 0, 5, 6, 5), declinationDeg: -7.4863, tr: t });
   const cells = rowsOf(out.text)[1].split(',');
   const byHeader = {};
   const headers = rowsOf(out.text)[0].split(',');
@@ -212,8 +212,8 @@ test('snapshotToCsv：数值按界面口径算出（含时区偏移换算的观�
   // 分档类字段一律与「界面上那个数字」同源：拿 core/wmo.js 的换算结果直接比对，
   // 不在测试里另抄一份档位表（抄了就等于新造一套标准，将来改了换算表测试还在说谎）。
   assert.equal(byHeader['蒲福风级'], String(beaufort(3.4).level));
-  assert.equal(byHeader['风向'], windDir16(135).zh);
-  assert.equal(byHeader['天气现象'], wmo(2, true).zh);
+  assert.equal(byHeader['风向'], t('w.windFrom', { dir: t(windDir16(135).abbrKey) }));
+  assert.equal(byHeader['天气现象'], t(wmo(2, true).key));
   assert.equal(byHeader['天气码'], String(wmo(2, true).code));
   assert.equal(byHeader['欧洲 AQI'], '30');
   assert.equal(byHeader['AQI 档位'], '良', '30 落在「良」档（20 < v ≤ 40）');
@@ -234,7 +234,7 @@ test('snapshotToCsv：缺失值留空，不填 0、也不写占位符「—」',
     air: null,
     provenance: [],
   };
-  const out = snapshotToCsv(thin, { atMs: Date.UTC(2025, 0, 5, 6, 5) });
+  const out = snapshotToCsv(thin, { atMs: Date.UTC(2025, 0, 5, 6, 5), tr: t });
   const cells = rowsOf(out.text)[1];
   assert.ok(cells.indexOf('—') === -1, `CSV 里不许出现占位符「—」（会让整列退化成文本列）：${cells}`);
   // 列数一个不少（缺的只是值），行里应是一串连续逗号
@@ -243,7 +243,7 @@ test('snapshotToCsv：缺失值留空，不填 0、也不写占位符「—」',
 });
 
 test('snapshotToCsv：空对象不抛，且仍给出完整表头（界面上「暂无数据」时不该导出半个文件）', () => {
-  const out = snapshotToCsv({}, {});
+  const out = snapshotToCsv({}, { tr: t });
   const rows = rowsOf(out.text);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].split(',').length, out.columns);
@@ -251,14 +251,14 @@ test('snapshotToCsv：空对象不抛，且仍给出完整表头（界面上「�
 
 test('snapshotToCsv：文件名与正文同源（文件名时间戳 = 导出时刻）', () => {
   const at = new Date(2025, 0, 5, 14, 23).getTime();
-  const out = snapshotToCsv(SNAP, { atMs: at });
+  const out = snapshotToCsv(SNAP, { atMs: at, tr: t });
   assert.equal(out.name, csvFilename(at));
   assert.equal(out.rows, 1);
 });
 
 test('snapshotToCsv：导出时间按设备本地时区，与文件名是同一刻（不许表里 UTC、文件名本地）', () => {
   const at = new Date(2025, 0, 5, 14, 23).getTime();
-  const out = snapshotToCsv(SNAP, { atMs: at });
+  const out = snapshotToCsv(SNAP, { atMs: at, tr: t });
   const headers = rowsOf(out.text)[0].split(',');
   const cells = rowsOf(out.text)[1].split(',');
   const i = headers.indexOf('导出时间（本机）');
@@ -283,7 +283,7 @@ test('snapshotToCsv：两个时间列各按各的时区（导出按本机、观�
     air: {},
     provenance: [],
   };
-  const out = snapshotToCsv(snap, { atMs: at });
+  const out = snapshotToCsv(snap, { atMs: at, tr: t });
   const headers = rowsOf(out.text)[0].split(',');
   const cells = rowsOf(out.text)[1].split(',');
   const byHeader = {};
@@ -300,7 +300,7 @@ test('snapshotToCsv：两个时间列各按各的时区（导出按本机、观�
 });
 
 test('snapshotToCsv：磁偏角缺失时那一列留空（不许拿 0 冒充「正北不偏」）', () => {
-  const out = snapshotToCsv(SNAP, { atMs: Date.UTC(2025, 0, 5, 6, 5) });
+  const out = snapshotToCsv(SNAP, { atMs: Date.UTC(2025, 0, 5, 6, 5), tr: t });
   const headers = rowsOf(out.text)[0].split(',');
   const cells = rowsOf(out.text)[1].split(',');
   const i = headers.indexOf('磁偏角（度，东偏为正）');

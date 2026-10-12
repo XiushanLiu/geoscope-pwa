@@ -27,7 +27,8 @@
  * 便于 Node 侧检查与单测。
  */
 
-import { t } from '../i18n/zh.js';
+import { t } from '../i18n/index.js';
+import { errorText, reasonText } from './errtext.js';
 import * as fmt from '../core/format.js';
 import { decimalYearFromDate } from '../core/mag.js';
 import { snapshotToCsv, CSV_MIME } from '../core/csv.js';
@@ -39,6 +40,7 @@ import {
   setThemeMode,
   getFontScale,
   setFontScale,
+  getLocale,
   getFavorites,
   removeFavorite,
   log,
@@ -49,12 +51,19 @@ import { h, applyI18n } from './now.js';
 // 写 <html data-theme> / <html data-fs> 的实现在 ui/theme.js：这两者都是全站属性，
 // 四个入口都要各引导一次，不能只活在本页里（详见 theme.js 文件头）。
 import { applyThemeMode, applyFontScale } from './theme.js';
+// 语言引导：把 store.locale 落到 i18n 与 <html lang> 上（与主题 / 字号同构，见 ui/locale.js）。
+import { applyLocale, switchLocale } from './locale.js';
+// 地点显示名（出厂默认地点那个地名要跟着语言走，见 locale.js 的 JSDoc）
+import { placeDisplayName } from './locale.js';
 
 /** 主题模式选项（顺序即界面顺序）。 */
 export const THEME_MODES = ['system', 'light', 'dark'];
 
 /** 无障碍字号档位选项（顺序即界面顺序：从小到大）。 */
 export const FONT_SCALES = ['normal', 'large', 'xlarge'];
+
+/** 界面语言选项（顺序即界面顺序）。 */
+export const LOCALES = ['zh', 'en'];
 
 /** @type {Object|null} 当前待确认的导入计划（inspectBackup 的产物，未经用户确认不许写）。 */
 let _plan = null;
@@ -110,6 +119,11 @@ applyThemeMode(getThemeMode());
 // （不是写成 "normal"），语义与 data-theme 的 'system' 一致 —— 见 theme.js 的 JSDoc。
 // 放大乘数、以及英雄区那个更小的乘数都在 styles/tokens.css，这里不碰任何数字。
 applyFontScale(getFontScale());
+// ★语言引导（与主题 / 字号同构、同一时机）：本页是多个入口之一，必须在 module 求值
+// 那一刻就把 store.locale 落到 i18n 与 <html lang> 上。慢一帧就会出现「先按中文画一遍
+// 再跳成英文」—— 本页所有 t() 调用（含下面那几张卡的标题）都在这行之后才求值。
+// 切到别的页面时，那边的入口模块各有同样的一行，不靠本页替它们写。
+applyLocale(getLocale());
 
 /**
  * 绑定分段控件（主题三档）。
@@ -144,7 +158,7 @@ function _bindSeg(id, onPick) {
  */
 function _exportSummaryText() {
   const state = getState();
-  const place = state.defaultPlace && state.defaultPlace.name ? state.defaultPlace.name : t('settings.previewNoPlace');
+  const place = state.defaultPlace && state.defaultPlace.name ? placeDisplayName(state.defaultPlace.name) : t('settings.previewNoPlace');
   // 快照不在 getState() 里（store 把它单独存在另一个缓存键下），必须走 getLastSnapshot()
   const hasSnapshot = !!getLastSnapshot();
   return t('settings.exportCurrent', {
@@ -176,8 +190,9 @@ function _privacyText() {
  * @returns {string} 消息串。
  */
 function _errMsg(err) {
-  if (!err) return t('app.unknown');
-  return err.message ? String(err.message) : String(err);
+  // core/http.js 的 SourceError 只带 messageKey / messageParams（core 不许 import i18n），
+  // 翻成话统一走 ui/errtext.js —— 那边也顺手处理了「catch 到的是个普通 Error」的情况。
+  return errorText(err);
 }
 
 /**
@@ -423,6 +438,36 @@ function _renderThemeCard() {
 }
 
 /**
+ * 渲染界面语言卡（中文 / English）。
+ *
+ * 与主题卡、字号卡完全同构（同一套 .seg / .seg-btn 结构、同一个 data-value 协议），
+ * 三档外观放一起，用户不必学第二种交互。
+ *
+ * ★两个选项的显示名一律用**各自语言自己的写法**（中文界面里写「English」而不是
+ *   「英文」）—— 用户看不懂当前界面语言时，唯一能救他的正是那个用他母语写着的选项名。
+ *   这也是这张卡唯一一处「故意不翻译」的地方，不是漏翻。
+ *
+ * @returns {HTMLElement} 卡片节点。
+ */
+function _renderLocaleCard() {
+  const current = getLocale();
+  const buttons = LOCALES.map((s) =>
+    h('button', {
+      type: 'button',
+      class: s === current ? 'seg-btn seg-btn--active' : 'seg-btn',
+      'data-value': s,
+      text: t(`settings.lang.${s}`),
+    })
+  );
+  return h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('settings.langTitle') }),
+    h('p', { class: 'card-note', text: t('settings.langHint') }),
+    h('div', { class: 'seg', id: 'locale-mode', role: 'group' }, buttons),
+    h('p', { class: 'card-note', id: 'locale-result' }),
+  ]);
+}
+
+/**
  * 渲染无障碍字号卡（三档）。
  *
  * 与主题卡完全同构（同一套 .seg / .seg-btn 结构、同一个 data-value 协议），
@@ -542,7 +587,7 @@ function _renderPreview(plan, fileName) {
   if (!box) return;
   const favorites = Array.isArray(plan.favorites) ? plan.favorites : [];
   const dropped = Number(plan.favoritesDropped) || 0;
-  const placeName = plan.defaultPlace && plan.defaultPlace.name ? plan.defaultPlace.name : t('settings.previewNoPlace');
+  const placeName = plan.defaultPlace && plan.defaultPlace.name ? placeDisplayName(plan.defaultPlace.name) : t('settings.previewNoPlace');
 
   const lines = [
     t('settings.importReady', { name: fileName || t('app.unknown') }),
@@ -620,6 +665,11 @@ function _renderPage() {
   // (f) 字号（外观两档放一起）
   app.appendChild(_renderFontCard());
 
+  // (g) 语言。**压在最后**：它是这一页唯一一个「点了之后整页文案都要变」的开关，
+  // 后面必须紧跟一次 _renderPage() 重画（见 _bindSeg('locale-mode')），
+  // 把它放在末尾，重画时用户视线落点离它最近，不会莫名其妙跳到页面顶部去了。
+  app.appendChild(_renderLocaleCard());
+
   // 收藏列表内容最后填：卡片刚建好时 _favBox / _favCountBox 才指向真实节点，
   // 这一步顺带把导出卡的 {count} 也算对。
   _refreshFavorites();
@@ -690,9 +740,11 @@ async function _onFilePicked() {
 
   const inspected = inspectBackup(text);
   if (!inspected.ok) {
-    // 校验失败：本机状态一个字节都没动，把 reason 原样给用户
-    _setStatus('import-result', t('settings.importFail', { reason: inspected.reason }));
-    log(`import inspect failed: ${inspected.reason}`);
+    // 校验失败：本机状态一个字节都没动。★reason 是 core 给的**键**，必须过一遍 i18n
+    // （core 不许 import i18n，写死中文的话英文界面里就会蹦出一句中文）。
+    const why = reasonText(inspected);
+    _setStatus('import-result', t('settings.importFail', { reason: why }));
+    log(`import inspect failed: ${inspected.reasonKey}`);
     return;
   }
 
@@ -715,11 +767,12 @@ function _onConfirm() {
   }
   const res = applyBackup(_plan);
   if (!res.ok) {
-    _setStatus('import-result', t('settings.importFail', { reason: res.reason }));
-    log(`import apply failed: ${res.reason}`);
+    const why = reasonText(res);
+    _setStatus('import-result', t('settings.importFail', { reason: why }));
+    log(`import apply failed: ${res.reasonKey}`);
     return;
   }
-  const placeName = res.applied.defaultPlace && res.applied.defaultPlace.name ? res.applied.defaultPlace.name : t('settings.previewNoPlace');
+  const placeName = res.applied.defaultPlace && res.applied.defaultPlace.name ? placeDisplayName(res.applied.defaultPlace.name) : t('settings.previewNoPlace');
   _setStatus('import-result', t('settings.importOk', { name: placeName, count: res.applied.favorites.length }));
 
   // 写完之后必须把这一轮的一次性状态收干净：计划失效、按钮回到禁用、预览清空
@@ -766,7 +819,14 @@ function _onExportCsv() {
     _refreshCsv();
     return;
   }
-  const built = snapshotToCsv(snap, { atMs: Date.now(), declinationDeg: _declinationFor(snap) });
+  // ★tr: t —— CSV 的列名与分档名都是人类语言，而 core/csv.js 不许 import i18n
+  // （core ← data ← ui ← html 单向依赖）。翻译回调由本页（ui 层）注入，
+  // core 那个模块仍然只做序列化。不传的话列名会落成原始 key（可见的失败）。
+  const built = snapshotToCsv(snap, {
+    atMs: Date.now(),
+    declinationDeg: _declinationFor(snap),
+    tr: t,
+  });
   if (downloadText(built.name, built.text, CSV_MIME)) {
     _setStatus('csv-result', t('settings.csvDone', { name: built.name }));
   } else {
@@ -795,7 +855,20 @@ export function init() {
   }
 
   _renderPage();
+  _bindControls();
+}
 
+/**
+ * 绑定整页控件（按钮 + 三个分段控件）。
+ *
+ * ★为什么单独抽出来：`_renderPage()` 会**整槽重建** #app，里头所有节点（含分段控件
+ * 的容器）都是新对象，旧监听随之消失。语言切换是唯一一个切完必须重画的开关，
+ * 所以重画之后要能再调一次本函数把监听装回来。绑定的是**新节点**，不会重复叠加
+ * （旧节点连同旧监听已经不在文档里了）。
+ *
+ * @returns {void}
+ */
+function _bindControls() {
   const exportBtn = _el('btn-export');
   if (exportBtn) exportBtn.addEventListener('click', _onExport);
 
@@ -822,6 +895,24 @@ export function init() {
     const applied = applyFontScale(getFontScale());
     log(`font scale → ${applied}`);
     _setStatus('font-result', t('settings.fontDone', { mode: t(`settings.font.${applied}`) }));
+  });
+
+  // 语言两档：写 store → 立刻切 i18n 与 <html lang>。
+  // ★与主题 / 字号唯一的不同：**必须整页重画**。那两个是靠 CSS 变量实现的，浏览器
+  // 自己会重排；而文案是 t() 在渲染那一刻求值出来的字符串，不重画就还是旧语言。
+  // 重画之后 #locale-result 会被 _renderPage() 清空，所以提示语在重画**之后**才写。
+  _bindSeg('locale-mode', (v) => {
+    const before = getLocale();
+    const applied = switchLocale(v);
+    log(`locale → ${applied}`);
+    if (applied === before) {
+      _setStatus('locale-result', t('settings.langDone', { name: t(`settings.lang.${applied}`) }));
+      return;
+    }
+    _renderPage();
+    // 重画后控件全是新节点，监听要重新装一遍（理由见 _bindControls 的 JSDoc）
+    _bindControls();
+    _setStatus('locale-result', t('settings.langDone', { name: t(`settings.lang.${applied}`) }));
   });
 }
 

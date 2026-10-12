@@ -35,7 +35,7 @@ const dom = createFakeDom([
 /** 必须在 import 被测模块之前装好全局（store.js 在加载期决定走内存还是 localStorage）。 */
 const { setLastSnapshot, getLastSnapshot } = await import('../src/core/store.js');
 const { init } = await import('../src/ui/settings.js');
-const { t } = await import('../src/i18n/zh.js');
+const { t } = await import('../src/i18n/index.js');
 
 /**
  * 从 #app 子树里按 id 属性找节点（假 DOM 的 getElementById 只索引预置 id）。

@@ -21,7 +21,8 @@
  */
 
 import { request } from '../core/http.js';
-import { t } from '../i18n/zh.js';
+import { t } from '../i18n/index.js';
+import { errorText } from './errtext.js';
 
 /**
  * 触发搜索的最小字符数。
@@ -368,7 +369,7 @@ export function createPlaceSearch(opts = {}) {
         _commit({
           status: SEARCH_STATUS.ERROR,
           results: [],
-          errorMessage: err && err.message ? String(err.message) : t('error.NETWORK'),
+          errorMessage: errorText(err, 'error.NETWORK'),
         });
         return null;
       }
@@ -380,7 +381,7 @@ export function createPlaceSearch(opts = {}) {
         _commit({
           status: SEARCH_STATUS.ERROR,
           results: [],
-          errorMessage: res && res.error && res.error.message ? String(res.error.message) : t('error.NETWORK'),
+          errorMessage: errorText(res && res.error, 'error.NETWORK'),
         });
         return res || null;
       }

@@ -41,7 +41,7 @@
 
 import { requestRaw } from '../core/http.js';
 import { makeKey, get as cacheGet, set as cacheSet, clearPrefix as cacheClearPrefix } from '../core/cache.js';
-import { t } from '../i18n/zh.js';
+import { t } from '../i18n/index.js';
 
 /** 瓦片基址（三种样式共用）。 */
 export const TILE_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
@@ -71,7 +71,13 @@ export const TILE_STYLES = {
 };
 
 /** 许可署名（源级，不随样式变化；用于溯源气泡等「只标服务名」的场景）。 */
-export const TILE_ATTRIBUTION = 'Esri ArcGIS Online World Tile Service';
+/**
+ * 瓦片许可署名的**文案键**（不是成品串）。
+ *
+ * ★存键不存串的原因见 data/openmeteo.js 同名注释：SOURCES 在模块求值期构造，
+ * 写死 `t()` 会让「存了英文偏好、界面仍中文」成为必然。取用时才翻译才是对的。
+ */
+export const TILE_ATTRIBUTION_KEY = 'attr.tile';
 
 /**
  * 各样式的**实测** `copyrightText`（2026-10-11 取自三个服务 `?f=json` 的返回，勿手改）。
@@ -482,7 +488,7 @@ export async function probeTile(styleId, tile, opts = {}) {
       cachedAt: null,
       error: {
         code: 'PARSE',
-        message: `瓦片坐标非法（z=${tile && tile.z}, x=${tile && tile.x}, y=${tile && tile.y}），未发起请求`,
+        message: t('tile.badCoord', { z: tile && tile.z, x: tile && tile.x, y: tile && tile.y }),
         httpStatus: null,
         sourceId: 'tile',
         retriable: false,

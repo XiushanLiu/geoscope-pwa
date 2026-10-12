@@ -19,6 +19,7 @@ installNavigator({ online: true });
 const fetchMock = installFetch();
 
 const http = await import('../src/core/http.js');
+const { t } = await import('../src/i18n/index.js');
 await import('../src/data/sources.js'); // 注入 sourceResolver
 
 beforeEach(() => {
@@ -219,21 +220,31 @@ test('buildUrl：无参 / 空参 / 带 ? / 多参数编码', async () => {
   assert.equal(http.buildUrl({ url: 'https://a.b/c?seed=1', params: { z: 2 } }), 'https://a.b/c?seed=1&z=2');
 });
 
-test('8 个错误码均可构造，字段齐全且文案已被 i18n 替换（无残留占位符）', async () => {
+test('8 个错误码均可构造，字段齐全且文案键可被 i18n 翻译（无残留占位符）', async () => {
+  // ★core/http.js 现在只给 messageKey + messageParams，不给已成文本的 message
+  // （core 不许 import i18n）。翻成人话是 UI 层 ui/errtext.js 的事，这里用 t() 代劳。
   const codes = ['OFFLINE', 'TIMEOUT', 'HTTP', 'NETWORK', 'PARSE', 'ABORT', 'EMPTY', 'UNSUPPORTED'];
   for (const code of codes) {
     const e = http.makeError(code, 'weather', { httpStatus: 500, params: { timeoutMs: 6000 } });
     assert.equal(e.code, code);
     assert.equal(e.sourceId, 'weather');
     assert.equal(typeof e.retriable, 'boolean');
-    assert.ok(typeof e.message === 'string' && e.message.length > 0, `${code} 必须有非空中文文案`);
+    assert.equal(e.messageKey, `error.${code}`);
+    const text = t(e.messageKey, e.messageParams);
+    assert.ok(typeof text === 'string' && text.length > 0, `${code} 必须有非空文案`);
+    assert.ok(!text.includes('{'), `${code} 的文案不得残留占位符：${text}`);
+    // 刻意不给 message 字段：留着它等于留一条「不切语言也能显示」的捷径，
+    // 那条捷径会让英文包漏翻时静默显示中文。
+    assert.equal(e.message, undefined, 'SourceError 不得再带已成文本的 message 字段');
   }
-  assert.ok(http.makeError('TIMEOUT', 'w', { params: { timeoutMs: 6000 } }).message.includes('6000'));
-  assert.ok(http.makeError('HTTP', 'w', { httpStatus: 502 }).message.includes('502'));
-  // 已知行为（建议项）：HTTP 码缺失 status 时 t() 会原样保留 {status} 占位符。
-  // 当前所有 HTTP 调用点都带上了 httpStatus（仅 http.js:271），故不可达；此处固化行为，防止将来东施效颦。
+  assert.ok(t(http.makeError('TIMEOUT', 'w', { params: { timeoutMs: 6000 } }).messageKey,
+    http.makeError('TIMEOUT', 'w', { params: { timeoutMs: 6000 } }).messageParams).includes('6000'));
+  assert.ok(t(http.makeError('HTTP', 'w', { httpStatus: 502 }).messageKey,
+    http.makeError('HTTP', 'w', { httpStatus: 502 }).messageParams).includes('502'));
+  // 已知行为（建议项）：HTTP 码缺失 status 时占位符 {status} 会原样留在句子里。
+  // 当前所有 HTTP 调用点都带上了 httpStatus（仅 http.js:271），故不可达；此处固化行为。
   const noStatus = http.makeError('HTTP', 'w', {});
-  assert.ok(noStatus.message.includes('{status}'), '缺失 status 时 t() 保留占位符（已知行为，见报告建议项）');
+  assert.ok(t(noStatus.messageKey, noStatus.messageParams).includes('{status}'), '缺失 status 时保留占位符（已知行为）');
 });
 
 test('契约缺口：requestRaw 不检查 isOnline，离线时非自检调用方仍会发请求', async () => {

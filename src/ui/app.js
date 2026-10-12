@@ -20,13 +20,14 @@
  * 其余 DOM 访问都在 boot() 内，便于 Node 侧语法/引用检查。
  */
 
-import { t } from '../i18n/zh.js';
+import { t } from '../i18n/index.js';
 import {
   getDefaultPlace,
   getLastSnapshot,
   setLastSnapshot,
   getThemeMode,
   getFontScale,
+  getLocale,
   log,
 } from '../core/store.js';
 import { getCurrentPosition } from '../core/geo.js';
@@ -50,6 +51,9 @@ import {
 } from './now.js';
 import { renderMapCard, renderMapSkeleton } from './map.js';
 import { applyThemeMode, applyFontScale } from './theme.js';
+// 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
+// （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
+import { applyLocale, placeDisplayName } from './locale.js';
 
 // ★主题引导（模块顶层）：主题是全站属性，不是设置页的属性。本页是四个入口之一，
 // 必须在 module 求值那一刻就把 store 里的 themeMode 写到 <html data-theme> 上 ——
@@ -60,6 +64,7 @@ applyThemeMode(getThemeMode());
 // 选的档位在本页必须一样生效。放大乘数在 styles/tokens.css（--fs-scale），
 // 这里只落属性；默认的 'normal' 是**移除** data-fs，语义同 data-theme 的 'system'。
 applyFontScale(getFontScale());
+applyLocale(getLocale());
 
 /** 定位超时（毫秒）。 */
 const GEO_TIMEOUT_MS = 8000;
@@ -538,8 +543,10 @@ export function parsePlaceParam(search) {
 export function resolveCoord(coord) {
   const src = coord && typeof coord === 'object' ? coord : {};
   const fallback = src.source === 'default' ? getDefaultPlace() : null;
+  // 默认地点的名字是**地名**，界面上跟着语言走（英文界面写 "Beijing · Tian'anmen"）。
+  // core/geo.js 存的是中文那一版原文（要写进备份），翻译在这一层补。
   const base = src.source === 'default' && fallback
-    ? { lat: fallback.lat, lon: fallback.lon, source: 'default', name: fallback.name }
+    ? { lat: fallback.lat, lon: fallback.lon, source: 'default', name: placeDisplayName(fallback.name) }
     : src;
   return { base, isDefaultPlace: base.source === 'default' };
 }

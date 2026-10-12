@@ -14,7 +14,9 @@
  * 隐私红线：自检只请求六路数据源，不向任何第三方发请求；force=true 仅本页使用。
  */
 
-import { t, APP_NAME, APP_VERSION } from '../i18n/zh.js';
+import { t, APP_NAME, APP_VERSION } from '../i18n/index.js';
+import { errorText } from './errtext.js';
+import { applyLocale } from './locale.js';
 import { request, makeError, isOnline, resetQueue } from '../core/http.js';
 import { SOURCE_LIST, apiSources } from '../data/sources.js';
 import { resetHealth, recordResult, addSample } from '../data/health.js';
@@ -28,11 +30,20 @@ import {
   degradeMapMode,
   mapMode,
 } from '../data/tiles.js';
-import { getNetworkType, setNetworkType as storeSetNetworkType, getThemeMode, getFontScale, log } from '../core/store.js';
+import {
+  getNetworkType,
+  setNetworkType as storeSetNetworkType,
+  getThemeMode,
+  getFontScale,
+  getLocale,
+  log,
+} from '../core/store.js';
 import { stamp, latency as fmtLatency, bytes as fmtBytes } from '../core/format.js';
 import { h, applyI18n } from './now.js';
 import { downloadJson } from './download.js';
 import { applyThemeMode, applyFontScale } from './theme.js';
+// 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
+// （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
 
 // ★主题引导（模块顶层）：本页是四个入口之一，必须在 module 求值那一刻就把 store 里的
 // themeMode 写到 <html data-theme> 上，不能等 init() —— 否则用户会先看到一帧系统色。
@@ -41,6 +52,7 @@ applyThemeMode(getThemeMode());
 // ★字号档位引导（模块顶层，与主题同一时机）：字号是全站属性，本页那一屏密集的
 // 指标数字恰恰是最需要跟着放大档走的地方。乘数在 styles/tokens.css，这里只落属性。
 applyFontScale(getFontScale());
+applyLocale(getLocale());
 
 /** 每源正式取样次数默认值。 */
 export const DEFAULT_SAMPLES = 3;
@@ -54,7 +66,12 @@ export const NETWORK_OPTIONS = ['wifi', 'cellular', 'unknown'];
 /** 自检探测用坐标（北京天安门，避免依赖定位权限）。 */
 export const PROBE_COORD = { lat: 39.9087, lon: 116.3975 };
 
-/** 探测用地名关键词（geocode 需要）。 */
+/**
+ * 探测用地名关键词（geocode 需要）。
+ *
+ * ★这是**发给接口的查询词**，不是界面文案 —— 它是北京就是北京，改成 Beijing
+ * 反而会让 geocoding 命中另一条记录、测不出同一条链路。故不进文案表。
+ */
 export const PROBE_KEYWORD = '北京';
 
 /** @type {number} 当前取样次数。 */
@@ -183,7 +200,7 @@ function _renderItem(item, opts = {}) {
   if (item.httpStatus !== null) metrics.push(t('sc.httpStatus', { status: item.httpStatus }));
   metrics.push(`${t('sc.samples')} ${item.successCount}/${item.attemptCount}`);
   if (opts.progress) metrics.push(opts.progress);
-  if (item.error) metrics.push(`[${item.error.code}] ${item.error.message}`);
+  if (item.error) metrics.push(`[${item.error.code}] ${errorText(item.error)}`);
 
   const nodes = [
     h('div', { class: 'sc-row-head' }, [

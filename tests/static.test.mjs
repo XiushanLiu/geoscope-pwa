@@ -100,7 +100,7 @@ test('index.html 与其 ES Module 导入闭包全部 200（无 404）', async ()
   const c = await closure('/index.html');
   assert.deepEqual(c.missing, [], `导入闭包里存在不可达资源：\n${c.missing.join('\n')}`);
   // 闭包必须覆盖此刻屏用到的所有模块
-  for (const need of ['/src/ui/app.js', '/src/ui/now.js', '/src/core/http.js', '/src/core/cache.js', '/src/core/store.js', '/src/core/geo.js', '/src/core/sun.js', '/src/core/wmo.js', '/src/core/format.js', '/src/data/sources.js', '/src/data/openmeteo.js', '/src/data/photon.js', '/src/data/tiles.js', '/src/data/health.js', '/src/i18n/zh.js']) {
+  for (const need of ['/src/ui/app.js', '/src/ui/now.js', '/src/core/http.js', '/src/core/cache.js', '/src/core/store.js', '/src/core/geo.js', '/src/core/sun.js', '/src/core/wmo.js', '/src/core/format.js', '/src/data/sources.js', '/src/data/openmeteo.js', '/src/data/photon.js', '/src/data/tiles.js', '/src/data/health.js', '/src/i18n/zh.js', '/src/i18n/en.js', '/src/i18n/index.js']) {
     assert.ok(c.ok.includes(need), `index.html 的导入闭包缺少 ${need}`);
   }
 });
@@ -108,7 +108,7 @@ test('index.html 与其 ES Module 导入闭包全部 200（无 404）', async ()
 test('selfcheck.html 与其 ES Module 导入闭包全部 200（无 404）', async () => {
   const c = await closure('/selfcheck.html');
   assert.deepEqual(c.missing, [], `导入闭包里存在不可达资源：\n${c.missing.join('\n')}`);
-  for (const need of ['/src/ui/selfcheck.js', '/src/ui/now.js', '/src/data/sources.js', '/src/data/tiles.js', '/src/i18n/zh.js']) {
+  for (const need of ['/src/ui/selfcheck.js', '/src/ui/now.js', '/src/data/sources.js', '/src/data/tiles.js', '/src/i18n/zh.js', '/src/i18n/en.js', '/src/i18n/index.js']) {
     assert.ok(c.ok.includes(need), `selfcheck.html 的导入闭包缺少 ${need}`);
   }
 });
@@ -145,6 +145,10 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
     'index.html', 'selfcheck.html', 'compass.html', 'settings.html', 'manifest.webmanifest',
     'styles/tokens.css', 'styles/app.css',
     'src/i18n/zh.js',
+    'src/i18n/en.js',
+    'src/i18n/index.js',
+    'src/ui/locale.js',
+    'src/ui/errtext.js',
     'src/core/http.js', 'src/core/cache.js', 'src/core/store.js', 'src/core/geo.js', 'src/core/sun.js', 'src/core/wmo.js', 'src/core/format.js',
     'src/core/mag.js', 'src/core/backup.js', 'src/core/csv.js',
     'src/data/sources.js', 'src/data/openmeteo.js', 'src/data/photon.js', 'src/data/tiles.js', 'src/data/health.js',

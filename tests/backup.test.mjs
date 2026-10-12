@@ -18,6 +18,9 @@ installStorage(new FakeStorage());
 const backup = await import('../src/core/backup.js');
 const store = await import('../src/core/store.js');
 const fmt = await import('../src/core/format.js');
+// 失败原因现在是「键」，键必须在两张文案表里都在 —— 否则英文界面会直接显示裸键名
+const zhTable = (await import('../src/i18n/zh.js')).ZH;
+const enTable = (await import('../src/i18n/en.js')).EN;
 
 /**
  * 构造一份合法备份载荷（默认 latitude=0/longitude=0，够用即止）。
@@ -101,7 +104,7 @@ test('导出 → 导入 往返一致（逐字段比对）', () => {
   store.setLastSnapshot(null);
 
   const res = backup.importBackup(JSON.stringify(payload));
-  assert.equal(res.ok, true, `导入必须成功：${res.reason || ''}`);
+  assert.equal(res.ok, true, `导入必须成功：${res.reasonKey || ''}`);
   assert.deepEqual(store.getDefaultPlace(), { lat: 31.2304, lon: 121.4737, name: '上海 · 人民广场', source: 'default' });
   assert.equal(store.getUnitSystem(), 'imperial');
   assert.equal(store.getNetworkType(), 'cellular');
@@ -121,14 +124,21 @@ test('四类导入失败各自 ok:false，且 reason 互不相同', () => {
   for (const [i, r] of [badJson, badSchema, badApp, noPrefs].entries()) {
     assert.equal(r.ok, false, `第 ${i + 1} 类必须导入失败`);
     assert.equal(r.applied, undefined, '失败时不得返回 applied');
-    assert.ok(typeof r.reason === 'string' && r.reason.length > 0, '失败必须带中文 reason');
+    // ★core 只产键不产成品串（core 不许 import i18n），UI 层才把键翻成话
+    assert.ok(typeof r.reasonKey === 'string' && r.reasonKey.length > 0, '失败必须带 reasonKey');
+    assert.equal(r.reason, undefined, '★失败结果不许再带成品 reason 串（那是不切语言也能work的捷径，正是漏翻的温床）');
   }
-  const reasons = [badJson.reason, badSchema.reason, badApp.reason, noPrefs.reason];
-  assert.equal(new Set(reasons).size, 4, `四条 reason 必须互不相同，实际：${JSON.stringify(reasons)}`);
-  assert.equal(badJson.reason, '不是合法 JSON');
-  assert.match(badSchema.reason, /schema=2/, '版本不支持必须带上实际 schema 值');
-  assert.equal(badApp.reason, '不是地候的备份文件');
-  assert.equal(noPrefs.reason, '缺少 prefs');
+  const reasons = [badJson.reasonKey, badSchema.reasonKey, badApp.reasonKey, noPrefs.reasonKey];
+  assert.equal(new Set(reasons).size, 4, `四条 reasonKey 必须互不相同，实际：${JSON.stringify(reasons)}`);
+  assert.equal(badJson.reasonKey, 'backup.badJson');
+  assert.deepEqual(badSchema.reasonParams, { schema: '2' }, '版本不支持必须带上实际 schema 值');
+  assert.equal(badApp.reasonKey, 'backup.notGeoscope');
+  assert.equal(noPrefs.reasonKey, 'backup.noPrefs');
+  // 顺带钉死：这四条键在两张文案表里都得在，否则英文界面会直接把键名甩给用户看
+  for (const k of reasons) {
+    assert.ok(k in zhTable, `${k} 必须在中文表里`);
+    assert.ok(k in enTable, `${k} 必须在英文表里（漏了就会在英文界面上显示裸键名）`);
+  }
 });
 
 test('越界坐标（lat=91）整体拒绝，且原状态不变', () => {
@@ -138,7 +148,7 @@ test('越界坐标（lat=91）整体拒绝，且原状态不变', () => {
 
   const res = backup.importBackup(makePayload({ defaultPlace: { lat: 91, lon: 0, name: '越界' } }));
   assert.equal(res.ok, false, '纬度 91 必须整体拒绝，不能静默拿默认值糊过去');
-  assert.match(res.reason, /defaultPlace/);
+  assert.equal(res.reasonKey, 'backup.badDefaultPlace', '必须点名是 defaultPlace 的坐标非法');
 
   const after = readAll();
   assert.deepEqual(after.defaultPlace, before.defaultPlace, '拒绝后 defaultPlace 必须原样');
@@ -351,7 +361,7 @@ test('inspectBackup 只读不写：预览阶段本机状态一个字段都不许
       })
     )
   );
-  assert.equal(ins.ok, true, `预览必须成功：${ins.reason || ''}`);
+  assert.equal(ins.ok, true, `预览必须成功：${ins.reasonKey || ''}`);
   assert.equal(ins.plan.defaultPlace.name, '上海');
   assert.equal(ins.plan.favorites.length, 1, '预览的收藏条数按生效后的结果算');
   assert.equal(ins.plan.favoritesDropped, 1);
@@ -384,7 +394,7 @@ test('applyBackup：拿到计划才写，脏计划一律拒绝且不留下半截
     })
   );
   const app = backup.applyBackup(ins.plan);
-  assert.equal(app.ok, true, `写入必须成功：${app.reason || ''}`);
+  assert.equal(app.ok, true, `写入必须成功：${app.reasonKey || ''}`);
   assert.equal(store.getDefaultPlace().name, '上海');
   assert.deepEqual(store.getFavorites(), [{ lat: 1, lon: 1, name: 'A' }]);
 });
@@ -413,7 +423,7 @@ test('applyBackup：plan 缺 favorites 数组时整体拒绝（绝不静默清�
   const r = backup.applyBackup(broken);
   assert.equal(r.ok, false, '缺 favorites 的 plan 必须整体拒绝');
   assert.equal(r.applied, undefined, '失败时不得返回 applied');
-  assert.ok(String(r.reason).indexOf('favorites') !== -1, `reason 要点名 favorites，实际 ${r.reason}`);
+  assert.equal(r.reasonKey, 'backup.planNoFavorites', 'reason 要点名 favorites，实际 ' + String(r.reasonKey));
   assert.deepEqual(readAll().favorites, before.favorites, '拒绝后收藏必须原样（不许被清空）');
   assert.deepEqual(readAll().defaultPlace, before.defaultPlace, '拒绝后默认地点必须原样');
 
@@ -456,7 +466,7 @@ test('导入备份不得把本机主题模式抹回 system（themeMode 不在备
   assert.equal(store.getThemeMode(), 'dark', '前置条件：本机主题已手动设为 dark');
 
   const res = backup.importBackup(makePayload({ defaultPlace: { lat: 0, lon: 0, name: '原点' } }));
-  assert.equal(res.ok, true, `导入必须成功：${res.reason || ''}`);
+  assert.equal(res.ok, true, `导入必须成功：${res.reasonKey || ''}`);
   assert.equal(store.getThemeMode(), 'dark', '备份里没有 themeMode，导入后必须保持本机选择');
 
   // 反向：system 也不该被意外改成别的

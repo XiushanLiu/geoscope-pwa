@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { assertPlaceholder } from './harness.mjs';
 
 const fmt = await import('../src/core/format.js');
+const i18nMod = await import('../src/i18n/index.js');
 
 /** 缺失值集合（业务层最可能出现的形式）。 */
 const MISSING = [null, undefined, '', NaN, true, false, 'abc', {}, () => 1];
@@ -96,25 +97,59 @@ test('时延 hhmm / mdHm 按时区偏移换算，pad2 容错', () => {
   assert.equal(fmt.mdHm(Date.UTC(2025, 0, 5, 7, 12), 0), '01-05 07:12');
 });
 
-test('duration / staleFor / relativeTime 分档', () => {
-  assert.equal(fmt.duration(0), '0 分');
-  assert.equal(fmt.duration(45 * 60000), '45 分');
-  assert.equal(fmt.duration(10 * 3600000 + 32 * 60000), '10 小时 32 分');
-  assert.equal(fmt.duration(-1000), '0 分');
+test('duration / staleFor / relativeTime 分档（★产出结构化量，由 tr() 翻译成话）', () => {
+  // 这三个函数现在返回 { key, params } 而不是字符串：core 不许 import i18n，而中英文
+  // 的语序不同（「10 小时 32 分」 vs "10h 32m"），拼片段必错。这里同时钉住两件事：
+  //   (a) 分档（选哪个时间单位、数字是多少）必须仍然正确 —— 这是纯计算；
+  //   (b) 经 tr() 之后，中英文各是各自正确的那句话。
+  const { tr, t, setLocale, getLocale } = i18nMod;
+  const saved = getLocale();
 
-  assert.equal(fmt.staleFor(1500), '2 秒');
-  assert.equal(fmt.staleFor(0), '1 秒', '极小陈旧时长至少显示 1 秒');
-  assert.equal(fmt.staleFor(3 * 60000 + 2000), '3 分钟');
-  assert.equal(fmt.staleFor(2 * 3600000), '2 小时');
-  assert.equal(fmt.staleFor(3 * 86400000), '3 天');
+  const zhCases = [
+    [fmt.duration(0), '0 分'],
+    [fmt.duration(45 * 60000), '45 分'],
+    [fmt.duration(10 * 3600000 + 32 * 60000), '10 小时 32 分'],
+    [fmt.duration(-1000), '0 分'],
+    [fmt.staleFor(1500), '2 秒'],
+    [fmt.staleFor(0), '1 秒'],
+    [fmt.staleFor(3 * 60000 + 2000), '3 分钟'],
+    [fmt.staleFor(2 * 3600000), '2 小时'],
+    [fmt.staleFor(3 * 86400000), '3 天'],
+  ];
+  setLocale('zh');
+  for (const [spec, want] of zhCases) {
+    assert.equal(tr(spec), want, `中文：${JSON.stringify(spec)} 应为 ${want}`);
+  }
+
+  // 英文语序：'10h 32m' / '3 min' —— 不是把「小时」「分」两个词翻出来拼回去的结果
+  setLocale('en');
+  assert.equal(tr(fmt.duration(10 * 3600000 + 32 * 60000)), '10h 32m');
+  assert.equal(tr(fmt.duration(45 * 60000)), '45m');
+  assert.equal(tr(fmt.staleFor(3 * 60000 + 2000)), '3 min');
+  assert.equal(tr(fmt.staleFor(1500)), '2 s');
+  setLocale(saved);
 
   const now = Date.UTC(2025, 0, 5, 12, 0);
-  assert.equal(fmt.relativeTime(now - 5000, now), '刚刚');
-  assert.equal(fmt.relativeTime(now - 3 * 60000, now), '3 分钟前');
-  assert.equal(fmt.relativeTime(now - 2 * 3600000, now), '2 小时前');
-  assert.equal(fmt.relativeTime(now - 3 * 86400000, now), '3 天前');
-  assert.equal(fmt.relativeTime(now - 60 * 86400000, now), '2 个月前');
-  assert.equal(fmt.relativeTime(now + 60000, now), '刚刚', '未来时刻按「刚刚」处理（不得出现负数）');
+  setLocale('zh');
+  assert.equal(tr(fmt.relativeTime(now - 5000, now)), '刚刚');
+  assert.equal(tr(fmt.relativeTime(now - 3 * 60000, now)), '3 分钟前');
+  assert.equal(tr(fmt.relativeTime(now - 2 * 3600000, now)), '2 小时前');
+  assert.equal(tr(fmt.relativeTime(now - 3 * 86400000, now)), '3 天前');
+  assert.equal(tr(fmt.relativeTime(now - 60 * 86400000, now)), '2 个月前');
+  assert.equal(tr(fmt.relativeTime(now + 60000, now)), '刚刚', '未来时刻按「刚刚」处理（不得出现负数）');
+  setLocale('en');
+  assert.equal(tr(fmt.relativeTime(now - 3 * 60000, now)), '3 min ago');
+  assert.equal(tr(fmt.relativeTime(now - 2 * 3600000, now)), '2 h ago');
+  setLocale(saved);
+
+  // 缺失仍返回占位符（字符串，不是 key），tr() 必须原样透传
+  for (const bad of [null, undefined, NaN, 'x', {}]) {
+    assert.equal(tr(fmt.duration(bad)), '—');
+    assert.equal(tr(fmt.staleFor(bad)), '—');
+    assert.equal(tr(fmt.relativeTime(bad)), '—');
+  }
+  // 缺 key 时 t() 返回 key 本身——这条是「可见的失败」策略，别改成返回空串
+  assert.equal(t('definitely.not.a.key'), 'definitely.not.a.key');
 });
 
 test('stamp 生成 YYYYMMDD-HHmm 形态（本地时区）', () => {

@@ -13,7 +13,13 @@ import { round4 } from '../core/geo.js';
 export const PHOTON_HOST = 'https://photon.komoot.io';
 
 /** 许可署名。 */
-export const PHOTON_ATTRIBUTION = 'Photon by Komoot（基于 OpenStreetMap，ODbL）';
+/**
+ * 许可署名的**文案键**（不是成品串）。
+ *
+ * ★存键不存串的原因见 data/openmeteo.js 同名注释：SOURCES 在模块求值期构造，
+ * 写死 `t()` 会让「存了英文偏好、界面仍中文」成为必然。取用时才翻译才是对的。
+ */
+export const PHOTON_ATTRIBUTION_KEY = 'attr.photon';
 
 /**
  * 构造逆地理反查请求。

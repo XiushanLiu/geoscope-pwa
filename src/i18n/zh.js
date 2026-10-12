@@ -1,17 +1,21 @@
 /**
- * 中文文案表（i18n · 单一真相源）
+ * 中文文案表（i18n 的**一份表**，不是入口）
  *
- * 职责：集中存放所有上屏文案。UI 层禁止硬编码中文字符串，一律通过 t(key, params) 取值。
+ * 职责：只存放中文文案。**翻译函数 t() 不在这里** —— 它住在 src/i18n/index.js
+ * （那才是 i18n 的入口：持有「当前 locale + 表 + 切换」）。本文件是纯数据，
+ * core 层不许 import 它（core ← data ← ui ← html 单向依赖里，core 读 locale 表
+ * 等于让最底层反向依赖上层文案；core 只返回结构化 key，由 UI 层翻译）。
+ *
+ * ★本文件与 src/i18n/en.js 必须**逐键同构**：tools/check.mjs 第 14 节双向校验两张表的
+ *   key 集合完全相等 —— 少一个 key，界面会直接显示 `wmo.61` 这样的原始键名。
+ *   新增 key 时两张表一起加，顺序无要求（校验按集合比）。
+ *
  * 约定：
  *   - key 用点号分层：`now.title`、`status.ok`、`source.weather`；
  *   - 占位符用 `{name}`，由 t() 的 params 替换（未提供时保留占位符原样）；
- *   - 缺失键返回 key 本身，并在 debug 开启时告警（不抛异常）。
- * 阶段二新增英文包时，另建 `en.js` 并保持同构 key，由入口切换。
+ *   - 占位符名一律用**语义名**（`{name}` / `{dir}` / `{level}`），不用 `{zh}`
+ *     —— 英文包复用同一套占位符名，`{zh}` 在英文表里就是自相矛盾的命名。
  */
-
-/** 应用元信息（导出 JSON 与页面标题共用）。 */
-export const APP_NAME = 'GeoScope';
-export const APP_VERSION = '1.0.0';
 
 /** 中文文案表：扁平 key → 字符串。 */
 export const ZH = {
@@ -109,9 +113,9 @@ export const ZH = {
   'w.ozone': '臭氧 O₃',
   'w.no2': '二氧化氮 NO₂',
   'w.latency': '时延',
-  'w.beaufortLevel': '{zh}（{level} 级）',
+  'w.beaufortLevel': '{name}（{level} 级）',
   'w.unitC': '°C',
-  'w.aqiAdvice': '{zh} · {advice}',
+  'w.aqiAdvice': '{level} · {advice}',
   'w.noMap': '无地图纯坐标模式',
   'w.todayMax': '今日最高',
   'w.todayMin': '今日最低',
@@ -485,13 +489,13 @@ export const ZH = {
   'legend.beaufort.title': '蒲福风级',
   'legend.beaufort.unit': '级',
   'legend.beaufort.body': '把风速分成 0–12 级，界面上「清风（4 级）」就是这么来的。级名与阈值取自本应用的换算表：',
-  'legend.beaufort.row': '{level} 级 · {zh} · 小于 {max} m/s',
-  'legend.beaufort.rowLast': '{level} 级 · {zh} · {min} m/s 及以上',
+  'legend.beaufort.row': '{level} 级 · {name} · 小于 {max} m/s',
+  'legend.beaufort.rowLast': '{level} 级 · {name} · {min} m/s 及以上',
 
   'legend.winddir.title': '风向',
   'legend.winddir.unit': '°',
   'legend.winddir.body': '风的**来向**（wind_direction_10m），按每 22.5° 一段切成 16 个方位。「西北偏北风」说的是风从西北偏北吹来，不是吹向那边：',
-  'legend.winddir.row': '{zh}',
+  'legend.winddir.row': '{dir}',
 
   'legend.pressure.title': '气压',
   'legend.pressure.unit': 'hPa',
@@ -504,8 +508,8 @@ export const ZH = {
   'legend.uv.title': '紫外线指数',
   'legend.uv.unit': '无量纲',
   'legend.uv.body': '当天的紫外线指数最大值（uv_index_max），是个无量纲指数。五档与对应建议取自本应用既有的换算表：',
-  'legend.uv.row': '{min}–{max} · {zh} · {advice}',
-  'legend.uv.rowLast': '{min} 及以上 · {zh} · {advice}',
+  'legend.uv.row': '{min}–{max} · {name} · {advice}',
+  'legend.uv.rowLast': '{min} 及以上 · {name} · {advice}',
 
   'legend.sun.title': '日出与日落',
   'legend.sun.unit': '本地时刻',
@@ -530,8 +534,8 @@ export const ZH = {
   'legend.aqi.title': '欧洲 AQI',
   'legend.aqi.unit': '无量纲',
   'legend.aqi.body': '数据源直接给出的欧洲 AQI（european_aqi）：把多种污染物折算成一个数，越小越好。本应用只负责把它分成六档，档位与建议如下：',
-  'legend.aqi.row': '{min}–{max} · {zh} · {advice}',
-  'legend.aqi.rowLast': '{min} 及以上 · {zh} · {advice}',
+  'legend.aqi.row': '{min}–{max} · {name} · {advice}',
+  'legend.aqi.rowLast': '{min} 及以上 · {name} · {advice}',
 
   'legend.pollutants.title': 'PM2.5 / PM10 / O₃ / NO₂',
   'legend.pollutants.unit': 'µg/m³',
@@ -548,38 +552,202 @@ export const ZH = {
   'legend.tz.title': '时区偏移',
   'legend.tz.unit': '秒',
   'legend.tz.body': '数据源返回的「当地时区相对 UTC 的偏移」（utc_offset_seconds）。日出日落与观测时刻都是按它换算的 —— 它一变，这几个时刻会跟着变。',
+
+  // ---------- WMO 天气码 ----------
+  // core/wmo.js 的 wmo(code) 只返回 `{ key, shortKey, icon }`，**不给中文串** ——
+  // core 层不许读 locale 表。这 28 组 key 由 UI 层 t() 之后才变成人话。
+  // 分 full / short 两档：short 用在窄处（英雄区副行、对比页），full 用在图例与表格。
+  'wmo.0': '晴',
+  'wmo.0.short': '晴',
+  'wmo.1': '大部晴朗',
+  'wmo.1.short': '晴间少云',
+  'wmo.2': '局部多云',
+  'wmo.2.short': '多云',
+  'wmo.3': '阴',
+  'wmo.3.short': '阴',
+  'wmo.45': '雾',
+  'wmo.45.short': '雾',
+  'wmo.48': '沉积雾凇雾',
+  'wmo.48.short': '雾凇',
+  'wmo.51': '小毛毛雨',
+  'wmo.51.short': '毛毛雨',
+  'wmo.53': '中毛毛雨',
+  'wmo.53.short': '毛毛雨',
+  'wmo.55': '大毛毛雨',
+  'wmo.55.short': '毛毛雨',
+  'wmo.56': '冻毛毛雨（弱）',
+  'wmo.56.short': '冻毛毛雨',
+  'wmo.57': '冻毛毛雨（强）',
+  'wmo.57.short': '冻毛毛雨',
+  'wmo.61': '小雨',
+  'wmo.61.short': '小雨',
+  'wmo.63': '中雨',
+  'wmo.63.short': '中雨',
+  'wmo.65': '大雨',
+  'wmo.65.short': '大雨',
+  'wmo.66': '冻雨（弱）',
+  'wmo.66.short': '冻雨',
+  'wmo.67': '冻雨（强）',
+  'wmo.67.short': '冻雨',
+  'wmo.71': '小雪',
+  'wmo.71.short': '小雪',
+  'wmo.73': '中雪',
+  'wmo.73.short': '中雪',
+  'wmo.75': '大雪',
+  'wmo.75.short': '大雪',
+  'wmo.77': '米雪',
+  'wmo.77.short': '米雪',
+  'wmo.80': '小阵雨',
+  'wmo.80.short': '阵雨',
+  'wmo.81': '中阵雨',
+  'wmo.81.short': '阵雨',
+  'wmo.82': '强阵雨',
+  'wmo.82.short': '暴雨',
+  'wmo.85': '小阵雪',
+  'wmo.85.short': '阵雪',
+  'wmo.86': '大阵雪',
+  'wmo.86.short': '阵雪',
+  'wmo.95': '雷阵雨',
+  'wmo.95.short': '雷阵雨',
+  'wmo.96': '雷阵雨伴小冰雹',
+  'wmo.96.short': '雷暴冰雹',
+  'wmo.99': '雷阵雨伴大冰雹',
+  'wmo.99.short': '强雷暴冰雹',
+  // 未知码兜底：★必须与「取不到数据」同义，不能是「晴」。
+  'wmo.unknown': '未知天气',
+  'wmo.unknown.short': '未知',
+
+  // ---------- 蒲福风级 0–12 ----------
+  'bf.0': '无风',
+  'bf.1': '软风',
+  'bf.2': '轻风',
+  'bf.3': '微风',
+  'bf.4': '和风',
+  'bf.5': '清风',
+  'bf.6': '强风',
+  'bf.7': '疾风',
+  'bf.8': '大风',
+  'bf.9': '烈风',
+  'bf.10': '狂风',
+  'bf.11': '暴风',
+  'bf.12': '飓风',
+
+  // ---------- 风向 16 方位 ----------
+  // full 用在图例（要写全名），abbr 用在此刻页那个数字后面（要短）。
+  // 中文两档同值 —— 中文没有「缩写更短」的习惯，硬造一个反而不如原名清楚。
+  'dir.0': '北',
+  'dir.0.abbr': '北',
+  'dir.1': '东北偏北',
+  'dir.1.abbr': '东北偏北',
+  'dir.2': '东北',
+  'dir.2.abbr': '东北',
+  'dir.3': '东北偏东',
+  'dir.3.abbr': '东北偏东',
+  'dir.4': '东',
+  'dir.4.abbr': '东',
+  'dir.5': '东南偏东',
+  'dir.5.abbr': '东南偏东',
+  'dir.6': '东南',
+  'dir.6.abbr': '东南',
+  'dir.7': '东南偏南',
+  'dir.7.abbr': '东南偏南',
+  'dir.8': '南',
+  'dir.8.abbr': '南',
+  'dir.9': '西南偏南',
+  'dir.9.abbr': '西南偏南',
+  'dir.10': '西南',
+  'dir.10.abbr': '西南',
+  'dir.11': '西南偏西',
+  'dir.11.abbr': '西南偏西',
+  'dir.12': '西',
+  'dir.12.abbr': '西',
+  'dir.13': '西北偏西',
+  'dir.13.abbr': '西北偏西',
+  'dir.14': '西北',
+  'dir.14.abbr': '西北',
+  'dir.15': '西北偏北',
+  'dir.15.abbr': '西北偏北',
+  // 风向是**来向**。中文靠后缀「风」、英文靠介词 from，两种语言语序不同 ——
+  // 所以整句作为一条模板翻译，只插方位名，不拼片段。
+  'w.windFrom': '{dir}风',
+
+  // ---------- 分档名（欧洲 AQI 六档 / UV 五档） ----------
+  'level.aqi.good': '优',
+  'level.aqi.fair': '良',
+  'level.aqi.moderate': '中',
+  'level.aqi.poor': '差',
+  'level.aqi.very-poor': '很差',
+  'level.aqi.extreme': '极差',
+  'level.uv.low': '低',
+  'level.uv.moderate': '中',
+  'level.uv.high': '高',
+  'level.uv.very-high': '很高',
+  'level.uv.extreme': '极高',
+
+  // ---------- 时长 / 相对时间 / 陈旧时长 ----------
+  // core/format.js 那三个函数只产出 { unit, value } 这样的**结构化量**，
+  // 整句在这里翻译 —— 中英文语序不同（「10 小时 32 分」 vs "10h 32m"、
+  // 「3 分钟前」 vs "3 min ago"），拼片段必错，只能整句插值。
+  'fmt.duration.hm': '{h} 小时 {m} 分',
+  'fmt.duration.m': '{m} 分',
+  'fmt.ago.now': '刚刚',
+  'fmt.ago.minute': '{n} 分钟前',
+  'fmt.ago.hour': '{n} 小时前',
+  'fmt.ago.day': '{n} 天前',
+  'fmt.ago.month': '{n} 个月前',
+  'fmt.stale.second': '{n} 秒',
+  'fmt.stale.minute': '{n} 分钟',
+  'fmt.stale.hour': '{n} 小时',
+  'fmt.stale.day': '{n} 天',
+
+  // ---------- 默认地点名 ----------
+  // core/geo.js 与 core/store.js 里的默认地点只存经纬度 + 一个**稳定标记名**，
+  // 显示名由这里给 —— core 不许读 locale 表，但「北京 · 天安门」是个地名，
+  // 英文界面下必须写成 "Beijing · Tian'anmen"。
+  'place.default': '北京 · 天安门',
+
+  // ---------- 各页 <meta> 与读屏标签 ----------
+  // HTML 外壳里那些**没有子元素**的位置（meta description / iOS 主屏名）与
+  // 读屏软件念的 aria-label，同样看得见（只是有的用耳朵看），所以也走 i18n。
+  'app.shortName': '地候',
+  'app.description': '地候 GeoScope —— 自用地理气象速览，此刻此地的一屏数据。',
+  'desc.selfcheck': '地候 GeoScope —— 数据源自检：逐源取样，看清哪一路通、哪一路不通。',
+  'desc.compass': '地候 GeoScope —— 磁偏角与真/磁方位换算，本机 WMM2025 计算，不联网。',
+  'desc.settings': '地候 GeoScope —— 备份导出与导入、主题切换，数据只留本机，不联网。',
+  'desc.compare': '地候 GeoScope —— 多地点对比：把收藏地点的同一批指标并排列出来。',
+  'a11y.mainNav': '主导航',
+  'a11y.checkParams': '自检参数',
+  // ---------- 界面语言 ----------
+  // 切换器在「我的」页。★两档的显示名一律用**各自语言自己的写法**
+  // （中文界面写「English」而不是「英文」）—— 用户看不懂当前界面语言时，
+  // 唯一能救他的正是那个用他母语写着的选项名。
+  'settings.langTitle': '语言',
+  'settings.langHint': '切换全站文案语言。地点名与数值不受影响，它们本来就是数据源给的原文。',
+  'settings.lang.zh': '中文',
+  'settings.lang.en': 'English',
+  'settings.langDone': '语言已切换为「{name}」',
+
+  // ---------- 数据源署名 ----------
+  // 署名是许可条款要求的原文，服务商名与协议名（CC-BY 4.0 / ODbL）一律不译；
+  // 只有「基于」这类说明词跟着界面语言走。★括号用各语言自己的全角/半角习惯。
+  'attr.openmeteo': 'Open-Meteo.com（CC-BY 4.0）',
+  'attr.photon': 'Photon by Komoot（基于 OpenStreetMap，ODbL）',
+  'attr.tile': 'Esri ArcGIS Online World Tile Service',
+
+  // ---------- 备份导入失败原因 ----------
+  // core/backup.js 只回 reasonKey / reasonParams（core 不许 import i18n），
+  // 由 UI 层拼进 settings.importFail 的 {reason} 里上屏。
+  'backup.badJson': '不是合法 JSON',
+  'backup.notObject': '备份内容不是 JSON 对象',
+  'backup.badSchema': '备份格式版本不支持（schema={schema}）',
+  'backup.notGeoscope': '不是地候的备份文件',
+  'backup.noPrefs': '缺少 prefs',
+  'backup.badDefaultPlace': 'defaultPlace 坐标非法（lat/lon 必须是有限数字，纬度 ±90、经度 ±180 内）',
+  'backup.planNoDefaultPlace': '导入计划里没有合法的 defaultPlace（请先调用 inspectBackup）',
+  'backup.planNoFavorites': '导入计划里没有 favorites 数组（请先调用 inspectBackup）',
+  'backup.writeFailed': '写入本机状态失败：{msg}',
+
+  // ---------- 瓦片坐标非法 ----------
+  // data 层可以 import i18n（只有 core 不行），所以这里直接在抛出点翻译。
+  'tile.badCoord': '瓦片坐标非法（z={z}, x={x}, y={y}），未发起请求',
 };
-
-/**
- * 取文案。
- *
- * @param {string} key 文案键，如 'status.ok'
- * @param {Object<string, string|number>} [params] 占位符替换表，如 { ms: 123 }
- * @returns {string} 替换后的文案；键缺失时返回 key 本身。
- */
-export function t(key, params = {}) {
-  const tpl = ZH[key];
-  if (tpl === undefined) {
-    // 缺失键：静默返回 key；调试模式下由调用方（store.log）另行告警，此处不打日志以避免循环依赖
-    return key;
-  }
-  return String(tpl).replace(/\{(\w+)\}/g, (m, name) => {
-    const v = params[name];
-    return v === undefined || v === null ? m : String(v);
-  });
-}
-
-/**
- * 判断文案键是否存在（debug 自检用）。
- *
- * @param {string} key 文案键。
- * @returns {boolean} 是否存在。
- */
-export function hasKey(key) {
-  return Object.prototype.hasOwnProperty.call(ZH, key);
-}
-
-/** 导出全部键（供冒烟脚本检查完整性）。 */
-export function allKeys() {
-  return Object.keys(ZH);
-}

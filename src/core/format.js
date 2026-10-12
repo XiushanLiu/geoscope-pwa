@@ -178,15 +178,26 @@ export function mdHm(atMs, offsetSec = 0) {
   return `${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
-/** 昼长毫秒 → '10 小时 32 分'。 */
+/**
+ * 昼长毫秒 → **结构化时长量**（不是字符串）。
+ *
+ * ★为什么不再直接返回 '10 小时 32 分'：本模块在 core 层，不许 import i18n（core 读
+ *   locale 状态 = 最底层反向依赖上层）。而时长的**语序是语言相关的** —— 中文
+ *   「10 小时 32 分」、英文 "10h 32m"，把「小时」「分」两个词翻出来再拼回去必然拼错
+ *   （英文根本不是「10 hours 32 minutes」的写法）。所以整句作为一条模板留在文案表里，
+ *   这里只产出 `{ key, params }`，由 UI 层 `tr()` 翻译。
+ *
+ * @param {*} ms 毫秒数。
+ * @returns {{key:string, params:Object}|string} 结构化量；缺失时返回 DASH（'—'，它本身就是文本，tr() 会原样透传）。
+ */
 export function duration(ms) {
   const n = _num(ms);
   if (n === null) return DASH;
   const totalMin = Math.round(n / 60000);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  if (h <= 0) return `${m} 分`;
-  return `${h} 小时 ${m} 分`;
+  if (h <= 0) return { key: 'fmt.duration.m', params: { m } };
+  return { key: 'fmt.duration.hm', params: { h, m } };
 }
 
 /**
@@ -206,43 +217,46 @@ export function coord(lat, lon) {
 }
 
 /**
- * 相对时间：'刚刚' / '3 分钟前' / '2 小时前' / '3 天前'。
+ * 相对时间 → **结构化量**（'刚刚' / '3 分钟前' / '2 小时前' / '3 天前' 的骨架）。
+ *
+ * 与 duration() 同一条理由：'3 分钟前' 在英文里是 "3 min ago"，**语序与词序都不同**，
+ * 拼片段必错。这里只决定「用哪个时间单位 + 数字是多少」，话怎么说是文案表的事。
  *
  * @param {number|null} atMs 过去时刻（ms epoch）。
  * @param {number} [nowMs=Date.now()] 参照时刻。
- * @returns {string} 相对时间文本或 '—'。
+ * @returns {{key:string, params:Object}|string} 结构化量；缺失时返回 DASH。
  */
 export function relativeTime(atMs, nowMs = Date.now()) {
   const n = _num(atMs);
   if (n === null) return DASH;
   // 未来时刻（时钟漂移 / 服务端时间偏快）也按「刚刚」处理，避免出现「-3 分钟前」
   const diff = nowMs - n;
-  if (diff < 60000) return '刚刚';
+  if (diff < 60000) return { key: 'fmt.ago.now', params: {} };
   const min = Math.floor(diff / 60000);
-  if (min < 60) return `${min} 分钟前`;
+  if (min < 60) return { key: 'fmt.ago.minute', params: { n: min } };
   const hour = Math.floor(min / 60);
-  if (hour < 24) return `${hour} 小时前`;
+  if (hour < 24) return { key: 'fmt.ago.hour', params: { n: hour } };
   const day = Math.floor(hour / 24);
-  if (day < 30) return `${day} 天前`;
+  if (day < 30) return { key: 'fmt.ago.day', params: { n: day } };
   const month = Math.floor(day / 30);
-  return `${month} 个月前`;
+  return { key: 'fmt.ago.month', params: { n: month } };
 }
 
 /**
- * 陈旧时长：供降级提示使用，与 relativeTime 同义但语义更明确。
+ * 陈旧时长（供降级提示使用，与 relativeTime 同义但语义更明确）→ **结构化量**。
  *
  * @param {number} staleMs 陈旧毫秒数。
- * @returns {string} '3 分钟' / '2 小时' 等。
+ * @returns {{key:string, params:Object}|string} 结构化量；缺失时返回 DASH。
  */
 export function staleFor(staleMs) {
   const n = _num(staleMs);
   if (n === null) return DASH;
-  if (n < 60000) return `${Math.max(1, Math.round(n / 1000))} 秒`;
+  if (n < 60000) return { key: 'fmt.stale.second', params: { n: Math.max(1, Math.round(n / 1000)) } };
   const min = Math.floor(n / 60000);
-  if (min < 60) return `${min} 分钟`;
+  if (min < 60) return { key: 'fmt.stale.minute', params: { n: min } };
   const hour = Math.floor(min / 60);
-  if (hour < 24) return `${hour} 小时`;
-  return `${Math.floor(hour / 24)} 天`;
+  if (hour < 24) return { key: 'fmt.stale.hour', params: { n: hour } };
+  return { key: 'fmt.stale.day', params: { n: Math.floor(hour / 24) } };
 }
 
 /**

@@ -11,7 +11,7 @@
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v15';
+const SHELL_CACHE = 'geoscope-shell-v16';
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -34,6 +34,10 @@ const SHELL_ASSETS = [
   './src/ui/placesearch.js',
   './src/ui/legend.js',
   './src/i18n/zh.js',
+  './src/i18n/en.js',
+  './src/i18n/index.js',
+  './src/ui/locale.js',
+  './src/ui/errtext.js',
   './src/core/http.js',
   './src/core/cache.js',
   './src/core/store.js',

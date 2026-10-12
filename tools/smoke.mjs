@@ -17,7 +17,7 @@ import * as wmo from '../src/core/wmo.js';
 import * as sun from '../src/core/sun.js';
 import * as fmt from '../src/core/format.js';
 import * as geo from '../src/core/geo.js';
-import { t } from '../src/i18n/zh.js';
+import { t, tr } from '../src/i18n/index.js';
 import { SOURCES, SOURCE_LIST } from '../src/data/sources.js';
 import {
   dedupeTiles,
@@ -394,37 +394,39 @@ async function main() {
 
   /* ---------- 10. WMO / AQI / UV / 方位 / 蒲福 ---------- */
   section('10. 映射表：WMO / 欧洲 AQI / UV / 16 方位 / 蒲福');
-  check('WMO 0 → 晴', wmo.wmo(0).zh === '晴');
-  check('WMO 61 → 小雨', wmo.wmo(61).zh === '小雨');
-  check('WMO 95 → 雷阵雨', wmo.wmo(95).zh === '雷阵雨');
-  check('WMO 未知码兜底', wmo.wmo(999).zh === '未知天气');
-  check('AQI 15 → 优(good)', wmo.aqi(15).level === 'good' && wmo.aqi(15).zh === '优');
+  // core 只给方位键，「风」这个字由 w.windFrom 一条模板补上（中英语序不同）
+  const windText = (deg) => t('w.windFrom', { dir: t(wmo.windDir16(deg).abbrKey) });
+  check('WMO 0 → 晴', t(wmo.wmo(0).key) === '晴');
+  check('WMO 61 → 小雨', t(wmo.wmo(61).key) === '小雨');
+  check('WMO 95 → 雷阵雨', t(wmo.wmo(95).key) === '雷阵雨');
+  check('WMO 未知码兜底', t(wmo.wmo(999).key) === '未知天气');
+  check('AQI 15 → 优(good)', wmo.aqi(15).level === 'good' && t(wmo.aqi(15).levelKey) === '优');
   check('AQI 35 → 良(fair)', wmo.aqi(35).level === 'fair');
   check('AQI 45 → 中(moderate)', wmo.aqi(45).level === 'moderate');
   check('AQI 65 → 差(poor)', wmo.aqi(65).level === 'poor');
   check('AQI 85 → 很差(very-poor)', wmo.aqi(85).level === 'very-poor');
   check('AQI 120 → 极差(extreme)', wmo.aqi(120).level === 'extreme' && wmo.aqi(120).colorToken === '--c-alert');
-  check('AQI advice 非空', typeof wmo.aqi(42).advice === 'string' && wmo.aqi(42).advice.length > 0);
+  check('AQI advice 非空', typeof t(wmo.aqi(42).adviceKey) === 'string' && t(wmo.aqi(42).adviceKey).length > 0);
   check('UV 1 → 低', wmo.uv(1).level === 'low');
   check('UV 4 → 中', wmo.uv(4).level === 'moderate');
   check('UV 7 → 高', wmo.uv(7).level === 'high');
   check('UV 9 → 很高', wmo.uv(9).level === 'very-high');
   check('UV 11 → 极高', wmo.uv(11).level === 'extreme');
-  check('风向 0° → 北风', wmo.windDir16(0).zh === '北风');
-  check('风向 90° → 东风', wmo.windDir16(90).zh === '东风');
-  check('风向 180° → 南风', wmo.windDir16(180).zh === '南风');
-  check('风向 270° → 西风', wmo.windDir16(270).zh === '西风');
-  check('风向 337° → 西北偏北风', wmo.windDir16(337.5).zh === '西北偏北风');
-  check('风向 360° 归一为 0°', wmo.windDir16(360).zh === '北风');
-  check('蒲福 0.1 m/s → 0 级', wmo.beaufort(0.1).level === 0 && wmo.beaufort(0.1).zh === '无风');
-  check('蒲福 5 m/s → 3 级微风', wmo.beaufort(5).level === 3 && wmo.beaufort(5).zh === '微风');
-  check('蒲福 20 m/s → 8 级大风', wmo.beaufort(20).level === 8 && wmo.beaufort(20).zh === '大风');
+  check('风向 0° → 北风', windText(0) === '北风');
+  check('风向 90° → 东风', windText(90) === '东风');
+  check('风向 180° → 南风', windText(180) === '南风');
+  check('风向 270° → 西风', windText(270) === '西风');
+  check('风向 337° → 西北偏北风', windText(337.5) === '西北偏北风');
+  check('风向 360° 归一为 0°', windText(360) === '北风');
+  check('蒲福 0.1 m/s → 0 级', wmo.beaufort(0.1).level === 0 && t(wmo.beaufort(0.1).key) === '无风');
+  check('蒲福 5 m/s → 3 级微风', wmo.beaufort(5).level === 3 && t(wmo.beaufort(5).key) === '微风');
+  check('蒲福 20 m/s → 8 级大风', wmo.beaufort(20).level === 8 && t(wmo.beaufort(20).key) === '大风');
 
   /* ---------- 11. NOAA 日出日落 ---------- */
   section('11. NOAA 日出日落（离线纯函数）');
   const bj = sun.sunriseSunset({ lat: 39.9087, lon: 116.3975, dateUTC: Date.UTC(2025, 2, 20) });
   check('北京春分：有日出日落', bj.sunriseAt !== null && bj.sunsetAt !== null && bj.polar === 'none');
-  check('北京春分：昼长 ≈ 12 小时', Math.abs(bj.dayLengthMs - 12 * 3600000) < 25 * 60000, fmt.duration(bj.dayLengthMs));
+  check('北京春分：昼长 ≈ 12 小时', Math.abs(bj.dayLengthMs - 12 * 3600000) < 25 * 60000, tr(fmt.duration(bj.dayLengthMs)));
   check('北京春分：正午在日出日落之间', bj.solarNoonAt > Math.min(bj.sunriseAt, bj.sunsetAt));
   check('白昼判定', sun.isDaylight(bj.sunriseAt + 3600000, { lat: 39.9087, lon: 116.3975 }) === true);
   check('夜间判定', sun.isDaylight(bj.sunriseAt - 5 * 3600000, { lat: 39.9087, lon: 116.3975 }) === false);
@@ -506,12 +508,12 @@ async function main() {
   check('t() 缺失键返回 key 本身', t('no.such.key') === 'no.such.key');
   check('坐标格式（4 位小数 + 半球）', fmt.coord(39.9087, 116.3975) === '39.9087°N, 116.3975°E', fmt.coord(39.9087, 116.3975));
   check('南纬西经格式', fmt.coord(-33.86, -70.5) === '33.8600°S, 70.5000°W', fmt.coord(-33.86, -70.5));
-  check('相对时间：3 分钟前', fmt.relativeTime(Date.now() - 3 * 60000, Date.now()) === '3 分钟前');
-  check('相对时间：刚刚', fmt.relativeTime(Date.now() - 1000, Date.now()) === '刚刚');
+  check('相对时间：3 分钟前', tr(fmt.relativeTime(Date.now() - 3 * 60000, Date.now())) === '3 分钟前');
+  check('相对时间：刚刚', tr(fmt.relativeTime(Date.now() - 1000, Date.now())) === '刚刚');
   check('字节格式', fmt.bytes(2048) === '2.0 KB' && fmt.bytes(512) === '512 B', fmt.bytes(2048));
   check('能见度 km 换算', fmt.visibility(1500) === '1.5 km' && fmt.visibility(800) === '800 m');
   check('时延格式', fmt.latency(123.6) === '124 ms', fmt.latency(123.6));
-  check('昼长格式', fmt.duration(10 * 3600000 + 32 * 60000) === '10 小时 32 分', fmt.duration(10 * 3600000 + 32 * 60000));
+  check('昼长格式', tr(fmt.duration(10 * 3600000 + 32 * 60000)) === '10 小时 32 分', tr(fmt.duration(10 * 3600000 + 32 * 60000)));
   check('导出时间戳 YYYYMMDD-HHmm', /^\d{8}-\d{4}$/.test(fmt.stamp(Date.now())), fmt.stamp(Date.now()));
   check('缺失值占位符', fmt.tempC(null) === '—' && fmt.num(undefined) === '—');
   check('round4 归一', geo.round4(39.908749) === 39.9087 && geo.round4('116.39749') === 116.3975);
@@ -557,11 +559,11 @@ async function main() {
   check('瓦片探测成功 → 复位无地图模式', okProbe.ok === true && isNoMapMode() === false);
 
   // 必修 3：天气码缺失不得显示「晴」
-  check('wmo(null) → 未知天气', wmo.wmo(null).zh === '未知天气');
-  check("wmo('') → 未知天气", wmo.wmo('').zh === '未知天气');
-  check('wmo(undefined) → 未知天气且 code=-1', wmo.wmo(undefined).zh === '未知天气' && wmo.wmo(undefined).code === -1);
-  check('wmo([]) → 未知天气（Number([])===0 陷阱）', wmo.wmo([]).zh === '未知天气');
-  check('wmo(0) 仍为晴（正常码不受影响）', wmo.wmo(0).zh === '晴');
+  check('wmo(null) → 未知天气', t(wmo.wmo(null).key) === '未知天气');
+  check("wmo('') → 未知天气", t(wmo.wmo('').key) === '未知天气');
+  check('wmo(undefined) → 未知天气且 code=-1', t(wmo.wmo(undefined).key) === '未知天气' && wmo.wmo(undefined).code === -1);
+  check('wmo([]) → 未知天气（Number([])===0 陷阱）', t(wmo.wmo([]).key) === '未知天气');
+  check('wmo(0) 仍为晴（正常码不受影响）', t(wmo.wmo(0).key) === '晴');
   check('aqi 负值：level 兜底 good，displayValue 钳制为 0', wmo.aqi(-10).level === 'good' && wmo.aqi(-10).displayValue === 0);
   check('uv 负值：level 兜底 low，displayValue 钳制为 0', wmo.uv(-3).level === 'low' && wmo.uv(-3).displayValue === 0);
 

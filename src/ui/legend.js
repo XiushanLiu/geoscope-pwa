@@ -23,7 +23,7 @@
  *   必须活过重建 —— 否则用户刚点开、一阵网络回调回来就又被收起来了。
  */
 
-import { t } from '../i18n/zh.js';
+import { t } from '../i18n/index.js';
 import { beaufortScale, aqiScale, uvScale, windRose16 } from '../core/wmo.js';
 
 /** 槽位 id（与 now.js 的 _slot() 同口径：DOM id 为 `card-` + 此值）。 */
@@ -111,10 +111,12 @@ function _num(v) {
 function _beaufortRows() {
   const scale = beaufortScale();
   return scale.map((r, i) => {
+    // core 给的是键（'bf.4'），这里才翻成「和风」/ "Moderate breeze"
+    const name = t(r.key);
     if (i === scale.length - 1) {
-      return t('legend.beaufort.rowLast', { level: r.level, zh: r.zh, min: _num(scale[i - 1].maxMs) });
+      return t('legend.beaufort.rowLast', { level: r.level, name, min: _num(scale[i - 1].maxMs) });
     }
-    return t('legend.beaufort.row', { level: r.level, zh: r.zh, max: _num(r.maxMs) });
+    return t('legend.beaufort.row', { level: r.level, name, max: _num(r.maxMs) });
   });
 }
 
@@ -129,10 +131,12 @@ function _aqiRows() {
   const scale = aqiScale();
   return scale.map((r, i) => {
     const min = i === 0 ? 0 : scale[i - 1].max + 1;
+    const name = t(r.levelKey);
+    const advice = t(r.adviceKey);
     if (i === scale.length - 1) {
-      return t('legend.aqi.rowLast', { min, zh: r.zh, advice: r.advice });
+      return t('legend.aqi.rowLast', { min, name, advice });
     }
-    return t('legend.aqi.row', { min, max: r.max, zh: r.zh, advice: r.advice });
+    return t('legend.aqi.row', { min, max: r.max, name, advice });
   });
 }
 
@@ -145,10 +149,12 @@ function _uvRows() {
   const scale = uvScale();
   return scale.map((r, i) => {
     const min = i === 0 ? 0 : scale[i - 1].max + 1;
+    const name = t(r.levelKey);
+    const advice = t(r.adviceKey);
     if (i === scale.length - 1) {
-      return t('legend.uv.rowLast', { min, zh: r.zh, advice: r.advice });
+      return t('legend.uv.rowLast', { min, name, advice });
     }
-    return t('legend.uv.row', { min, max: r.max, zh: r.zh, advice: r.advice });
+    return t('legend.uv.row', { min, max: r.max, name, advice });
   });
 }
 
@@ -159,7 +165,9 @@ function _uvRows() {
  * @returns {string[]} 16 个方位名。
  */
 function _windDirRows() {
-  return windRose16().map((zh) => t('legend.winddir.row', { zh }));
+  // windRose16() 给的是 16 个方位**键**；「风」这个字由 w.windFrom 补上
+  // （中文后缀 / 英文介词，语序不同，不能拼片段）。
+  return windRose16().map((key) => t('legend.winddir.row', { dir: t('w.windFrom', { dir: t(key) }) }));
 }
 
 /**

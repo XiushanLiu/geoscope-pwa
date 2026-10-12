@@ -10,6 +10,7 @@
  */
 
 import { get, set, makeKey } from './cache.js';
+import { DEFAULT_PLACE_NAME } from './geo.js';
 
 /** 持久化键（store 视作一个伪 sourceId）。 */
 const KEY_PREFS = makeKey('store', 'prefs');
@@ -24,7 +25,7 @@ const THEME_SYSTEM = 'system';
 /** 默认状态。 */
 const DEFAULT_STATE = {
   /** @type {{lat:number, lon:number, name:string}} 定位失败时的默认地点（北京天安门）。 */
-  defaultPlace: { lat: 39.9087, lon: 116.3975, name: '北京 · 天安门' },
+  defaultPlace: { lat: 39.9087, lon: 116.3975, name: DEFAULT_PLACE_NAME },
   /** @type {'metric'|'imperial'} 单位制（阶段一只有 metric 生效）。 */
   unitSystem: 'metric',
   /**
@@ -48,6 +49,18 @@ const DEFAULT_STATE = {
    * 用户数据 —— 从一台开了特大的旧手机导入备份，不该把新手机的字号也顶到特大。
    */
   fontScale: 'normal',
+  /**
+   * @type {'zh'|'en'} 界面语言。
+   *
+   * 默认 'zh'（中文界面为主，用户拍板）。与 themeMode / fontScale **同形状、同处理**：
+   * 白名单钳位、读侧也钳、且**不进备份**（见 core/backup.js 的 exportBackup：prefs 只有
+   * 5 个字段）—— 语言是这台机器前一个人的属性，不是可搬家的用户数据。
+   *
+   * ★store 只存 **'zh' / 'en' 这两个标记**，一个中文串都不存：翻译表住在
+   * src/i18n/，core 不许读它（core ← data ← ui ← html 单向依赖）。把「当前界面说哪国话」
+   * 落到 i18n 的是 ui/locale.js 的 applyLocale()。
+   */
+  locale: 'zh',
   /** @type {'wifi'|'cellular'|'unknown'} 网络类型（手动点选，默认未知）。 */
   networkType: 'unknown',
   /** @type {boolean} 调试开关。 */
@@ -162,6 +175,9 @@ export function replaceState(next) {
     themeMode: src.themeMode === 'light' || src.themeMode === 'dark' ? src.themeMode : _state.themeMode,
     // fontScale 与 themeMode 同理（同为本机属性、不进备份）：src 没带就保持当前值。
     fontScale: src.fontScale === 'large' || src.fontScale === 'xlarge' ? src.fontScale : _state.fontScale,
+    // locale 与上面两个同理（本机属性、不进备份）：src 没带就保持当前值 ——
+    // 从一台用英文界面的旧手机导入备份，不该把新手机的界面也顶成英文。
+    locale: src.locale === 'en' ? 'en' : _state.locale,
     favorites: (Array.isArray(src.favorites) ? src.favorites : [])
       .filter((f) => f && typeof f === 'object' && typeof f.lat === 'number' && Number.isFinite(f.lat) && typeof f.lon === 'number' && Number.isFinite(f.lon))
       .map((f) => ({ lat: f.lat, lon: f.lon, name: String(f.name === null || f.name === undefined ? '' : f.name) })),
@@ -263,6 +279,38 @@ export function getFontScale() {
   _load();
   const v = _state.fontScale;
   return v === 'large' || v === 'xlarge' ? v : 'normal';
+}
+
+/**
+ * 设置界面语言。
+ *
+ * 白名单钳位：只认 'en'，其它任何值（含 undefined / 拼错的字符串）一律回落 'zh'
+ * —— 与 setThemeMode() / setFontScale() 同构，三者都是「写一个全站属性 + 白名单钳位」。
+ *
+ * ★本函数只落**标记**，不碰文案：真正切语言的是 ui/locale.js 的 applyLocale()
+ * （它会拿这里的值去调 i18n 的 setLocale）。这样 store（core 层）不需要知道
+ * src/i18n/ 的存在，i18n 也不需要 import store，两边都不破坏单向依赖。
+ *
+ * @param {'zh'|'en'} locale 语言标记。
+ * @returns {void}
+ */
+export function setLocale(locale) {
+  _load();
+  _state.locale = locale === 'en' ? 'en' : 'zh';
+  _persist();
+}
+
+/**
+ * @returns {'zh'|'en'} 当前界面语言标记。
+ *
+ * 读侧同样钳位（不直接返回 _state.locale）：内存态可能来自一份被外力改坏的缓存，
+ * 一旦出去一个 'jp' 这样的值，i18n 会整站返回原始 key（界面变成一串键名）。
+ * 与 getFontScale() 同一条理由，在这里收口，全站只会看到两档之一。
+ */
+export function getLocale() {
+  _load();
+  const v = _state.locale;
+  return v === 'en' ? 'en' : 'zh';
 }
 
 /**

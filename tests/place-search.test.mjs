@@ -38,7 +38,7 @@ const dom = createFakeDom([{ id: 'app' }, { id: 'banner' }]);
 // request('geocode', …) 只会拿到 UNSUPPORTED。
 await import('../src/data/sources.js');
 const ps = await import('../src/ui/placesearch.js');
-const zh = await import('../src/i18n/zh.js');
+const zh = await import('../src/i18n/index.js');
 const now = await import('../src/ui/now.js');
 const app = await import('../src/ui/app.js');
 

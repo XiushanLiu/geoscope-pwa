@@ -527,7 +527,13 @@ async function main() {
   let namedBad = 0;
   for (const rel of srcFiles) {
     const src = read(rel);
-    const re = /import\s+([^;'"]*?)\s+from\s+['"](\.[^'"]+)['"]/g;
+    // ★`^\s*import`（带 m 标志）：`import` 必须出现在**行首**（前面只有空白）。
+    //   不加这个锚点时会误命中**注释里的 "import" 这个词** —— 例如某文件的 JSDoc 写着
+    //   「core 不许 import i18n」，而同一段注释下方没有分号与引号，正则就会从那个词
+    //   一路吃到真正的 import 语句，把注释里的 `tr({ key: … })` 当成命名导入去校验，
+    //   报出「导入了不存在的符号」这种纯属误报的红。锚到行首后，JSDoc 行以 ` * ` 开头，
+    //   天然不匹配。多行 import 仍然照常命中（`[^;'"]*?` 允许跨行）。
+    const re = /^\s*import\s+([^;'"]*?)\s+from\s+['"](\.[^'"]+)['"]/gm;
     let m;
     while ((m = re.exec(src)) !== null) {
       const named = m[1].match(/\{([^}]*)\}/);
@@ -629,20 +635,31 @@ async function main() {
   check('core 层不 import data 层', !/from\s+['"]\.\.\/data\//.test(httpSrc) && !/from\s+['"]\.\.\/data\//.test(cacheSrc));
   check('data 层不 import ui 层', !srcFiles.some((f) => f.startsWith('src/data/') && /from\s+['"]\.\.\/ui\//.test(read(f))));
   const nowSrc = read('src/ui/now.js');
-  check('UI 文案走 t()（now.js 无硬编码中文键名遗漏抽查）', nowSrc.includes("from '../i18n/zh.js'"));
+  // ★路径是 i18n **入口**（src/i18n/index.js），不是 zh 文案表：t() 已经从 zh.js 里
+  // 搬走了（那里现在只有一张静态表）。指回 zh.js 等于默认「界面永远说中文」。
+  check('UI 文案走 t()（now.js 无硬编码中文键名遗漏抽查）', nowSrc.includes("from '../i18n/index.js'"));
   const zh = read('src/i18n/zh.js');
   check('i18n 无 md5 字样', !/md5/i.test(zh));
   const tiles = read('src/data/tiles.js');
   check('瓦片指纹用 SHA-256（无 md5）', /SHA-256/.test(tiles) && !/md5/i.test(tiles));
 
   /* ---------- 9. i18n 键完整性 ---------- */
-  section('9. i18n 键完整性（data-i18n 占位 + t() 调用）');
+  // ★两张表一起校验。原来只对着 zh 表查一遍，那是单语言时代留下的假设 ——
+  //   现在界面有中英两档，一个 key 在中文表里存在、在英文表里没有，界面就会直接
+  //   显示 'wmo.61' 这种原始键名（t() 缺键返回 key 本身）。所以 data-i18n 与 t()
+  //   的每一处引用都必须**两张表都命中**。
+  section('9. i18n 键完整性（data-i18n 占位 + t() 调用 · 中英两张表）');
   const zhSrc = read('src/i18n/zh.js');
+  const enSrc = read('src/i18n/en.js');
   const i18nKeys = new Set();
+  const enKeys = new Set();
   const keyRe = /^\s*'([a-zA-Z0-9._-]+)':/gm;
   let km;
   while ((km = keyRe.exec(zhSrc)) !== null) i18nKeys.add(km[1]);
-  check('i18n 表非空', i18nKeys.size > 50, String(i18nKeys.size));
+  const keyReEn = /^\s*'([a-zA-Z0-9._-]+)':/gm;
+  while ((km = keyReEn.exec(enSrc)) !== null) enKeys.add(km[1]);
+  check('中文表非空', i18nKeys.size > 50, String(i18nKeys.size));
+  check('英文表非空', enKeys.size > 50, String(enKeys.size));
   for (const html of htmlFiles) {
     const src = read(html);
     const re = /data-i18n="([^"]+)"/g;
@@ -650,9 +667,21 @@ async function main() {
     let n = 0;
     while ((m = re.exec(src)) !== null) {
       n += 1;
-      check(`${html} data-i18n="${m[1]}" 存在于文案表`, i18nKeys.has(m[1]), m[1]);
+      check(`${html} data-i18n="${m[1]}" 存在于中文表`, i18nKeys.has(m[1]), m[1]);
+      check(`${html} data-i18n="${m[1]}" 存在于英文表`, enKeys.has(m[1]), m[1]);
     }
     check(`${html} 的静态文案全部走 i18n（共 ${n} 处）`, n > 0);
+    // 没有子元素的那些位置（meta description / iOS 主屏名）与读屏标签，同样看得见。
+    // 它们不走 data-i18n，走 data-i18n-key / data-i18n-aria —— 漏了就会在英文界面上
+    // 留下一句中文，而第 9 节原来那只眼睛只看得到 data-i18n。
+    for (const attr of ['data-i18n-key', 'data-i18n-aria']) {
+      const re2 = new RegExp(`${attr}="([^"]+)"`, 'g');
+      let m2;
+      while ((m2 = re2.exec(src)) !== null) {
+        check(`${html} ${attr}="${m2[1]}" 存在于中文表`, i18nKeys.has(m2[1]), m2[1]);
+        check(`${html} ${attr}="${m2[1]}" 存在于英文表`, enKeys.has(m2[1]), m2[1]);
+      }
+    }
   }
   // t('literal') 字面量调用必须命中
   for (const rel of srcFiles) {
@@ -660,7 +689,22 @@ async function main() {
     const re = /\bt\(\s*'([a-zA-Z0-9._-]+)'/g;
     let m;
     while ((m = re.exec(src)) !== null) {
-      check(`${rel} → t('${m[1]}') 存在于文案表`, i18nKeys.has(m[1]), m[1]);
+      check(`${rel} → t('${m[1]}') 存在于中文表`, i18nKeys.has(m[1]), m[1]);
+      check(`${rel} → t('${m[1]}') 存在于英文表`, enKeys.has(m[1]), m[1]);
+    }
+  }
+  // ★「存键不存串」的字面量同样必须命中。
+  //   起因：data/sources.js 原先把 label 写成 `t('source.weather')`，被改成惰性 getter
+  //   （`labelKey: 'source.weather'`）之后，上面那只 t() 眼睛就看不见这六个键了 ——
+  //   护栏反而少查了 12 项。凡 `xxxKey: 'literal'` 形式的引用都是同一类：键最终要上屏，
+  //   漏了照样在英文界面上留中文。这里一并纳入。
+  for (const rel of srcFiles) {
+    const src = read(rel);
+    const re = /\b(?:labelKey|attributionKey|reasonKey|headerKey)\s*:\s*'([a-zA-Z0-9._-]+)'/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      check(`${rel} → ${m[0].split(':')[0].trim()}: '${m[1]}' 存在于中文表`, i18nKeys.has(m[1]), m[1]);
+      check(`${rel} → ${m[0].split(':')[0].trim()}: '${m[1]}' 存在于英文表`, enKeys.has(m[1]), m[1]);
     }
   }
 
@@ -1170,6 +1214,203 @@ async function main() {
     check(`${html} 含字号档位预置脚本（防跳档）`, src.indexOf('data-fs') !== -1, '缺了它，首帧会先按默认字号画一遍再跳档');
     check(`${html} 预置脚本读的键是 ${prefsKey}`, !!prefsKey && src.indexOf(prefsKey) !== -1, '键与 core/cache.js 不一致就会永远读不到偏好');
   }
+
+  /* ---------- 14. 中英文案表同构 ---------- */
+  /*
+   * 这一节是本次中英文改造的**主要价值**，也是唯一一道真的会红的守卫。
+   *
+   * 背景：t() 缺键时返回 key 本身（刻意如此 —— 界面上显示 `wmo.61` 比显示空白好排查）。
+   * 于是「英文表少翻了一个 key」这种错误**不会报错、不会抛异常**，只会让英文界面上
+   * 某一个位置突然冒出一串键名。第 9 节只查「代码引用 → 中文表」这一个方向，查不出
+   * 「中文表有、英文表没有」。这一节补的就是那个方向，而且是**双向**的。
+   *
+   * 三层校验，缺一不可：
+   *   ① 集合双向差集：中文有英文没有 / 英文有中文没有，都报红；
+   *   ② core 产出的**结构化 key**（wmo.* / bf.* / dir.* / level.* / fmt.*）—— 这一层最关键：
+   *      这些 key 是 core 层用变量拼出来的（wmo(code) 返回 'wmo.61'），静态正则**扫不到**，
+   *      只能真跑一遍 core 的函数、把它吐出来的每个 key 拿去两张表里查；
+   *   ③ 值本身：不许空串、不许只剩占位符没填。
+   */
+  section('14. 中英文案表同构（zh.js / en.js 双向对拍 · 漏翻即报红）');
+
+  const zhTableMod = await import(pathToFileURL(path.join(ROOT, 'src/i18n/zh.js')).href);
+  const enTableMod = await import(pathToFileURL(path.join(ROOT, 'src/i18n/en.js')).href);
+  const i18nMod = await import(pathToFileURL(path.join(ROOT, 'src/i18n/index.js')).href);
+  const ZH_TABLE = zhTableMod.ZH || {};
+  const EN_TABLE = enTableMod.EN || {};
+
+  const zhSet = new Set(Object.keys(ZH_TABLE));
+  const enSet = new Set(Object.keys(EN_TABLE));
+  const onlyZh = [...zhSet].filter((k) => !enSet.has(k)).sort();
+  const onlyEn = [...enSet].filter((k) => !zhSet.has(k)).sort();
+
+  check(
+    `英文表不缺 key（中文 ${zhSet.size} 条 / 英文 ${enSet.size} 条）`,
+    onlyZh.length === 0,
+    onlyZh.length ? `英文表缺 ${onlyZh.length} 个 key：${onlyZh.slice(0, 12).join(', ')}${onlyZh.length > 12 ? ' …' : ''}` : ''
+  );
+  check(
+    `英文表不多 key（多出来的在中文界面上永远用不到，是死文案）`,
+    onlyEn.length === 0,
+    onlyEn.length ? `英文表多 ${onlyEn.length} 个 key：${onlyEn.slice(0, 12).join(', ')}${onlyEn.length > 12 ? ' …' : ''}` : ''
+  );
+  check('两张表的 key 数完全相等', zhSet.size === enSet.size, `中文 ${zhSet.size} vs 英文 ${enSet.size}`);
+
+  // ② core 的结构化 key：真跑一遍 core，把它吐出来的 key 逐条拿去两张表查。
+  const wmoMod = await import(pathToFileURL(path.join(ROOT, 'src/core/wmo.js')).href);
+  const fmtMod = await import(pathToFileURL(path.join(ROOT, 'src/core/format.js')).href);
+
+  /** @type {string[]} core 通过变量产出的文案键（静态正则扫不到的那一批）。 */
+  const structuralKeys = [];
+  // WMO 全码表 0..99 + 未知兜底（wmo() 对非法入参走 -1 → wmo.unknown）
+  for (let c = 0; c <= 99; c += 1) {
+    const d = wmoMod.wmo(c, true);
+    structuralKeys.push(d.key, d.shortKey);
+  }
+  structuralKeys.push(wmoMod.wmo(null).key, wmoMod.wmo(null).shortKey);
+  // 蒲福 0–12 / AQI 六档 / UV 五档 / 风向 16 方位（含缩写）
+  for (const r of wmoMod.beaufortScale()) structuralKeys.push(r.key);
+  for (const r of wmoMod.aqiScale()) structuralKeys.push(r.levelKey, r.adviceKey);
+  for (const r of wmoMod.uvScale()) structuralKeys.push(r.levelKey, r.adviceKey);
+  for (const k of wmoMod.windRose16()) structuralKeys.push(k, `${k}.abbr`);
+  structuralKeys.push('w.windFrom');
+  // format.js 的三个结构化量：把每个时间单位都跑到一次
+  for (const ms of [0, 45 * 60000, 10 * 3600000 + 32 * 60000]) {
+    const d = fmtMod.duration(ms);
+    if (d && typeof d === 'object') structuralKeys.push(d.key);
+  }
+  for (const diff of [5000, 3 * 60000, 2 * 3600000, 3 * 86400000, 60 * 86400000]) {
+    const r = fmtMod.relativeTime(Date.now() - diff, Date.now());
+    if (r && typeof r === 'object') structuralKeys.push(r.key);
+  }
+  for (const ms of [1500, 0, 3 * 60000 + 2000, 2 * 3600000, 3 * 86400000]) {
+    const s = fmtMod.staleFor(ms);
+    if (s && typeof s === 'object') structuralKeys.push(s.key);
+  }
+  // i18n 自己的语言切换文案
+  structuralKeys.push('settings.lang.zh', 'settings.lang.en', 'settings.langDone', 'place.default');
+  // core/http.js 的八个错误码
+  for (const code of ['OFFLINE', 'TIMEOUT', 'HTTP', 'NETWORK', 'PARSE', 'ABORT', 'EMPTY', 'UNSUPPORTED']) {
+    structuralKeys.push(`error.${code}`);
+  }
+
+  const structuralSet = [...new Set(structuralKeys)].sort();
+  const structMissZh = structuralSet.filter((k) => !zhSet.has(k));
+  const structMissEn = structuralSet.filter((k) => !enSet.has(k));
+  check(
+    `core 产出的 ${structuralSet.length} 个结构化 key 全在中文表里`,
+    structMissZh.length === 0,
+    structMissZh.length ? `缺：${structMissZh.join(', ')}` : ''
+  );
+  check(
+    `core 产出的 ${structuralSet.length} 个结构化 key 全在英文表里`,
+    structMissEn.length === 0,
+    structMissEn.length ? `缺：${structMissEn.join(', ')}` : ''
+  );
+
+  // ③ 值本身：空串 / 只剩空白的文案等于没翻
+  const emptyZh = [...zhSet].filter((k) => String(ZH_TABLE[k]).trim() === '').sort();
+  const emptyEn = [...enSet].filter((k) => String(EN_TABLE[k]).trim() === '').sort();
+  check('中文表无空文案', emptyZh.length === 0, emptyZh.join(', '));
+  check('英文表无空文案', emptyEn.length === 0, emptyEn.join(', '));
+
+  // ④ 占位符必须对得上：两张表的同一条 key 必须用同一套占位符名。
+  //    少一个占位符，那一句就会在界面上留下一个裸的 '{ms}'。
+  const phRe = /\{(\w+)\}/g;
+  const phOf = (s) => {
+    const out = new Set();
+    let m;
+    while ((m = phRe.exec(String(s))) !== null) out.add(m[1]);
+    return [...out].sort();
+  };
+  const phMismatch = [];
+  const untranslated = [];
+  for (const k of zhSet) {
+    if (!enSet.has(k)) continue;
+    const a = phOf(ZH_TABLE[k]);
+    const b = phOf(EN_TABLE[k]);
+    if (a.join('|') !== b.join('|')) phMismatch.push(`${k}（中文 {${a.join(',')}} vs 英文 {${b.join(',')}}）`);
+    // 除了「各自语言名」那两条刻意不翻的，中英同值基本等于漏翻
+    if (k !== 'settings.lang.zh' && ZH_TABLE[k] === EN_TABLE[k] && /[一-龥]/.test(String(ZH_TABLE[k]))) {
+      untranslated.push(k);
+    }
+  }
+  check('两张表的占位符逐条对齐', phMismatch.length === 0, phMismatch.slice(0, 8).join('; '));
+  check(
+    '英文表没有「照抄中文」的漏翻项',
+    untranslated.length === 0,
+    untranslated.length ? `${untranslated.length} 条与中文同值：${untranslated.slice(0, 12).join(', ')}` : ''
+  );
+
+  // ⑤ 切到英文后，抽查几条真会被渲染的文案确实变成英文（守卫不是纸面的）
+  const savedLocale = i18nMod.getLocale();
+  i18nMod.setLocale('en');
+  const enNow = i18nMod.t('tab.now');
+  const enWmo61 = i18nMod.t('wmo.61');
+  const enDuration = i18nMod.tr(fmtMod.duration(10 * 3600000 + 32 * 60000));
+  const enStale = i18nMod.tr(fmtMod.staleFor(3 * 60000 + 2000));
+  const enWindFrom = i18nMod.t('w.windFrom', { dir: i18nMod.t('dir.15.abbr') });
+  i18nMod.setLocale(savedLocale);
+  check('切英文后 tab.now 是英文', /^[A-Za-z]/.test(enNow) && enNow !== ZH_TABLE['tab.now'], enNow);
+  check('切英文后 wmo.61 是英文', /^[A-Za-z]/.test(enWmo61) && enWmo61 !== ZH_TABLE['wmo.61'], enWmo61);
+  check('切英文后昼长是英文语序', /^\d+h \d+m$/.test(enDuration), enDuration);
+  check('切英文后陈旧时长是英文', /^\d+ min$/.test(enStale), enStale);
+  check('切英文后风向是英文语序', /^wind from NNW$/.test(enWindFrom), enWindFrom);
+
+  // ⑥ ★「模块求值期把 t() 写死」这一类 bug 的专项护栏
+  /*
+   * 这是本次改造里**真实踩到过**的坑，不是假想敌：
+   * data/sources.js 的 SOURCES 是模块级常量，原先写成 `label: t('source.weather')` ——
+   * ES Module 的 import 先于调用方 body 求值，入口模块顶层的 applyLocale(getLocale())
+   * 无论如何都跑在 sources.js 求值**之后**。于是即便 store 里存的是英文，
+   * 六路源名与署名永远是中文，且切语言后重渲染也救不回来（值已经冻结在对象里）。
+   *
+   * 这类 bug 正则扫不出来（源码里明明写着 `t()`，看着很正确），只有**真的切一次语言
+   * 再去读**才现形。故这里：切到英文 → 逐个读 SOURCE_LIST 的 label / attribution
+   * → 断言不含任何汉字。谁哪天把 getter 改回写死的字面量，这一项立刻变红。
+   */
+  const HAN_RE = /[㐀-䶿一-鿿]/;
+  const srcMod = await import('../src/data/sources.js');
+  const frozenZh = [];
+  i18nMod.setLocale('en');
+  for (const spec of srcMod.SOURCE_LIST) {
+    if (HAN_RE.test(String(spec.label))) frozenZh.push(`label:${spec.id}=${spec.label}`);
+    if (HAN_RE.test(String(spec.attribution))) frozenZh.push(`attribution:${spec.id}=${spec.attribution}`);
+  }
+  i18nMod.setLocale(savedLocale);
+  check(
+    '切英文后六路源名与署名不含汉字（求值期写死 t() 即报红）',
+    frozenZh.length === 0,
+    frozenZh.length ? frozenZh.join(' | ') : `${srcMod.SOURCE_LIST.length} 路全部跟随英文`
+  );
+
+  /* ---------- 15. 语言引导 ---------- */
+  /*
+   * 与第 11 节（主题）／第 13 节（字号）同一条道理：语言是**全站属性**，而本仓库是
+   * 零构建原生 PWA —— 五个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap。
+   * 只要有一个入口漏掉那一行，用户从设置页切到英文再进那一页，就会看到半中半英。
+   */
+  section(`15. 语言引导（${PAGES.length + 1} 个手写页面的入口必须在模块顶层切 i18n）`);
+  for (const html of [...PAGES, 'compare.html']) {
+    const entry = ENTRY_OF_PAGE[html];
+    const entrySrc = read(entry);
+    check(`${html} 入口 ${entry} 引用语言引导 applyLocale`, entrySrc.indexOf('applyLocale') !== -1, '漏了它，这一页永远说中文');
+    check(
+      `${html} 入口 ${entry} 顶层调用 applyLocale(getLocale())`,
+      /^applyLocale\(\s*getLocale\(\)\s*\);/m.test(entrySrc),
+      '必须写在模块顶层（行首无缩进），不能只 import 不调用、也不能挪进 boot()/init()'
+    );
+    check(
+      `${html} 入口 ${entry} 从 store 取语言偏好`,
+      /getLocale/.test(entrySrc),
+      '语言偏好存在 core/store.js，入口必须读它而不是写死一个 locale'
+    );
+  }
+  // 切换器本身：设置页必须真的把「语言」这张卡画出来
+  const settingsSrc = read('src/ui/settings.js');
+  check('设置页有语言切换卡', settingsSrc.includes('_renderLocaleCard'), '没有入口，用户就切不了语言');
+  check('设置页语言切换走 switchLocale（写盘 + 立即生效）', settingsSrc.includes('switchLocale'), '只切 i18n 不写盘，下次打开又变回中文');
+  check('语言选项枚举 LOCALES 与 i18n 的 LOCALES 同源', /export const LOCALES = \['zh', 'en'\]/.test(settingsSrc), '两处枚举漂移会出现「界面有按钮、切过去没表」');
 
   /* ---------- 汇总 ---------- */
   const total = PASS + FAIL;

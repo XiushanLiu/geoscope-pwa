@@ -10,6 +10,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const wmo = await import('../src/core/wmo.js');
+// core/wmo.js 现在只产出**文案键**（core 不许 import i18n），翻成人话由这里做。
+const i18nMod = await import('../src/i18n/index.js');
+const { t } = i18nMod;
+const { ZH } = await import('../src/i18n/zh.js');
+const { EN } = await import('../src/i18n/en.js');
 
 test('WMO 全表可见与 extremeauit 口径一致：所有受支持码都能给出中文、短描述与图标', () => {
   const expected = {
@@ -24,16 +29,17 @@ test('WMO 全表可见与 extremeauit 口径一致：所有受支持码都能给
   const codes = Object.keys(expected).map(Number);
   for (const c of codes) {
     const r = wmo.wmo(c);
-    assert.equal(r.zh, expected[c], `WMO ${c} 文案不符`);
+    assert.equal(t(r.key), expected[c], `WMO ${c} 文案不符`);
     assert.equal(r.code, c);
-    assert.ok(typeof r.short === 'string' && r.short.length > 0, `WMO ${c} 必须有短描述`);
+    assert.ok(typeof r.shortKey === 'string' && r.shortKey.length > 0, `WMO ${c} 必须有短描述键`);
+    assert.ok(t(r.shortKey).length > 0, `WMO ${c} 的短描述键必须能翻出非空文案`);
     assert.ok(typeof r.icon === 'string' && r.icon.length > 0, `WMO ${c} 必须有图标字符`);
     assert.equal(r.day, true, 'isDay 默认 true');
   }
   // 关键的雾 / 雪 / 雷暴三类必须不为「未知」
   for (const c of [45, 48, 71, 73, 75, 77, 95, 96, 99]) {
-    assert.notEqual(wmo.wmo(c).short, '未知', `WMO ${c} 不得落到未知兜底`);
-    assert.notEqual(wmo.wmo(c).zh, '未知天气', `WMO ${c} 不得落到未知兜底`);
+    assert.notEqual(t(wmo.wmo(c).shortKey), '未知', `WMO ${c} 不得落到未知兜底`);
+    assert.notEqual(t(wmo.wmo(c).key), '未知天气', `WMO ${c} 不得落到未知兜底`);
   }
   assert.ok(wmo.wmo(45).icon.includes('🌫'), '雾必须用雾图标');
   assert.ok(wmo.wmo(96).icon.includes('⛈'), '雷暴冰雹必须用雷暴图标');
@@ -41,25 +47,25 @@ test('WMO 全表可见与 extremeauit 口径一致：所有受支持码都能给
 
 test('WMO 昼夜参数与未知码兜底；非数值入参不抛异常', () => {
   assert.equal(wmo.wmo(0, false).day, false, 'isDay=false 必须透传');
-  assert.equal(wmo.wmo(0, false).zh, '晴');
+  assert.equal(t(wmo.wmo(0, false).key), '晴');
 
   const unknown = wmo.wmo(999);
-  assert.equal(unknown.zh, '未知天气');
-  assert.equal(unknown.short, '未知');
+  assert.equal(t(unknown.key), '未知天气');
+  assert.equal(t(unknown.shortKey), '未知');
   assert.equal(unknown.icon, '·');
 
   for (const bad of [undefined, NaN, 'abc', {}, []]) {
     const r = wmo.wmo(bad);
-    assert.equal(r.zh, '未知天气', `异常入参 ${String(bad)} 必须落到未知兜底`);
+    assert.equal(t(r.key), '未知天气', `异常入参 ${String(bad)} 必须落到未知兜底`);
     assert.equal(r.code, -1, '非数值码归一为 -1');
   }
   // 【缺陷固化为断言】null / 空串代表「天气码缺失」，必须显示未知，绝不能被 Number() 转成 0 后显示成「晴」
   for (const missing of [null, '']) {
     const r = wmo.wmo(missing);
-    assert.equal(r.zh, '未知天气', `天气码缺失(${String(missing)}) 必须显示「未知天气」，实际显示「${r.zh}」`);
+    assert.equal(t(r.key), '未知天气', `天气码缺失(${String(missing)}) 必须显示「未知天气」，实际显示「${t(r.key)}」`);
   }
   // 负数码不崩
-  assert.equal(wmo.wmo(-5).zh, '未知天气');
+  assert.equal(t(wmo.wmo(-5).key), '未知天气');
 });
 
 test('欧洲 AQI 六档全部边界值（含负数与非数值兜底为 0/优）', () => {
@@ -74,9 +80,10 @@ test('欧洲 AQI 六档全部边界值（含负数与非数值兜底为 0/优）
   for (const [v, level, zh] of cases) {
     const r = wmo.aqi(v);
     assert.equal(r.level, level, `AQI ${v} 应为 ${level}`);
-    assert.equal(r.zh, zh, `AQI ${v} 中文应为 ${zh}`);
-    assert.ok(r.advice && typeof r.advice === 'string' && r.advice.length > 0, `AQI ${v} 必须有非空建议文案`);
-    assert.ok(!r.advice.includes('{'), '建议文案不得残留占位符');
+    assert.equal(t(r.levelKey), zh, `AQI ${v} 中文应为 ${zh}`);
+    const advice = t(r.adviceKey);
+    assert.ok(advice && typeof advice === 'string' && advice.length > 0, `AQI ${v} 必须有非空建议文案`);
+    assert.ok(!advice.includes('{'), '建议文案不得残留占位符');
   }
   // 越界/异常入参：不得抛，且要有合法档位
   for (const bad of [undefined, null, 'x', NaN, {}]) {
@@ -102,8 +109,8 @@ test('UV 五档全部边界值', () => {
   for (const [v, level, zh] of cases) {
     const r = wmo.uv(v);
     assert.equal(r.level, level, `UV ${v} 应为 ${level}`);
-    assert.equal(r.zh, zh);
-    assert.ok(r.advice.length > 0);
+    assert.equal(t(r.levelKey), zh);
+    assert.ok(t(r.adviceKey).length > 0);
   }
   for (const bad of [-3, undefined, null, 'y', NaN]) {
     assert.equal(wmo.uv(bad).level, 'low', `UV 异常入参 ${String(bad)} 兜底为 low`);
@@ -121,7 +128,7 @@ test('16 方位：0°/90°/180°/270°/359°/360°/-1° 与刚好跨档的两点
     [349, '北风'], [359, '北风'], [360, '北风'], [-1, '北风'], [720, '北风'],
   ];
   for (const [deg, zh] of cases) {
-    assert.equal(wmo.windDir16(deg).zh, zh, `风向 ${deg}° 应为 ${zh}`);
+    assert.equal(t('w.windFrom', { dir: t(wmo.windDir16(deg).abbrKey) }), zh, `风向 ${deg}° 应为 ${zh}`);
   }
   // 归一化后的 deg 必须在 [0,360)
   for (const deg of [-30, -400, 1000, 359.9]) {
@@ -129,7 +136,7 @@ test('16 方位：0°/90°/180°/270°/359°/360°/-1° 与刚好跨档的两点
     assert.ok(d >= 0 && d < 360, `归一化后必须在 [0,360)，实际 ${d}`);
   }
   // 非数值不崩
-  assert.equal(wmo.windDir16('abc').zh, '北风');
+  assert.equal(t('w.windFrom', { dir: t(wmo.windDir16('abc').abbrKey) }), '北风');
   assert.equal(wmo.windDir16(undefined).deg, 0);
 });
 
@@ -146,12 +153,46 @@ test('蒲福风级 0–12 级全部边界值', () => {
   for (const [ms, level, zh] of cases) {
     const r = wmo.beaufort(ms);
     assert.equal(r.level, level, `${ms} m/s 应为 ${level} 级`);
-    assert.equal(r.zh, zh, `${ms} m/s 应为 ${zh}`);
+    assert.equal(t(r.key), zh, `${ms} m/s 应为 ${zh}`);
   }
   // 异常入参兜底为 0 级，不抛
   for (const bad of [-5, undefined, null, 'x', NaN, {}]) {
     assert.equal(wmo.beaufort(bad).level, 0, `异常入参 ${String(bad)} 应兜底为 0 级`);
-    assert.equal(wmo.beaufort(bad).zh, '无风');
+    assert.equal(t(wmo.beaufort(bad).key), '无风');
   }
-  assert.equal(wmo.beaufort(0).zh, '无风');
+  assert.equal(t(wmo.beaufort(0).key), '无风');
+});
+
+test('★core 产出的每一个文案键，中英两张表都必须有（漏翻即失败）', () => {
+  const keys = [];
+  for (let c = 0; c <= 99; c += 1) {
+    const d = wmo.wmo(c);
+    keys.push(d.key, d.shortKey);
+  }
+  keys.push(wmo.wmo(null).key, wmo.wmo(null).shortKey);
+  for (const r of wmo.beaufortScale()) keys.push(r.key);
+  for (const r of wmo.aqiScale()) keys.push(r.levelKey, r.adviceKey);
+  for (const r of wmo.uvScale()) keys.push(r.levelKey, r.adviceKey);
+  for (const k of wmo.windRose16()) keys.push(k, `${k}.abbr`);
+  keys.push('w.windFrom');
+
+  const missZh = [...new Set(keys)].filter((k) => !Object.prototype.hasOwnProperty.call(ZH, k));
+  const missEn = [...new Set(keys)].filter((k) => !Object.prototype.hasOwnProperty.call(EN, k));
+  assert.deepEqual(missZh, [], `中文表缺：${missZh.join(', ')}`);
+  assert.deepEqual(missEn, [], `英文表缺：${missEn.join(', ')}`);
+});
+
+test('切到英文后，core 产的键确实翻成英文（不是照抄中文）', () => {
+  const saved = i18nMod.getLocale();
+  // t() 读的是模块级「当前 locale」，所以两句话必须在各自的 locale 下分别求值
+  i18nMod.setLocale('zh');
+  const zhForm = i18nMod.t('w.windFrom', { dir: i18nMod.t('dir.14.abbr') });
+  i18nMod.setLocale('en');
+  const enForm = i18nMod.t('w.windFrom', { dir: i18nMod.t('dir.14.abbr') });
+  const enForce = i18nMod.t('bf.5');
+  i18nMod.setLocale(saved);
+  // 风向这句是「语序不同」的典型：中文后缀「风」、英文介词 from
+  assert.equal(zhForm, '西北风');
+  assert.equal(enForm, 'wind from NW');
+  assert.equal(enForce, 'Fresh breeze');
 });

@@ -15,7 +15,6 @@
 
 import { getWithState, set } from './cache.js';
 import { log } from './store.js';
-import { t } from '../i18n/zh.js';
 
 /* ------------------------------------------------------------------ */
 /* 串行队列                                                             */
@@ -102,10 +101,18 @@ export function getSourceResolver() {
 /**
  * 构造统一 SourceError。
  *
+ * ★不给 `message`（人类语言），只给 `messageKey` + `messageParams`。
+ *   理由与 core/wmo.js、core/csv.js 完全相同：本模块在 core 层，不许 import i18n ——
+ *   「当前界面说哪国话」是上层状态，core 去读它就是分层倒置。错误文案一律由 UI 层
+ *   `tr({ key: err.messageKey, params: err.messageParams })` 翻出来。
+ *   刻意**不保留**一个已成文本的 `message` 字段：留着它等于留一条「不切语言也能显示」
+ *   的捷径，那条捷径会让英文包漏翻时静默显示中文。
+ *
  * @param {'OFFLINE'|'TIMEOUT'|'HTTP'|'NETWORK'|'PARSE'|'ABORT'|'EMPTY'|'UNSUPPORTED'} code 错误码。
  * @param {string} sourceId 源 id。
  * @param {{httpStatus?:number|null, params?:Object}} [extra] 附加信息。
- * @returns {{code:string, message:string, httpStatus:number|null, sourceId:string, retriable:boolean}} SourceError。
+ * @returns {{code:string, messageKey:string, messageParams:Object,
+ *            httpStatus:number|null, sourceId:string, retriable:boolean}} SourceError。
  */
 export function makeError(code, sourceId, extra = {}) {
   const httpStatus = extra.httpStatus === undefined ? null : extra.httpStatus;
@@ -118,7 +125,8 @@ export function makeError(code, sourceId, extra = {}) {
   }
   return {
     code,
-    message: t(`error.${code}`, { ms: params.timeoutMs, status: httpStatus }),
+    messageKey: `error.${code}`,
+    messageParams: { ms: params.timeoutMs, status: httpStatus },
     httpStatus,
     sourceId,
     retriable,
