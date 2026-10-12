@@ -15,7 +15,7 @@
  * 零第三方依赖：node:test + node:assert + tests/harness.mjs。
  */
 
-import { test, beforeEach } from 'node:test';
+import { test, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
@@ -489,6 +489,35 @@ test('★没有 requestAnimationFrame（Node 侧检查 / 老内核）退化为�
     );
     assert.equal(typeof renderer.onSensorChange, 'function', 'onSensorChange 必须暴露给调用方接线');
   } finally {
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
+
+test('★桌面内核（定义了事件但永不派发）：等满 SENSOR_WAIT_MS 后降级为「本机无方向传感器」', () => {
+  const { listeners } = installSensorWindow();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+    const renderer = compass.createCompassRenderer(dom.byId.app, snapshot);
+    compass.enableSensor(renderer.onSensorChange);
+    assert.ok(listeners.get('deviceorientation'), '监听应已挂上');
+
+    const slot = compassSlot();
+    slot.textContent = '';
+    assert.equal(compass.sensorState().state, 'waiting', '刚启用时是等待态');
+
+    // 一条事件都不派发 —— 桌面内核就是这个样子
+    mock.timers.tick(2500);
+
+    assert.equal(compass.sensorState().state, 'unsupported', '等满仍无数据必须判定为无传感器');
+    assert.ok(
+      slot.textContent.includes(t('compass.sensorUnsupported')),
+      `★超时后必须重画成降级文案（原 bug：这个 onChange 也是空的 → 一直停在「等待中」），实际：${String(slot.textContent).slice(0, 120)}`
+    );
+  } finally {
+    mock.timers.reset();
     compass.resetSensor();
     delete globalThis.window;
   }
