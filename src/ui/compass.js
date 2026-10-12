@@ -756,6 +756,77 @@ export function createSnapshot(coord, opts = {}) {
 }
 
 /**
+ * 造一组方位屏的重渲染回调。
+ *
+ * ★为什么必须有这个函数：`boot()` 曾经写成 `renderSnapshot(root, snapshot)` —— 不传第三个
+ * 参数，于是 `renderCompassCard` 里 `opts` 恒为 `{}`，`onChange` 退化成空函数。点「启用方向
+ * 传感器」时按钮处理器确实调了 `enableSensor(onChange)`（传感器真的挂上了、状态真的变成了
+ * waiting），紧跟着的 `onChange()` 却是空函数 → 零重渲染 → 用户看到的界面纹丝不动。
+ * 这个功能从进仓库起就没生效过，与机型无关，100% 复现。
+ *
+ * ★为什么抽出来而不是只在 boot() 里改：`boot()` 会 await 定位，整体驱动麻烦，而既有
+ * 8 个测试全都**自己传了回调**（`renderSnapshot(app, snapshot)` 或
+ * `enableSensor(() => renderSnapshot(...))`），覆盖的是「卡片怎么画」，不是「boot 怎么接线」
+ * —— 正是这个盲区让上面那个洞一直没被发现。抽成工厂后测试能直接实例化并驱动接线本身。
+ *
+ * 两个回调的分工（**不许互换**）：
+ *   - `rerender()`：整屏重渲染，只在「定位回来了 / 数据变了」这类低频时刻调；
+ *   - `onSensorChange()`：**只重画罗盘卡**，同一帧内的连续触发合并成一次。传感器一秒能来
+ *     50 次，这里绝不能接整屏重渲染（页头 + 四张卡全重建 = 每秒 50 次整页 DOM 重建）。
+ *
+ * @param {HTMLElement} root 根容器。
+ * @param {Object} snapshot 方位屏状态（就地修改，传引用是有意的）。
+ * @returns {{rerender:() => void, onSensorChange:() => void}} 整屏回调与传感器回调。
+ */
+export function createCompassRenderer(root, snapshot) {
+  /** 是否已排了一帧（合并开关）。 */
+  let framePending = false;
+
+  /** 只重画罗盘卡（廉价路径）。 */
+  const paintCard = () => {
+    // 卡要带着同一个回调重画：卡里的按钮是新建的 DOM，不传就又断线了
+    renderCompassCard(root, snapshot, { onChange: onSensorChange });
+  };
+
+  /** 排一帧；已经排过就直接返回 —— 这就是「同一帧内的连续触发合并成一次」。 */
+  const scheduleFrame = () => {
+    if (framePending) return;
+    framePending = true;
+    requestAnimationFrame(() => {
+      framePending = false;
+      paintCard();
+    });
+  };
+
+  /**
+   * 传感器重渲染回调：只重画罗盘卡 + 合并高频触发。
+   *
+   * @returns {void}
+   */
+  function onSensorChange() {
+    // Node 侧检查 / 部分测试环境没有 requestAnimationFrame —— 直接同步画。
+    // ★必须做存在性守卫：缺这个守卫在 Node 下不是「不画」，而是 ReferenceError 直接崩。
+    if (typeof requestAnimationFrame !== 'function') {
+      paintCard();
+      return;
+    }
+    scheduleFrame();
+  }
+
+  return {
+    /**
+     * 整屏重渲染（低频）。★必须带上 onSensorChange：整屏渲染里那张罗盘卡的按钮
+     * 是新建的 DOM，不传回调它就又是个死按钮。
+     *
+     * @returns {void}
+     */
+    rerender: () => renderSnapshot(root, snapshot, { onChange: onSensorChange }),
+    /** 传感器回调（高频：只重画罗盘卡 + 合并）。 */
+    onSensorChange,
+  };
+}
+
+/**
  * 方位屏启动流程。
  *
  * @returns {Promise<void>}
@@ -767,8 +838,10 @@ export async function boot() {
   applyI18n(document);
 
   const snapshot = createSnapshot(null);
-  const rerender = () => renderSnapshot(root, snapshot);
-  renderSnapshot(root, snapshot);
+  // ★走 createCompassRenderer，不许退化成 renderSnapshot(root, snapshot)：
+  //   后者会让罗盘卡的「启用方向传感器」按钮拿到空 onChange，点了零重渲染。
+  const { rerender } = createCompassRenderer(root, snapshot);
+  rerender();
 
   const coord = await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS });
 

@@ -304,3 +304,192 @@ test('模型卡显示版本 / 历元 / 有效期 / 来源，且不谎报精度',
   assert.ok(txt.includes(WMM_MODEL.source), '必须显示来源');
   assert.ok(!/误差|±/.test(txt), '界面上不得出现任何精度/误差字样');
 });
+
+/* ------------------------------------------------------------------ */
+/* ★传感器按钮接线（真机 bug：「点了没反应」）                            */
+/*                                                                      */
+/* 既有用例全都**自己传了回调**（直接 renderSnapshot(app, snapshot) 或   */
+/* enableSensor(() => renderSnapshot(...))），所以「卡片怎么画」是对的、   */
+/* 「boot 怎么接线」零覆盖 —— 按钮回调断成空函数这件事没人拦得住。        */
+/* 下面三条压的是接线本身 + 高频回调的性能约束。                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 造一个 window 替身：定义了 DeviceOrientationEvent 且**没有** requestPermission
+ * （安卓内核的形态），并把 deviceorientation 监听存进 listeners 供测试驱动。
+ *
+ * @returns {{listeners:Map<string, Function>}} 监听表。
+ */
+function installSensorWindow() {
+  const listeners = new Map();
+  globalThis.window = {
+    DeviceOrientationEvent: function DeviceOrientationEvent() {},
+    addEventListener: (type, fn) => listeners.set(String(type), fn),
+    removeEventListener: () => {},
+  };
+  return { listeners };
+}
+
+/**
+ * 装一个可控的 requestAnimationFrame 替身：帧回调先攒着，由测试手动 flush。
+ *
+ * 真机上帧由浏览器驱动；Node 侧没有这个 API，compass.js 必须能在没有它时同步重画
+ * （不能因为缺 API 就把重画吞掉）。
+ *
+ * @returns {{flush:(maxRounds?:number)=>number, pending:number}} 控制器。
+ */
+function installRaf() {
+  let queue = [];
+  globalThis.requestAnimationFrame = (fn) => {
+    queue.push(fn);
+    return queue.length;
+  };
+  return {
+    /** 跑掉当前排队的帧；帧回调里新排的帧留到下一轮（最多 maxRounds 轮）。 */
+    flush(maxRounds = 8) {
+      let rounds = 0;
+      while (queue.length > 0 && rounds < maxRounds) {
+        const batch = queue;
+        queue = [];
+        rounds += 1;
+        batch.forEach((fn) => fn());
+      }
+      return rounds;
+    },
+    get pending() {
+      return queue.length;
+    },
+  };
+}
+
+/** 罗盘卡所在槽位。 */
+const compassSlot = () => dom.byId.app.querySelector('#card-compass');
+
+/** 取槽位里所有 button 后代（假 DOM 的 querySelectorAll 只认 #id / .class）。 */
+const buttonsIn = (box) => box.descendants().filter((n) => n.tagName === 'BUTTON');
+
+test('★按钮接线：boot() 渲染出来的「启用方向传感器」点了必须真的变（不只是函数被调用）', async () => {
+  const { listeners } = installSensorWindow();
+  try {
+    assert.equal(compass.sensorSupport(), 'available', '这个 window 替身应被判为有传感器');
+    compass.resetSensor();
+
+    // 走真实入口：它渲染出来的卡片必须自带可用回调。
+    // ★这就是原 bug 的盲区 —— 自己调 renderSnapshot 传回调是测不出接线的。
+    await compass.boot();
+    const slot = compassSlot();
+    const before = slot.textContent;
+    assert.ok(before.includes(t('compass.sensorIdle')), `点之前应是未启用态，实际：${before.slice(0, 120)}`);
+
+    const btns = buttonsIn(slot);
+    assert.equal(btns.length, 1, '未启用态必须给出「启用方向传感器」按钮');
+
+    btns[0].click();
+
+    const after = slot.textContent;
+    assert.notEqual(
+      after,
+      before,
+      '★点了按钮罗盘卡内容必须真的变（原 bug：onChange 是空函数 → 零重渲染 → 界面纹丝不动）'
+    );
+    assert.ok(
+      after.includes(t('compass.sensorWaiting')),
+      `点完应立刻显示「正在等待方向数据」，实际：${after.slice(0, 120)}`
+    );
+    assert.equal(compass.sensorState().state, 'waiting', '点击后传感器应真的挂上并进入等待态');
+    assert.ok(listeners.get('deviceorientation'), '必须真的挂上 deviceorientation 监听');
+  } finally {
+    compass.resetSensor(); // 同时清掉 SENSOR_WAIT_MS 那个降级定时器，别拖着事件循环
+    delete globalThis.window;
+  }
+});
+
+test('★传感器回调只重画罗盘卡，且高频触发被合并（不许接整屏重渲染）', () => {
+  const { listeners } = installSensorWindow();
+  const raf = installRaf();
+  try {
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+    const renderer = compass.createCompassRenderer(dom.byId.app, snapshot);
+    compass.enableSensor(renderer.onSensorChange);
+    const handler = listeners.get('deviceorientation');
+    assert.ok(handler, '必须挂上 deviceorientation 监听');
+
+    const slot = compassSlot();
+    slot.textContent = '';
+    const declBefore = dom.byId.app.querySelector('#card-declination').children[0];
+
+    // 「重画了几次」在 DOM 上只能间接量：重画一次 = 重新 createElement 出一整张卡。
+    // 先自己量出「一次重画要造多少节点」当基线，不去写死任何数字。
+    const created = { n: 0 };
+    const realCreate = dom.document.createElement;
+    dom.document.createElement = (tag) => {
+      created.n += 1;
+      return realCreate(tag);
+    };
+    try {
+      handler({ webkitCompassHeading: 90 }); // → 状态变 on，请求一次重画
+      raf.flush();
+      const perPaint = created.n;
+      assert.ok(perPaint > 0, '这一帧必须真的重画了一次');
+      const cardAfterFirst = slot.children[0];
+
+      created.n = 0;
+      // 安卓 ~50Hz：连发 20 次（同一帧内）
+      for (let i = 0; i < 20; i += 1) handler({ webkitCompassHeading: 90 });
+      const pendingAfterBurst = raf.pending;
+      raf.flush();
+
+      // 先报「重画了几次」这条（信息量最大），再补一条「排出几帧」
+      const paints = Math.round(created.n / perPaint);
+      assert.ok(
+        paints <= 2,
+        `★20 次事件只该重画 1 次左右（基线 ${perPaint} 节点/次），` +
+          `实际约 ${paints} 次 / 造了 ${created.n} 个节点（合并没生效 = 手机上一秒重建几十次卡）`
+      );
+      assert.equal(pendingAfterBurst, 1, '★20 次事件只该排出 1 帧（合并生效：同一帧内只画一次）');
+      assert.equal(compass.sensorState().headingMagDeg, 90, '朝向应已写入');
+      assert.notEqual(slot.children[0], cardAfterFirst, '这一帧必须真的重画了');
+      assert.ok(
+        slot.textContent.includes(t('compass.headingMag', { deg: '90' })),
+        `合并后那一次重画必须真把朝向画出来，实际：${slot.textContent.slice(0, 120)}`
+      );
+      assert.equal(
+        dom.byId.app.querySelector('#card-declination').children[0],
+        declBefore,
+        '★传感器回调只准重画罗盘卡，磁偏角卡不许被重建（不许接整屏 renderSnapshot）'
+      );
+    } finally {
+      dom.document.createElement = realCreate;
+    }
+  } finally {
+    compass.resetSensor();
+    delete globalThis.requestAnimationFrame;
+    delete globalThis.window;
+  }
+});
+
+test('★没有 requestAnimationFrame（Node 侧检查 / 老内核）退化为同步重画，不静默丢弃', () => {
+  const { listeners } = installSensorWindow();
+  try {
+    assert.equal(typeof globalThis.requestAnimationFrame, 'undefined', '本用例要的就是没有 rAF 的环境');
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+    const renderer = compass.createCompassRenderer(dom.byId.app, snapshot);
+    compass.enableSensor(renderer.onSensorChange);
+    const handler = listeners.get('deviceorientation');
+
+    const slot = compassSlot();
+    slot.textContent = '';
+    handler({ webkitCompassHeading: 45 });
+    // 没有 rAF 也必须在这一次调用里就把卡画出来，不能攒着等一个永远不会来的帧
+    assert.ok(
+      slot.textContent.includes(t('compass.headingMag', { deg: '45' })),
+      `无 rAF 时必须同步重画，实际：${String(slot.textContent).slice(0, 120)}`
+    );
+    assert.equal(typeof renderer.onSensorChange, 'function', 'onSensorChange 必须暴露给调用方接线');
+  } finally {
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
