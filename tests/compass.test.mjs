@@ -315,15 +315,24 @@ test('模型卡显示版本 / 历元 / 有效期 / 来源，且不谎报精度',
 /* ------------------------------------------------------------------ */
 
 /**
- * 造一个 window 替身：定义了 DeviceOrientationEvent 且**没有** requestPermission
- * （安卓内核的形态），并把 deviceorientation 监听存进 listeners 供测试驱动。
+ * 造一个 window 替身：定义了 DeviceOrientationEvent，并把 deviceorientation 监听
+ * 存进 listeners 供测试驱动。
  *
+ * 默认（不传 opts）是**安卓内核**形态：没有 requestPermission → 'available'。
+ * 传 `{ needsPermission: true }` 是 **iOS 13+** 形态：构造函数上挂 requestPermission()。
+ *
+ * @param {{needsPermission?:boolean, permission?:string}} [opts] 选项。
  * @returns {{listeners:Map<string, Function>}} 监听表。
  */
-function installSensorWindow() {
+function installSensorWindow(opts = {}) {
   const listeners = new Map();
+  const Ctor = function DeviceOrientationEvent() {};
+  // iOS 13+ 形态：构造函数上挂着 requestPermission()，必须由用户手势调用
+  if (opts.needsPermission) {
+    Ctor.requestPermission = () => Promise.resolve(opts.permission || 'granted');
+  }
   globalThis.window = {
-    DeviceOrientationEvent: function DeviceOrientationEvent() {},
+    DeviceOrientationEvent: Ctor,
     addEventListener: (type, fn) => listeners.set(String(type), fn),
     removeEventListener: () => {},
   };
@@ -518,6 +527,68 @@ test('★桌面内核（定义了事件但永不派发）：等满 SENSOR_WAIT_M
     );
   } finally {
     mock.timers.reset();
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
+
+/**
+ * iOS 的 requestPermission() 是异步的：让它的 then 落地。
+ *
+ * @returns {Promise<void>}
+ */
+const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
+
+test('★iOS 授权 granted：拿到授权后挂监听、来数据后罗盘卡真的重画', async () => {
+  const { listeners } = installSensorWindow({ needsPermission: true, permission: 'granted' });
+  const raf = installRaf();
+  try {
+    assert.equal(compass.sensorSupport(), 'needs-permission', '这个 window 替身应被判为需要授权');
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+    const renderer = compass.createCompassRenderer(dom.byId.app, snapshot);
+    const slot = compassSlot();
+    slot.textContent = '';
+
+    assert.equal(compass.enableSensor(renderer.onSensorChange), 'waiting', 'iOS 授权未落地前是等待态');
+    await flushMicrotasks();
+
+    const handler = listeners.get('deviceorientation');
+    assert.ok(handler, '★granted 之后必须真的挂上监听（不能只修安卓那条直连分支）');
+    handler({ webkitCompassHeading: 120 });
+    raf.flush();
+
+    assert.equal(compass.sensorState().state, 'on');
+    assert.ok(
+      slot.textContent.includes(t('compass.headingMag', { deg: '120' })),
+      `★granted 分支来数据后必须真的重画出朝向，实际：${String(slot.textContent).slice(0, 120)}`
+    );
+  } finally {
+    compass.resetSensor();
+    delete globalThis.requestAnimationFrame;
+    delete globalThis.window;
+  }
+});
+
+test('★iOS 授权 denied：被拒也要真的重画成「已拒绝」，不许停在等待态', async () => {
+  const { listeners } = installSensorWindow({ needsPermission: true, permission: 'denied' });
+  try {
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+    const renderer = compass.createCompassRenderer(dom.byId.app, snapshot);
+    const slot = compassSlot();
+    slot.textContent = '';
+
+    compass.enableSensor(renderer.onSensorChange);
+    await flushMicrotasks();
+
+    assert.equal(compass.sensorState().state, 'denied', '被拒后状态应转 denied');
+    assert.equal(listeners.get('deviceorientation'), undefined, '被拒就不该挂监听');
+    assert.ok(
+      slot.textContent.includes(t('compass.sensorDenied')),
+      `★被拒后必须真的重画成拒绝文案（原 bug：回调是空的 → 一直停在「正在等待方向数据…」），实际：${String(slot.textContent).slice(0, 120)}`
+    );
+  } finally {
     compass.resetSensor();
     delete globalThis.window;
   }
