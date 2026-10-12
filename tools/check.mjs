@@ -1412,6 +1412,316 @@ async function main() {
   check('设置页语言切换走 switchLocale（写盘 + 立即生效）', settingsSrc.includes('switchLocale'), '只切 i18n 不写盘，下次打开又变回中文');
   check('语言选项枚举 LOCALES 与 i18n 的 LOCALES 同源', /export const LOCALES = \['zh', 'en'\]/.test(settingsSrc), '两处枚举漂移会出现「界面有按钮、切过去没表」');
 
+  /* ---------- 16. 页头（.hd）宽度预算 ---------- */
+  /*
+   * 背景：真机 bug（320px CSS 视口 + 「特大」档），页头标题「方位 · 磁偏角」折成两行。
+   * 第 12 节只守了底部 tabbar 的空间预算，**没有守页头**，所以这条缺陷没人拦。
+   *
+   * 根因（用本机 Chromium 在 320px 视口 + 三档字号下**实测**得出，不是纸面推演）：
+   *   ① `.hd-time` 原为 `white-space: nowrap` —— 文案被钉成一行不可断；
+   *   ② `.hd-time` 既无 `min-width: 0` 也无 `max-width`，flex 收缩下限 = 整行文案宽；
+   *   ③ `.hd-place` 是 flex item，`flex-basis: auto` 的自动最小尺寸 = min-content，
+   *      中文之间没有断行点 → min-content ≈ **2 × font-size**（默认档 32px、特大档 41.6px）。
+   *   实测左列实得宽度 70.59 / 40.97 / 20.81px（默认 / large / xlarge），
+   *   而标题「方位 · 磁偏角」真实需要 103.26 / 118.75 / 134.24px → 断成 2 / 3 / 6 行。
+   *
+   * 本节把这次的算术固化成断言。三档（默认 / large / xlarge）全部要过。
+   *
+   * ⚠️ 覆盖面（**不要把这条守卫当成「保证不换行」**）：
+   *   它能抓的是**声明的空间预算超限** —— 右列 `max-width` 被调大、`.hd` 的 gap / padding
+   *   变大、`--fs-lg` 阶梯被调大、右列 `nowrap` 被加回来这类「纸面上就该挤坏」的改动。
+   *   它**抓不住真实字体渲染差异**：这里的「标题宽度」取 `7 × 0.96 × --fs-lg`（7 个字形、
+   *   每字 0.96em），而本机 Chromium 实测系数是 6.4538 × --fs-lg（每字 0.922 em）。
+   *   本节的估计**比实测更保守**（更宽），所以「本节全绿」仍有真机余量；
+   *   但字重 / font-family 回退（Noto Sans SC 未命中时落到 PingFang / 微软雅黑）会改变
+   *   真实字宽，可能比这个数更宽。**本节全绿 ≠ 真机一定不换行；本节报红 = 纸面就已经不够。**
+   *   真正的换行防线是 CSS 里的 `overflow-wrap: anywhere`（给中文一个兜底断点）
+   *   配合右列的 `max-width`（把「右列最多占多少」写成硬约束），本节另有两断言钉住它们。
+   */
+  section('16. 页头宽度预算（窄屏 320px 三档字号下标题不得折行 / 页头不得溢出）');
+
+  const hdRule16 = extractRule(appCss, '.hd');
+  const hdPlaceRule16 = extractRule(appCss, '.hd-place');
+  const hdTimeRule16 = extractRule(appCss, '.hd-time');
+  check('app.css 存在 .hd 规则', !!hdRule16, '解析不到 `.hd { … }`，页头预算无从计算');
+  check('app.css 存在 .hd-place 规则', !!hdPlaceRule16, '解析不到 `.hd-place { … }`，页头预算无从计算');
+  check('app.css 存在 .hd-time 规则', !!hdTimeRule16, '解析不到 `.hd-time { … }`，页头预算无从计算');
+
+  const hdGap16 = pxOf(declValue(hdRule16, 'gap'), tokensCss);
+  const hdPadH16 = paddingHorizontal(declValue(hdRule16, 'padding'), tokensCss);
+  const hdTimeMaxRaw16 = declValue(hdTimeRule16, 'max-width');
+  const hdTimeMaxPct16 = hdTimeMaxRaw16 && /^(\d+(?:\.\d+)?)%$/.test(hdTimeMaxRaw16.trim())
+    ? parseFloat(hdTimeMaxRaw16)
+    : null;
+
+  check(`.hd 的 gap 可解析（${declValue(hdRule16, 'gap')} → ${hdGap16}px）`, hdGap16 !== null, '解析失败');
+  check(`.hd 的水平 padding 可解析（${declValue(hdRule16, 'padding')} → ${hdPadH16}px 单侧）`, hdPadH16 !== null, '解析失败');
+  check(
+    `.hd-time 的 max-width 是百分比硬约束（现为 ${hdTimeMaxRaw16 || '缺失'}）`,
+    hdTimeMaxPct16 !== null,
+    '右列的宽度上限必须是百分比：它是「与文案长度解耦」的唯一手段 —— 去掉它，右列又会去抢左列的宽度'
+  );
+
+  // 右列的宽度上限：百分比在 flex item 上按**包含块的 padding box（content box）**解析。
+  // 本机 Chromium 实测：320px 视口下 .hd 的 content box = 288px，45% 落到 126px
+  // 而 288 × 0.45 = 129.6 —— 说明解析基数是 280px（= 288 − 2 × .hd 的 --sp-1 padding）。
+  // 这里按 280px 复刻，误差方向保守（280 < 288，算出的上限更小 → 更严）。
+  const hdInnerW16 = MIN_VIEWPORT - 2 * (appPadH || 0) - 2 * (hdPadH16 || 0);
+  const hdTimeMaxW16 = hdTimeMaxPct16 === null ? null : (hdInnerW16 * hdTimeMaxPct16) / 100;
+
+  /** 页头标题「方位 · 磁偏角」7 个字形，每字按 0.96 em 保守估（实测 0.922 em）。 */
+  const HD_TITLE_GLYPHS = 7;
+  const HD_TITLE_ADVANCE = 0.96;
+  /** 左列的 min-content：nowrap 的中文里没有断行点 → 至少 2 个汉字 = 2 × font-size。 */
+  const HD_PLACE_FLOOR_GLYPHS = 2;
+  /**
+   * 右列在**可换行**时的 min-content：`overflow-wrap: anywhere` 会把 min-content 压到
+   * 一个字符。文案是等宽数字 + 汉字混排，取 1 个字高（= --fs-xs）作为下限保守估计。
+   */
+  const HD_TIME_FLOOR_GLYPHS = 1;
+
+  /**
+   * 复刻 flex 的实际分配（**这是本节的算术核心**，2026-真机 bug 就是用这一套复现的）。
+   *
+   * `.hd` 是 `display: flex`，两个 item 的 `flex-basis` 都是 `auto`。Chromium 的
+   * auto basis 解析已不再是纯 max-content，而是「按 available space 确定性的按比例
+   * 分配」；但**真正决定「标题会不会折行」的不是这份分配，而是各自在空间不够时的
+   * 收缩下限**：flex item 的自动最小尺寸 = 自己的 min-content（除非显式 `min-width: 0`）。
+   *
+   *   - 左列 `.hd-place` 未设 `min-width: 0` → 收缩下限 = min-content = 2 × font-size；
+   *   - 右列 `.hd-time` 设了 `min-width: 0` 且 `overflow-wrap: anywhere` → 下限 = 1 字。
+   *
+   * 于是「左列实得宽」的下界是：
+   *     hdContent − gap − 右列能吃掉的最大宽度
+   *   其中「右列能吃掉的最大宽度」= max-width（45%）之后的**实际占用**，
+   *   但它至少也要放下自己的 min-content。
+   *
+   * 这里给出两个数并取**保守的那个**：
+   *   A) auto 分配：hdContent − gap − maxWidth（右列取满自己的上限）
+   *   B) 地板下界：hdContent − gap − 右列不被允许超过的上限，与 floor 比较
+   *
+   * ★ 判据：左列必须至少拿到「标题单行所需宽」。若只写 max-width 而不给右列
+   *   `min-width: 0`，右列的不变量会退化成「整行 nowrap 文案宽」——下面的
+   *   `hdTimeMinContent` 会把它抓出来（nowrap 时 min-content = 整行，极大）。
+   */
+  const timeMaxW16 = hdTimeMaxW16 === null ? hdInnerW16 : hdTimeMaxW16;
+
+  process.stdout.write(`  页头预算明细（视口 ${MIN_VIEWPORT}px，.hd content ${hdInnerW16}px，gap ${hdGap16}px）：\n`);
+  process.stdout.write(`    .hd-time max-width ${hdTimeMaxRaw16} → ${hdTimeMaxW16 === null ? '不可解析' : hdTimeMaxW16.toFixed(1) + 'px'}\n`);
+
+  for (const { tier, label } of FS_TIERS) {
+    const fsLgPx = fsAtTier[label]['fs-lg'];
+    const fsXsPx = fsAtTier[label]['fs-xs'];
+    if (!fsLgPx || !fsXsPx) continue;
+
+    const titleNeed = HD_TITLE_GLYPHS * HD_TITLE_ADVANCE * fsLgPx;
+    const placeFloor = HD_PLACE_FLOOR_GLYPHS * fsLgPx;
+    const timeFloor = HD_TIME_FLOOR_GLYPHS * fsXsPx;
+
+    // 右列实际占用：不超过自己的 max-width，也不低于自己的 min-content 地板
+    const timeGot = Math.min(Math.max(timeMaxW16, timeFloor), Math.max(timeMaxW16, 0));
+    // 左列实得宽 = hdContent − gap − 右列占用；但不得低于自己的 min-content 地板
+    const placeGot = Math.max(hdInnerW16 - (hdGap16 || 0) - timeGot, 0);
+    // ★ 关键：左列若被压到低于自己的 min-content，浏览器不会再压 —— 而是让标题折行。
+    //   所以「左列够不够标题单行」要拿 placeGot 与 titleNeed 比，并且额外确认
+    //   placeGot ≥ placeFloor（低于地板说明这一行已经在挤，属于危险区）。
+    const slack = placeGot - titleNeed;
+    process.stdout.write(
+      `    ${label.padEnd(18)} fs-lg=${px2(fsLgPx)}px → 标题需 ${titleNeed.toFixed(1)}px，` +
+        `右列占 ${timeGot.toFixed(1)}px（上限 ${timeMaxW16.toFixed(1)}）→ 左列得 ${placeGot.toFixed(1)}px` +
+        `（地板 ${placeFloor.toFixed(1)}，余量 ${slack.toFixed(1)}px）\n`
+    );
+    check(
+      `${label} 档页头标题单行：左列 ${placeGot.toFixed(1)}px ≥ 标题所需 ${titleNeed.toFixed(1)}px（余量 ${slack.toFixed(1)}px）`,
+      placeGot >= titleNeed,
+      `差 ${(-slack).toFixed(1)}px：调小 .hd-time 的 max-width 百分比，或收窄 .hd 的 gap / padding —— 不要动 --sp-* 与 --fs-*，那是全局栅格与字号阶梯`
+    );
+    check(
+      `${label} 档左列未被压到 min-content 地板以下（${placeGot.toFixed(1)}px ≥ ${placeFloor.toFixed(1)}px）`,
+      placeGot >= placeFloor,
+      '被压到地板以下说明页头这一行已经在硬挤；再窄一点标题就会折行'
+    );
+  }
+
+  // 右列绝不能再回到 nowrap —— 那正是本次真机 bug 的根因，而且**不会让任何既有用例变红**
+  const hdTimeWs16 = declValue(hdTimeRule16, 'white-space');
+  check(
+    `.hd-time 未使用 white-space: nowrap（现为 ${hdTimeWs16 || '未声明'}）`,
+    hdTimeWs16 === null || hdTimeWs16 === 'normal',
+    '把 nowrap 加回来 = 右列被钉成一行不可断，flex 里表现为 min-content ≈ 整行文案 → 会把左列标题挤到折行（本次真机 bug 的根因）'
+  );
+  const hdTimeWrap16 = declValue(hdTimeRule16, 'overflow-wrap');
+  check(
+    `.hd-time 声明 overflow-wrap: anywhere（现为 ${hdTimeWrap16 || '缺失'}）`,
+    hdTimeWrap16 === 'anywhere',
+    '中文之间没有默认断行点；不给 overflow-wrap，右列的 min-content 会退化回「整行不可断」'
+  );
+  const hdTimeMinW16 = declValue(hdTimeRule16, 'min-width');
+  check(
+    `.hd-time 声明 min-width: 0（现为 ${hdTimeMinW16 || '缺失'}）`,
+    hdTimeMinW16 === '0' || hdTimeMinW16 === '0px',
+    'flex item 的自动最小尺寸 = min-content；不写 min-width: 0，右列的收缩下限就是它自己的 min-content，会把左列挤扁'
+  );
+
+  /* ★ 回归直击：把「右列 nowrap」这一种写法单独建模，断言它会挤坏左列。
+   *
+   * 为什么不能只靠上面的宽度预算：那是按「右列可换行」的前提算的。`.hd-time` 一旦回到
+   * `white-space: nowrap`，右列的 min-content 就从「1 个字」变成「整行文案宽」，
+   * 而**整行文案宽是随文案内容变化的量**，静态脚本读不到。所以这里改用一个
+   * **与文案无关的下界**：右列文案「本机计算：WMM2025 地磁模型，不联网」共 24 个字符
+   * （含全角冒号与逗号），即使按最窄的全角标点估也要远超左列能承受的份额。
+   * 只要 `.hd-time` 处于 nowrap 且没有 max-width，就直接判红 —— 不依赖任何文案实测宽度。
+   */
+  {
+    const nowrapAgain = declValue(hdTimeRule16, 'white-space') === 'nowrap';
+    const bounded = hdTimeMaxPct16 !== null;
+    check(
+      '页头右列不会退化成「整行不可断」（nowrap 必须同时有 max-width 上限）',
+      !(nowrapAgain && !bounded),
+      '.hd-time 回到 nowrap 且无上限 = 右列最小宽退化为整行文案宽 → 左列被挤扁、标题折行（本次真机 bug 的根因）'
+    );
+  }
+  const hdPlaceWrap16 = declValue(hdPlaceRule16, 'overflow-wrap');
+  check(
+    `.hd-place 声明 overflow-wrap: anywhere（现为 ${hdPlaceWrap16 || '缺失'}）`,
+    hdPlaceWrap16 === 'anywhere',
+    '标题在极窄情形下需要一个兜底断点，否则整行会硬撑出页头'
+  );
+
+  /* ---------- 17. 横向溢出静态守卫 ---------- */
+  /*
+   * ⚠️⚠️ 本节**只能覆盖静态样式声明的解析，不能替代真机**。⚠️⚠️
+   *
+   * Node 侧没有布局引擎：本脚本读到的是 CSS **声明**，不是渲染结果。所以本节做不了
+   * 「在 320px 视口下断言 document.scrollingElement.scrollWidth ≤ clientWidth」这件事 ——
+   * 那个断言需要真实排版，必须在浏览器里跑（本项目目前的**真实防线是第 16 节**，
+   * 它按实测标定的系数反推页头宽度，是本次两处 bug 里唯一有牙的那条）。
+   *
+   * 本节能做的、也是本次真机 bug 的**直接成因**：
+   *   把「哪些规则会制造横向溢出」这条规则**静态化**，在源码层面拦住那几类写法：
+   *     ① 某个元素被钉成一行不可断（`white-space: nowrap`）却**没有**宽度上限
+   *        （`max-width` / `flex` 收缩空间）—— 本次 `.hd-time` 正是这一类：
+   *        nowrap + 无 max-width，在 flex 里表现为 min-content = 整行文案宽，
+   *        实测把 `.hd` 的 scrollWidth 撑到 293px（clientWidth 288px，溢出 5px），
+   *        并在右列文案变长时把整页撑到 437px（溢出 117px，实测复现过）。
+   *     ② 页面级容器（`.app`）缺少把宽度约束到视口的声明。
+   *
+   * 为什么不做「加 overflow-x: hidden 把溢出藏起来」：藏起来会让内容被裁掉（比滚动条更糟），
+   * 是治标不治本。本节的取向是「找根因」，不是「捂盖子」。
+   */
+  section('17. 横向溢出静态守卫（nowrap 必须配宽度上限 · 仅覆盖静态声明，不替代真机）');
+
+  // ① 任何声明了 white-space: nowrap 的规则，必须有宽度上限、自建滚动／裁切容器，
+  //    或者明确不参与 flex 收缩（`flex: N 0/...` 之类），否则它就是「整行不可断、
+  //    且会去抢空间」的定时炸弹 —— 本次 `.hd-time` 正是这一类。
+  const nowrapRules = rulesWithDecl(appCss, 'white-space', 'nowrap');
+  check(
+    `app.css 里 white-space: nowrap 的规则全部捞到（${nowrapRules.length} 处）`,
+    nowrapRules.length > 0,
+    '一处都捞不到，本节就成了空转'
+  );
+
+  /**
+   * 判断一条 nowrap 规则是否「有界」。
+   *
+   * 满足任一即算有界（这些判据都来自仓库里现存的真实写法，已逐条核对过上下文）：
+   *   - 写了 max-width（长度或百分比）；
+   *   - 写了可解析的固定 width；
+   *   - 自建了裁切／滚动容器（overflow(-x) 为 hidden / auto / scroll / clip）——
+   *     `.kv-v` 走的就是这条：nowrap + overflow: hidden + text-overflow: ellipsis，
+   *     它靠裁切自保，不需要 max-width；
+   *   - `flex: <grow> <shrink>` 里 shrink = 0 —— 不参与收缩就不会去抢别人的空间
+   *     （`.tab` 走的是这条：`flex: 0 0 auto` + `min-width: 64px`，宽度可预测）；
+   *   - 有 `flex-wrap: wrap` 的祖先容器 —— 换行容器里的「固有宽度小徽标」是合法写法
+   *     （`.chip` 在 `.map-chips` 里、`.map-status` 在 `.map-sub` 里都属这一类）：
+   *     装不下时整行换行，而不是去挤压同行元素。
+   *
+   * @param {string} body 规则声明体。
+   * @param {string} selector 规则选择器（用于查祖先容器）。
+   * @returns {{ok:boolean, why:string}} 是否有界及命中的判据。
+   */
+  function nowrapBounded(body, selector) {
+    const maxW = declValue(body, 'max-width');
+    if (maxW !== null && maxW !== 'none' && (maxW.includes('%') || pxOf(maxW, tokensCss) !== null)) {
+      return { ok: true, why: `max-width: ${maxW}` };
+    }
+    const w = declValue(body, 'width');
+    if (w !== null && pxOf(w, tokensCss) !== null) return { ok: true, why: `width: ${w}` };
+    const overflowX = declValue(body, 'overflow-x') || declValue(body, 'overflow');
+    if (overflowX !== null && /hidden|auto|scroll|clip/.test(overflowX)) {
+      return { ok: true, why: `自建容器 overflow: ${overflowX}` };
+    }
+    const flex = declValue(body, 'flex');
+    if (flex !== null && /^\s*[\d.]+\s+0(?:\.\d+)?\s/.test(flex)) {
+      return { ok: true, why: `flex 收缩系数 0（${flex.trim()}）` };
+    }
+    if (hasWrappingAncestor(selector)) return { ok: true, why: '换行容器内的固有宽度徽标' };
+    return { ok: false, why: '' };
+  }
+
+  /**
+   * 判断某选择器是否出现在一个 `display: flex` + `flex-wrap: wrap` 的容器里。
+   *
+   * 仓库里徽标／状态类元素都是「容器单开一条规则（如 `.map-coord { flex-wrap: wrap }`）
+   * ＋ 元素自己单开一条规则（如 `.map-status { white-space: nowrap }）」，两者之间
+   * **没有**写后代选择器，纯靠 JS 里的 `h('div', {class:'map-coord'}, [h('span',{class:'map-status'})])`
+   * 把父子关系接起来。所以静态 CSS 里查不到 `.<容器> .<元素>` 这条选择器。
+   *
+   * 这里改用**保守的可达性判据**：只要 base 类名在一个 `flex-wrap: wrap` 容器的规则名里
+   * 出现过（如 `.map-chips` 含 `chip`、`.map-coord` 与 `map-status` 共享 `map-` 前缀语义），
+   * 或该容器有后代选择器指向 base，就算有换行祖先。判据偏宽松，但**宽松的方向是「少报红」**，
+   * 而本节的红是「可能溢出」的提示而非真机保证 —— 宁漏勿误杀，避免用一条查不准的规则
+   * 逼后来者去改本来正确的 CSS。真正的宽度保证在第 16 节。
+   *
+   * @param {string} selector 待查选择器（如 `.chip`）。
+   * @returns {boolean} 是否有换行祖先。
+   */
+  function hasWrappingAncestor(selector) {
+    const base = selector.trim().split(/[\s>+~]/).pop().replace(/^\./, '');
+    const wrapSelectors = rulesWithDecl(appCss, 'flex-wrap', 'wrap').map((r) => r.selector);
+    for (const ws of wrapSelectors) {
+      // 后代选择器形态：`.map-chips .chip`
+      const parts = ws.split(/[\s>+~]/);
+      if (parts.slice(0, -1).some((p) => p.replace(/^\./, '') === base)) return true;
+      // 同一个容器规则里两个类名共存：`.map-chips.chip` 之类
+      if (ws.replace(/^\./, '').split(/[.\s>+~]/).indexOf(base) !== -1) return true;
+      // 容器名与元素名共享语义前缀（`.map-coord` ↔ `.map-status` 同属地图卡那一块）
+      const head = base.split('-')[0];
+      if (head.length > 2 && ws.replace(/^\./, '').split(/[.\s>+~]/).some((p) => p.split('-')[0] === head)) {
+        return true;
+      }
+      // 元素名整体出现在容器名里 / 反之（`.map-chips` ⊃ `chip`）
+      if (ws.replace(/^\./, '').includes(base) || base.includes(ws.replace(/^\./, ''))) return true;
+    }
+    return false;
+  }
+
+  const unbounded = [];
+  for (const rule of nowrapRules) {
+    const r = nowrapBounded(rule.body, rule.selector);
+    if (!r.ok) unbounded.push(rule.selector);
+  }
+  check(
+    `white-space: nowrap 的规则都有宽度上限 / 自建裁切容器 / 不参与收缩（${unbounded.length} 处裸 nowrap：${unbounded.join(' | ') || '无'}）`,
+    unbounded.length === 0,
+    '裸 nowrap → 该元素最小宽度 = 整行内容宽，会把同行其它元素挤扁、甚至把整页撑出横向滚动条（本次真机 bug 的成因）。给 max-width、overflow: hidden，或 flex-shrink: 0'
+  );
+
+  // ② 页面级容器必须把宽度约束在视口内
+  const appRule17 = extractRule(appCss, '.app');
+  const appMaxW17 = declValue(appRule17, 'max-width');
+  check(
+    `.app 声明 max-width 把页面宽度约束到 640px 以内（现为 ${appMaxW17 || '缺失'}）`,
+    appMaxW17 !== null && pxOf(appMaxW17, tokensCss) !== null && pxOf(appMaxW17, tokensCss) <= 640,
+    '页面级容器没有宽度上限，宽屏下会被拉满、窄屏下又失去居中约束'
+  );
+
+  // ③ 明确记录本节的覆盖面边界，防止后来者把它误当成真机保证
+  process.stdout.write(
+    '  ℹ 本节仅校验静态样式声明；「320px 视口下 scrollWidth ≤ clientWidth」需真实布局引擎，\n' +
+      '    本脚本无法验证 —— 真机防线是第 16 节的页头宽度预算 + 真机复测，不要以为本节绿了就万事大吉。\n'
+  );
+
   /* ---------- 汇总 ---------- */
   const total = PASS + FAIL;
   process.stdout.write(`\n${'-'.repeat(52)}\n`);

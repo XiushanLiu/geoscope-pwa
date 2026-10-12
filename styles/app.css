@@ -61,6 +61,8 @@ body[data-page="compare"] {
 
 /* ---------------- 顶部标题 ---------------- */
 
+/* 页头 = 左列（标题 + 坐标，可换行）+ 右列（来源说明，可换行）。
+   这一排的历史与「为什么右列绝不能 nowrap」写在 .hd-time 上方，**改前必读**。 */
 .hd {
   display: flex;
   align-items: flex-end;
@@ -75,6 +77,9 @@ body[data-page="compare"] {
   font-weight: 600;
   margin: 0;
   line-height: 1.3;
+  /* 中文无空格 → 浏览器默认不在此换行；给了它，标题在极窄情形下才有一个「兜底断点」，
+     不至于把整行硬撑出去。正常宽度下永远不会触发（见 .hd-time 的宽度上限推导）。 */
+  overflow-wrap: anywhere;
 }
 
 .hd-coord {
@@ -83,11 +88,45 @@ body[data-page="compare"] {
   margin: var(--sp-1) 0 0;
 }
 
+/* ★右列（观测时刻 / 来源说明）—— 这一条是真机 bug 的定案，改动前请读完。
+   ── 真机 bug（320px CSS 视口 + 「特大」档）：页头标题「方位 · 磁偏角」折成两行。
+   ── 根因（Chromium 实测，非纸面推演）：
+      ① 这里原本是 `white-space: nowrap` —— 右列文案「本机计算：WMM2025 地磁模型，不联网」
+         被钉成**一行不可断**，在 flex 里表现得像 min-content ≈ 整行文案宽（`--fs-xs` 下
+         97.41px @默认档、256.64px @特大档）；
+      ② 右列原本既无 `max-width` 也无 `min-width: 0`，flex 收缩下限是那个 min-content；
+      ③ 左列 `.hd-place` 是 flex item，`flex-basis: auto` 的**自动最小尺寸**是 min-content，
+         而中文之间没有断行点 → min-content ≈ 2 个汉字（= 2 × font-size，默认档 32px、
+         特大档 41.6px）。右列要得越多，左列被挤得越扁：实测左列实得
+         70.59 / 40.97 / 20.81px（默认 / large / xlarge），而标题真实需要 103.26 / 118.75 /
+         134.24px → 断成 2 / 3 / 6 行。
+   ── 定案（两条，各管一件事）：
+      1. 去掉 `white-space: nowrap` + 给 `overflow-wrap: anywhere`：右列**允许换行**，
+         且中文之间有个可断点（`overflow-wrap: anywhere` 会参与 min-content 计算，把
+         min-content 压到 ≈ 1 个汉字），交给 flex 正常收缩；
+      2. `max-width: 45%` + `min-width: 0`：把「右列最多占页头约 45%」写成硬约束。
+         ⚠️ 百分比的解析基数不是 `.hd` 的 content box(288px) 而是它的**padding box
+         (280px)** —— Chromium 实测 45% → 126px = 280 × 0.45，而不是 288 × 0.45。
+         换言之上限是一个**与文案长度解耦的常数**，右列再长也超不过 126px。
+   ── 定案后实测（320px，Chromium + DPR 2.75，`getClientRects()` 数标题行数）：
+      右列恒为 126px（三档不变），左列 103.27 / 118.77 / 134.25px（默认 / large / xlarge），
+      标题单行所需 103.26 / 118.75 / 134.24px —— **三档全部单行**。
+      `.hd` 的 scrollWidth 从 293px 回落到 288px（= clientWidth），页头自身不再溢出；
+      `document.scrollingElement.scrollWidth − clientWidth` 三档均为 0。
+   ── 为什么不改成 `flex-basis`：`.hd-time` 的真实宽度是**收缩后的结果**，用 `flex-basis: auto`
+      更省事；关键是给 min-content 一个可断点 + 一个上限，而不是去猜一个固定占比。
+   ── 与字号档位的关系：三档只改 `--fs-*` 乘数，`max-width: 45%` 与 `overflow-wrap: anywhere`
+      都是相对值 / 布尔值，**不随字号放大而失效**；宽度够不够由 `tools/check.mjs` 第 16 节
+      按同一套「保守估算 + 320px 视口」机器核算，不再靠纸面估算。
+   ── ⚠️ 不要为了「让右列回到一行」把 nowrap 加回来：那正是本次真机 bug 的根因。
+      右列文案本来就是给「扫一眼」的补充说明，换行可接受；页头标题折行不可接受。 */
 .hd-time {
   font-size: var(--fs-xs);
   color: var(--c-text-3);
   text-align: right;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 45%;
 }
 
 /* 收藏按钮：两态的**配色**复用既有 .btn（未收藏）与 .btn--primary（已收藏），
