@@ -163,6 +163,24 @@ export function markStale(key) {
 }
 
 /**
+ * 删除**单个**条目（精确匹配，不是前缀匹配）。
+ *
+ * ★为什么必须存在：删一条记录若用 `clearPrefix(key)` 代替，而另一个键恰好以它为前缀
+ *   （行程 id 'abc' 与 'abcd' 就属于这种情况 —— 导入进来的 id 是别人生成的，撞前缀
+ *   完全可能），结果就是**一次删除带走两条用户数据**，且没有任何提示。
+ *   精确删除与前缀清理是两种语义，混用必然出事，所以各自有一个名字。
+ *
+ * @param {string} key 缓存键（精确）。
+ * @returns {boolean} 是否真的删掉了（本来就不存在返回 false，不假称成功）。
+ */
+export function remove(key) {
+  const store = _store();
+  if (store.getItem(key) === null || store.getItem(key) === undefined) return false;
+  store.removeItem(key);
+  return true;
+}
+
+/**
  * 按前缀清理。
  *
  * @param {string} prefix 键前缀（通常传 NS 或 makeKey('weather')）。

@@ -758,6 +758,18 @@ export const ZH = {
   'rt.err.needMorePoints': '至少需要 2 个坐标点才能算路线（现在 {n} 个）',
   'rt.err.badAnchor': '候选搜索的中心坐标非法',
 
+  // ---------- 自驾模块：行程导入失败原因 ----------
+  // core/roadtrip.js 与 core/tripstore.js 只回 reasonKey / reasonParams
+  //（core 不许 import i18n），由 UI 层 tr() 上屏。
+  'trip.badJson': '不是合法 JSON',
+  'trip.notObject': '行程内容不是 JSON 对象',
+  'trip.badSchema': '行程文件格式版本不支持（schema={schema}）',
+  'trip.newerSchema': '这份行程由更新版本创建（schema={schema}），请升级后再打开',
+  'trip.notRoadtrip': '不是地候的行程文件',
+  'trip.noTrips': '文件里没有 trips 数组',
+  'trip.planNoTrips': '导入计划里没有 trips 数组（请先调用 inspectTripFile）',
+  'trip.notFound': '没有这条行程',
+
   // ---------- 备份导入失败原因 ----------
   // core/backup.js 只回 reasonKey / reasonParams（core 不许 import i18n），
   // 由 UI 层拼进 settings.importFail 的 {reason} 里上屏。

@@ -49,6 +49,8 @@ const SHELL_ASSETS = [
   './src/core/backup.js',
   './src/core/csv.js',
   './src/core/apikeys.js',
+  './src/core/roadtrip.js',
+  './src/core/tripstore.js',
   './src/data/sources.js',
   './src/data/openmeteo.js',
   './src/data/photon.js',

@@ -784,6 +784,18 @@ export const EN = {
   'rt.err.needMorePoints': 'at least 2 coordinates are needed to calculate a route (got {n})',
   'rt.err.badAnchor': 'the candidate search centre coordinates are invalid',
 
+  // ---------- Road trip: trip import failure reasons ----------
+  // core/roadtrip.js and core/tripstore.js return only reasonKey / reasonParams
+  // (core may not import i18n); the UI translates them.
+  'trip.badJson': 'not valid JSON',
+  'trip.notObject': 'the trip body is not a JSON object',
+  'trip.badSchema': 'unsupported trip file schema version (schema={schema})',
+  'trip.newerSchema': 'this trip was created by a newer version (schema={schema}); please upgrade before opening it',
+  'trip.notRoadtrip': 'not a GeoScope road-trip file',
+  'trip.noTrips': 'the file has no trips array',
+  'trip.planNoTrips': 'the import plan has no trips array (call inspectTripFile first)',
+  'trip.notFound': 'this trip does not exist',
+
   // ---------- Backup import failure reasons ----------
   // core/backup.js returns only reasonKey / reasonParams (core may not import i18n);
   // the UI splices them into settings.importFail's {reason}.
