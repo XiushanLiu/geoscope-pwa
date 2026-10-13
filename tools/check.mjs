@@ -84,23 +84,52 @@ let PASS = 0;
 let FAIL = 0;
 const FAILURES = [];
 
+/** 已接受项计数（不计入 FAIL，因此不污染退出码）。 */
+let ACCEPT = 0;
+
+/**
+ * 已登记接受的失败项 —— 「如实反映」与「门禁长期红灯」之间的第三条路。
+ *
+ * ⚠️ 与「放宽阈值让它变绿」的界线必须钉死，否则这个表会变成垃圾桶：
+ *   1. **判定式一字不改**。本节照旧算出「放不下」并把数字打印出来，只是它的归属
+ *      从「失败」改成「已接受」；
+ *   2. **每条登记必须带 `reason`**：决策日期 + 为什么接受 + 撤销条件，三样缺一不可，
+ *      缺了就直接按失败算（不留默认兜底）；
+ *   3. **每次运行都打印**，不会静默；汇总区单独列一节，不会被一堆 ✓ 淹没；
+ *   4. 撤销方式只有一种：把问题真的修掉，本节自然变绿，然后把登记删掉。
+ *      **绝不允许靠往这张表里加行来「消灭」红灯。**
+ *
+ * @type {Array<{name:string, detail:string, reason:string}>}
+ */
+const ACCEPTED_LIST = [];
+
 /**
  * 断言。
  *
  * @param {string} name 用例名。
  * @param {boolean} cond 条件。
  * @param {string} [detail] 补充信息。
+ * @param {string} [acceptReason] **已登记接受**的理由（决策日期 + 为什么接受 + 撤销条件）。
+ *        仅在 `cond === false` 时生效：把它记为「已接受」，不计入 FAIL、不污染退出码，
+ *        但仍然打印、仍然进汇总区。**判定式本身一个字都不改**（见 ACCEPTED_LIST 的说明）。
  * @returns {void}
  */
-function check(name, cond, detail = '') {
+function check(name, cond, detail = '', acceptReason = '') {
   if (cond) {
     PASS += 1;
     process.stdout.write(`  ✓ ${name}\n`);
-  } else {
-    FAIL += 1;
-    FAILURES.push(`${name}${detail ? ` — ${detail}` : ''}`);
-    process.stdout.write(`  ✗ ${name}${detail ? ` — ${detail}` : ''}\n`);
+    return;
   }
+  if (acceptReason) {
+    ACCEPT += 1;
+    ACCEPTED_LIST.push({ name, detail, reason: acceptReason });
+    process.stdout.write(`  ⊘ ${name}${detail ? ` — ${detail}` : ''}\n`);
+    process.stdout.write(`      ⟶ 已接受：${acceptReason}\n`);
+    return;
+  }
+  FAIL += 1;
+  FAILURES.push(`${name}${detail ? ` — ${detail}` : ''}`);
+  process.stdout.write(`  ✗ ${name}${detail ? ` — ${detail}` : ''}\n`);
 }
 
 /**
@@ -1601,6 +1630,30 @@ async function main() {
   const HD_TITLE_KEY = 'compass.title';
 
   /**
+   * 已登记接受的「页头标题放不下」语种 —— 走 `check()` 的第 4 参，**不改判定、不降阈值**。
+   *
+   * 2026-10-13 用户拍板：英文页头标题维持折行。
+   *   - 为什么接受：自用 App，主用中文，英文是次要语种。三条可选处置都不划算 ——
+   *     ① 缩短文案：要过 320px 地板（左列可得上限 142px）只能缩到约 12 个字符，
+   *        「磁偏角」这层信息必然丢掉；② 调小右列 max-width：右列是来源说明，
+   *        压窄只会让来源更不显眼；③ 标题独占一行：会让中文页头也从一行变两行，
+   *        为了英文退化中文，不划算。
+   *   - 英文**没有被豁免**：它走的是与中文完全相同的一条公式、同一个阈值，数字照旧打印。
+   *     哪天有人把英文文案改短到能放下，本节会自动变绿，那时必须把这条登记删掉。
+   *   - 撤销条件：真机确认英文折行不可接受，或英文文案缩短到本节能过。
+   *
+   * ⚠️ 只按 locale 整体登记，**不为某一档单独开小灶** —— 三档同进同出。
+   *
+   * @type {Object<string, string>}
+   */
+  const HD_TITLE_ACCEPTED = {
+    en:
+      '2026-10-13 产品决策：维持英文页头标题折行。自用 App 主用中文；缩短文案会丢「磁偏角」信息，' +
+      '调小右列上限会让来源说明更不显眼，标题独占一行则把中文页头也从一行变两行 —— 三条都不划算。' +
+      '撤销条件：真机判定英文折行不可接受，或英文文案缩短到本节能过（届时删除本条登记）。',
+  };
+
+  /**
    * 两个语言包里**真实**的页头标题 —— 不写死 7 个字形。
    *
    * 之前这里写死 `7 字形 × 0.96em`，等于把英文整档**排除在模型之外**：英文标题
@@ -1718,7 +1771,8 @@ async function main() {
         `[${locale}] ${label} 档页头标题单行：可得 ${placeAvail16.toFixed(1)}px ≥ 标题所需 ${titleNeed.toFixed(1)}px（余量 ${slack.toFixed(1)}px）`,
         placeAvail16 >= titleNeed,
         `差 ${(-slack).toFixed(1)}px：**此模型下 ${locale} 页头标题无法单行**。可选处置 —— ① 缩短 ${locale} 文案；` +
-          `② 调小 .hd-time 的 max-width 百分比；③ 允许标题省略号截断。**不许靠放宽本节阈值让它变绿**`
+          `② 调小 .hd-time 的 max-width 百分比；③ 允许标题省略号截断。**不许靠放宽本节阈值让它变绿**`,
+        HD_TITLE_ACCEPTED[locale] || ''
       );
       check(
         `[${locale}] ${label} 档左列未被压到 min-content 地板以下（${placeAvail16.toFixed(1)}px ≥ ${placeFloor.toFixed(1)}px）`,
@@ -1736,18 +1790,25 @@ async function main() {
 
   /* ★ 显式结论：不许把「某个语种放不下」藏在一堆明细里。
    *
-   * 这里是本节给人看的那句话：哪个 locale 在本模型下装不下、差多少、以及**这不是 bug，
-   * 是如实反映**。做法上没有给任何 locale 开小灶 —— 中文英文走的是同一条公式、同一个阈值。
-   * 英文怎么处置（改文案 / 省略号 / 标题独占一行）是**产品决策**，本节无权替那个决策
-   * 松绑；在那之前，这里的红必须一直红着。
+   * 这里是本节给人看的那句话：哪个 locale 在本模型下装不下、差多少、是**如实反映**而不是
+   * 误报、以及它当前是「已登记接受」还是「无人认领」。
+   *
+   * 做法上没有给任何 locale 开小灶 —— 中英文走的是同一条公式、同一个阈值，判定式一个字
+   * 都没为英文改过。区别只在**归属**：`HD_TITLE_ACCEPTED` 里登记过的语种，结果记为「已接受」
+   * 而不是「失败」（不污染退出码，但照旧打印、照旧进汇总区）；没登记过的一律维持报红。
+   * 也就是说：**登记 ≠ 变绿**，只是把红灯从「门禁失败」挪到「已知债务」那一栏。
    */
   for (const v of localeVerdict) {
     if (v.worstSlack >= 0) continue;
+    const accepted = !!HD_TITLE_ACCEPTED[v.locale];
     process.stdout.write(
-      `  ⚠️ [${v.locale}] **此模型下 ${v.locale} 页头标题无法单行**：最紧档 ${v.worstTier} 需 ` +
-        `${v.worstNeed.toFixed(1)}px，只有 ${placeAvail16.toFixed(1)}px 可用，差 ${(-v.worstSlack).toFixed(1)}px。\n` +
-        `     这不是守卫误报 —— 真实引擎同条件实测：320px 下英文标题断成 3 行。\n` +
-        `     修法属于产品决策（缩短文案 / 省略号 / 标题独占一行），本节维持报红。\n`
+      `  ${accepted ? '⚠️' : '❗'} [${v.locale}] **此模型下 ${v.locale} 页头标题无法单行**：最紧档 ` +
+        `${v.worstTier} 需 ${v.worstNeed.toFixed(1)}px，只有 ${placeAvail16.toFixed(1)}px 可用，` +
+        `差 ${(-v.worstSlack).toFixed(1)}px。\n` +
+        `     这不是守卫误报 —— 真实引擎同条件实测：320px 下 ${v.locale} 标题断成多行。\n` +
+        (accepted
+          ? `     已按 2026-10-13 产品决策登记为「已接受」（见 HD_TITLE_ACCEPTED），不计入失败。\n`
+          : `     ⚠️ 该语种**没有**登记接受 —— 本节维持报红，退出码为 1。\n`)
     );
   }
 
@@ -1931,7 +1992,7 @@ async function main() {
   );
 
   /* ---------- 汇总 ---------- */
-  const total = PASS + FAIL;
+  const total = PASS + FAIL + ACCEPT;
   process.stdout.write(`\n${'-'.repeat(52)}\n`);
   process.stdout.write(`通过 ${PASS}/${total}\n`);
   if (FAIL > 0) {
@@ -1939,6 +2000,13 @@ async function main() {
     FAILURES.forEach((f) => process.stdout.write(`  - ${f}\n`));
   } else {
     process.stdout.write('失败 0 项\n');
+  }
+  if (ACCEPT > 0) {
+    process.stdout.write(`已接受 ${ACCEPT} 项（判定仍为不达标，只是已登记决策、不污染退出码）：\n`);
+    ACCEPTED_LIST.forEach((a) => {
+      process.stdout.write(`  ⊘ ${a.name}${a.detail ? ` — ${a.detail}` : ''}\n`);
+      process.stdout.write(`      决策：${a.reason}\n`);
+    });
   }
   process.stdout.write(`${'-'.repeat(52)}\n`);
   return FAIL === 0 ? 0 : 1;
