@@ -5,7 +5,8 @@
  * core/cache.js（全应用唯一允许直接触碰 localStorage 的模块），本模块不直接写 Storage。
  *
  * ★两条存储纪律（改本文件前先读，它们决定了本模块为什么长这样）：
- *   1) **几何绝不落盘**：`overview=full` 单次 137 KB / 5987 点（沙箱实测）。写进
+ *   1) **几何绝不落盘**：`overview=full` 单次的几何是**百 KB 量级**（具体数字、出处与口径
+ *      见 `src/data/osrm.js` 文件头的「体积口径」一节，那里是全仓唯一出处）。写进
  *      localStorage 的后果是「几趟长行程吃光 4.5 MB 预算」，而 `cache.prune()` /
  *      `evictOldest()` 会在配额满时按 `storedAt` 淘汰**最旧条目** —— 行程是用户数据，
  *      被当成缓存淘汰是灾难。所以 `saveTrip()` 一律先过 `migrateTrip()`（内含

@@ -12,7 +12,7 @@
  *   `getSource()` 查全量表 —— 于是「自检仍是六路」与「新源可被请求」两件事都成立。
  *
  * 契约数值（架构 §4.8，不得随意改）：
- *   osrmRoute  9000ms / retry 1 / 不缓存（几何 137 KB，禁止落盘）
+ *   osrmRoute  9000ms / retry 1 / 不缓存（几何百 KB 量级，禁止落盘；数字口径见 osrm.js）
  *   amapPoi    6000ms / retry 1 / 缓存 6 小时（省每月 5000 次配额）
  */
 
@@ -59,7 +59,8 @@ export const ROAD_SOURCES = {
     // 弱网下 6 s 偏紧。★仍是沙箱口径，【待真机复测】。
     timeoutMs: 9000,
     retry: 1,
-    // ★不缓存：overview=full 单次 137 KB，几趟长行程就能把 4.5 MB 预算吃光；而
+    // ★不缓存：overview=full 单次的几何是百 KB 量级（数字、出处与口径见 src/data/osrm.js
+    //   文件头的「体积口径」一节，全仓唯一出处），几趟长行程就能把 4.5 MB 预算吃光；而
     // cache.prune()/evictOldest() 会按 storedAt 淘汰最旧条目 —— 行程是用户数据，
     // 把它当缓存淘汰是灾难。几何只在内存里活一次。
     ttlMs: 0,

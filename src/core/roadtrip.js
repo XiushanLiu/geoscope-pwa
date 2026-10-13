@@ -250,15 +250,14 @@ export function emptyRoute() {
  * ★把 RouteInfo 压成**可持久化**的形状：几何与逐边累积曲线一律置 null。
  *
  * 为什么必须压（架构 §4.3 存储纪律，改这里之前先读）：
- *   `overview=full` 单次响应达 **137 KB / 5987 点**（726 km 路线）。写进
- *   localStorage 的后果有两个：① 4.5 MB 预算几趟长行程就见底；② `core/cache.js` 的
- *   `evictOldest()` / `prune()` 在配额满时会按 `storedAt` 淘汰最旧条目 ——
- *   **行程是用户数据，被当成缓存淘汰是灾难**。所以几何只在内存里活一次。
+ *   `overview=full` 单次的几何是**百 KB 量级**（726 km 那条路线就是几百 KB；具体数字、
+ *   出处与口径见 `src/data/osrm.js` 文件头的「体积口径」一节 —— 那里是全仓唯一出处，
+ *   本处不复制，避免抄散后又互相矛盾）。写进 localStorage 的后果有两个：
+ *   ① 4.5 MB 预算几趟长行程就见底；② `core/cache.js` 的 `evictOldest()` / `prune()`
+ *   在配额满时会按 `storedAt` 淘汰最旧条目 —— **行程是用户数据，被当成缓存淘汰是灾难**。
+ *   所以几何只在内存里活一次。
  *   需要离线看图时由用户显式点「缓存此行程的路线几何」，那时存的是
- *   `shape`（overview=simplified，1.4 KB 量级），本函数**保留** shape。
- *   ★口径：137 KB / 5987 点 / 1.4 KB 这几个数**引自架构文档（架构师沙箱实测），
- *     不是本仓库工程师自测**；更完整的里程对照表见 `src/data/osrm.js` 文件头。
- *     写在这里只为说明「为什么绝不能落盘」，文档若修订以文档为准。
+ *   `shape`（`overview=simplified`，1.2–1.4 KB 量级），本函数**保留** shape。
  *
  * @param {*} route 原始 RouteInfo。
  * @returns {Object} 可持久化形状。
