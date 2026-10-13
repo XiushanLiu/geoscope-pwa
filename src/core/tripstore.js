@@ -105,10 +105,18 @@ export function listTripsWithIssues() {
 /**
  * 列出全部行程（按 updatedAt 倒序）。
  *
- * ★只给行程，不给失败原因 —— 需要「说清为什么少了几条」的界面请改用
- *   `listTripsWithIssues()`。保留这个简版是为了不改动既有调用方。
+ * ⚠️ **新代码一律不要用本函数，用 `listTripsWithIssues()`。**
  *
- * @returns {Array<Object>} 行程列表。
+ * 为什么：本函数把 `skipped` 算出来又丢掉 —— 数据一条不少，但「有 N 条打不开、为什么」
+ *   这个信息**在调用方这一层重新变回静默**。也就是说，静默点只是从 tripstore 内部挪到了
+ *   调用方，并没有消失。所以「界面能如实说『1 条打不开』」这件事，**只有在调用方改用
+ *   `listTripsWithIssues()` 时才成立**；走本函数的界面，用户看到的仍然是「我的行程
+ *   少了」，零解释。
+ *
+ * 保留它只为一个理由：架构 §4.2 的类图里 `+listTrips() Trip[]` 是既定签名，
+ *   已有调用方不该被破坏。**它不是推荐入口。**
+ *
+ * @returns {Array<Object>} 行程列表（打不开的那些不在此列，且本函数不告诉你有哪些）。
  */
 export function listTrips() {
   return listTripsWithIssues().trips;
