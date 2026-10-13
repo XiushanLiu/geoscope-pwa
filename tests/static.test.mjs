@@ -151,8 +151,13 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
     'src/ui/errtext.js',
     'src/core/http.js', 'src/core/cache.js', 'src/core/store.js', 'src/core/geo.js', 'src/core/sun.js', 'src/core/wmo.js', 'src/core/format.js',
     'src/core/mag.js', 'src/core/backup.js', 'src/core/csv.js',
+    // 自驾模块（T01/T02）：★新增 src 模块要同步三处清单 —— sw.js 的 SHELL_ASSETS、
+    //   tools/build-standalone.mjs 的 ORDER、以及这里。漏任何一处都会在**不同的地方**红：
+    //   sw 漏 → check.mjs 第 6 节报红；ORDER 漏 → 打包直接中止；这里漏 → 新模块没人守。
+    'src/core/apikeys.js', 'src/core/roadtrip.js', 'src/core/tripstore.js',
     'src/data/sources.js', 'src/data/openmeteo.js', 'src/data/photon.js', 'src/data/tiles.js', 'src/data/health.js',
     'src/data/wmm2025.js',
+    'src/data/osrm.js', 'src/data/amap.js', 'src/data/roadsources.js',
     'src/ui/app.js', 'src/ui/now.js', 'src/ui/selfcheck.js', 'src/ui/compass.js', 'src/ui/map.js',
     'src/ui/settings.js', 'src/ui/download.js',
   ];
