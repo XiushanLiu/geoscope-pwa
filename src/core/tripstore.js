@@ -71,28 +71,47 @@ function _writeIndex(ids) {
 }
 
 /**
- * 列出全部行程（按 updatedAt 倒序：最近改过的在最前）。
+ * 列出全部行程，并**如实带回被跳过的那些**（按 updatedAt 倒序：最近改过的在最前）。
  *
- * 迁移失败的条目（例如来自更高版本）会被**跳过并记录日志** —— 列表这个函数没法把
- * reasonKey 返给调用方（它返回的是数组），要看具体原因请用 `readTrip(id)`。
+ * ★为什么不把「迁移失败的条目」悄悄丢掉（改这里之前先读）：
+ *   原实现是 `continue` + 一句 `log()`。而 `store.log()` 在 debug 关闭时**完全静默** ——
+ *   于是一条坏掉的 / 来自更高版本的行程会从列表里**凭空消失**，用户看到的是「我的行程
+ *   不见了」，而没有任何解释。这就是「登记了就静默」那一类腐烂：有个记录动作，但没人看。
+ *   所以失败条目必须**跟着返回值一起出来**，让界面能说「1 条行程打不开，原因：…」。
  *
- * @returns {Array<Object>} 行程列表。
+ * @returns {{trips:Array<Object>, skipped:Array<{id:string, reasonKey:string, reasonParams:Object|undefined}>}} 结果。
  */
-export function listTrips() {
+export function listTripsWithIssues() {
   const ids = _readIndex();
+  /** @type {Array<Object>} */
   const trips = [];
+  /** @type {Array<{id:string, reasonKey:string, reasonParams:Object|undefined}>} */
+  const skipped = [];
   for (const id of ids) {
     const entry = get(keyOf(id));
     if (entry === null || entry === undefined) continue;
     const m = migrateTrip(entry.value);
     if (!m.ok) {
       log('trip-skip', id, m.reasonKey || '');
+      skipped.push({ id, reasonKey: m.reasonKey, reasonParams: m.reasonParams });
       continue;
     }
     trips.push(m.trip);
   }
   trips.sort((a, b) => b.updatedAt - a.updatedAt);
-  return trips;
+  return { trips, skipped };
+}
+
+/**
+ * 列出全部行程（按 updatedAt 倒序）。
+ *
+ * ★只给行程，不给失败原因 —— 需要「说清为什么少了几条」的界面请改用
+ *   `listTripsWithIssues()`。保留这个简版是为了不改动既有调用方。
+ *
+ * @returns {Array<Object>} 行程列表。
+ */
+export function listTrips() {
+  return listTripsWithIssues().trips;
 }
 
 /**

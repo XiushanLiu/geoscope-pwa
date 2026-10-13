@@ -426,6 +426,33 @@ test('⑤ 更高版本的行程读得到原因：trip.newerSchema（不改写、
   assert.deepEqual(read.reasonParams, { schema: '2' });
 });
 
+test('⑤ ★坏掉的行程不许从列表里凭空消失：listTripsWithIssues 必须带回原因', () => {
+  resetTrips();
+  const good = rt.newTrip({});
+  good.name = '好的那条';
+  const bad = rt.newTrip({});
+  bad.name = '会被写坏的那条';
+  store.saveTrip(good);
+  store.saveTrip(bad);
+
+  // 模拟本机里被写坏的条目：直接把 schema 改成更高版本塞回去（真机上可能是
+  // 「新版本应用写过的行程」或一条损坏的 localStorage 记录）
+  const key = `gs:v1:trip:${bad.id}`;
+  const entry = cache.get(key);
+  cache.set(key, { ...entry.value, schema: 2 }, 1000);
+
+  const { trips, skipped } = store.listTripsWithIssues();
+  assert.equal(trips.length, 1);
+  assert.equal(trips[0].id, good.id);
+  // ★关键：失败不能只进日志（debug 关闭时 log 完全静默），必须跟着返回值出来
+  assert.equal(skipped.length, 1);
+  assert.equal(skipped[0].id, bad.id);
+  assert.equal(skipped[0].reasonKey, 'trip.newerSchema');
+  assert.deepEqual(skipped[0].reasonParams, { schema: '2' });
+  // 简版仍然只给行程（不改动既有调用方）
+  assert.equal(store.listTrips().length, 1);
+});
+
 test('⑤ ★删除必须精确：id 互为前缀的两条行程，删一条不许带走另一条', () => {
   resetTrips();
   // 导入进来的行程 id 是别的设备生成的，撞前缀完全可能（'abc' / 'abcd'）
