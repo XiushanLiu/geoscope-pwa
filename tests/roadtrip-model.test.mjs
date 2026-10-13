@@ -312,6 +312,20 @@ test('④ 几何不落盘：726 km 的 full 几何（5987 点）在 slim 后彻�
   assert.ok(json.indexOf('"geometry":[[') === -1);
 });
 
+test('④ ★两个累计口径都落盘（重载后界面仍说得清「两者相差 <1 %」）', () => {
+  const trip = bigTrip();
+  trip.route.durationS = 29898; // OSRM 总时长
+  trip.route.cumulativeTotalS = 29860; // Σ annotation（726 km 实测差 38 s）
+  const slim = rt.slimTrip(trip);
+  assert.equal(slim.route.durationS, 29898);
+  assert.equal(slim.route.cumulativeTotalS, 29860, '★单个标量，跟着行程一起持久化');
+  assert.equal(slim.route.cumulativeS, null, '曲线本身不落盘，但它的合计要留着');
+  // 没有 annotations 的行程：两者都是 null（不许拿 durationS 冒充）
+  const bare = rt.newTrip({});
+  assert.equal(bare.route.cumulativeTotalS, null);
+  assert.equal(bare.route.durationS, null);
+});
+
 test('④ 用户主动缓存的 shape（简化几何）**允许**落盘', () => {
   const trip = bigTrip();
   trip.route.shape = { source: 'osrm-simplified', pts: [[104.06, 30.57], [108.93, 34.34]], rawCount: 5987 };

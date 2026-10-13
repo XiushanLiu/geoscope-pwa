@@ -7,15 +7,25 @@
  *
  * 端点：`https://router.project-osrm.org/route/v1/driving/{lon},{lat};{lon},{lat};…`
  *
- * ★三个照实测固化的点（改参数前先看架构文档 §0）：
- *   - 坐标顺序是 **lon,lat**（写反会绕到地球另一侧，且往往仍返回 200）；
- *   - `overview=full&geometries=geojson` 是可用的，但 726 km 路线达 **137 KB / 5987 点**，
- *     所以几何**只在内存里活一次**，绝不落 localStorage（由源声明 `cacheable:false` 保证）；
+ * ★三个照实测固化的点（改参数前先看架构文档 §0 / §0.1）：
+ *   - 坐标顺序是 **lon,lat**（写反会绕到地球另一侧，且往往仍返回 200 —— 与 Esri 瓦片的
+ *     `{z}/{y}/{x}` 是同一类「不报错但错了」的坑）；
+ *   - `overview=full&geometries=geojson` 可用，但体积随里程线性放大：726 km ≈ 134 KB /
+ *     5987 点，2144 km ≈ 299 KB，4043 km ≈ **537 KB / 24133 点**。所以几何**只在内存里
+ *     活一次**，绝不落 localStorage（源声明 `cacheable:false` + `roadtrip.slimRoute()` 双保险）；
  *   - 业务失败是 **HTTP 200 + `code` 不是 "Ok"**（如 `{"code":"InvalidOptions"}`），
  *     以及「HTTP 200 但 distance 全 0」—— 两者都必须在 parse 内翻译成带文案键的错误，
  *     否则 http.js 会把它们当成成功数据（本项目踩过的「假成功源」同类坑）。
  *
- * ⚠️ 口径：上述体积 / 时延数字均为**沙箱实测**（架构文档 §0 E1–E9），不是真机结论。
+ * ★两个累计口径**不许假装相等**（架构 §4.4.1 第 8 条）：
+ *   `Σ annotation.duration`（逐边实算，切段的唯一依据）与 OSRM 给的 `duration`
+ *   （界面展示值）实测存在系统性小差异 —— 726 km 差 38 s（0.13 %）、336 km 三点路线差
+ *   95 s（0.66 %），且**恒为 annotation 略小**（OSRM 内部取整所致）。所以本模块把两者
+ *   **分开**返回：`cumulativeTotalS`（前者）与 `durationS`（后者），由 UI 照实写注脚，
+ *   绝不拿一个冒充另一个。
+ *
+ * ⚠️ 口径：上述体积 / 时延 / 差值数字均为**沙箱实测**（架构 §0 / §0.1，不同轮次略有出入），
+ *    不是真机结论；真机复测项见 §12（V1 时延定标 / V2 蜂窝 / V9 demo 实例限流）。
  */
 
 import { makeErrorWithKey } from '../core/http.js';
@@ -196,6 +206,9 @@ export function parseRoute(json, ctx = {}) {
   // 只在 annotations 齐备时构建。缺失时给 null（kind='none'）而不是按距离比例估算 ——
   // 「距离 ÷ 假想速度」推出来的分段时长是编的，宁可让上层看见「没有依据」。
   let cumulativeS = null;
+  // ★Σ annotation.duration：与 durationS（OSRM 给的总时长）**不是同一个数**，
+  //   实测恒小 0.13 %–0.66 %。分开返回是「不许假装相等」的落地，UI 注脚要用它。
+  let cumulativeTotalS = null;
   let cumulativeKind = 'none';
   let edgeCount = 0;
   for (const leg of rawLegs) {
@@ -218,6 +231,7 @@ export function parseRoute(json, ctx = {}) {
     }
     acc.push(sum);
     cumulativeS = acc;
+    cumulativeTotalS = sum;
     cumulativeKind = 'annotations';
   }
 
@@ -232,6 +246,7 @@ export function parseRoute(json, ctx = {}) {
     snapMaxM,
     legs,
     cumulativeS,
+    cumulativeTotalS,
     cumulativeKind,
     geometry: geo,
     geometryPoints: geo.length,

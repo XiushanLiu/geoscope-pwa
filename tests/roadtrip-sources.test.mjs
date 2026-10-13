@@ -156,6 +156,7 @@ test('③ 正常响应：累积曲线长度 = 几何点数，吸附距离与最�
   assert.equal(route.durationKind, 'osrm-freeflow', '★界面必须照此标注「非实时路况」');
   assert.equal(route.geometryPoints, 4);
   assert.deepEqual(route.cumulativeS, [0, 100, 300, 600]);
+  assert.equal(route.cumulativeTotalS, 600);
   assert.equal(route.cumulativeKind, 'annotations');
   assert.equal(route.waypoints.length, 2);
   assert.equal(route.waypoints[1].snapDistanceM, 1580);
@@ -175,6 +176,22 @@ test('③ 多段 legs：累积曲线跨段连续累加（切段的唯一依据�
   assert.deepEqual(route.cumulativeS, [0, 100, 300, 350, 420]);
   assert.equal(route.legs.length, 2);
   assert.equal(route.legs[1].fromIndex, 1);
+});
+
+test('③ ★两个累计口径分开返回：cumulativeTotalS ≠ durationS，不许拿一个冒充另一个', () => {
+  // 用 726 km 那一档的**真实量级**造夹具：Σ annotation = 29860 s，OSRM duration = 29898 s
+  //（实测差 38 s / 0.13 %，沙箱口径）。两个值都必须带着，让 UI 能照实写注脚。
+  const json = fakeRoute([10000, 10000, 9860]);
+  json.routes[0].duration = 29898;
+  json.routes[0].distance = 726004.8;
+  const route = osrm.parseRoute(json, { overview: 'full' });
+  assert.equal(route.cumulativeTotalS, 29860, 'Σ annotation.duration');
+  assert.equal(route.durationS, 29898, 'OSRM 自己的总时长（界面展示值）');
+  assert.notEqual(route.cumulativeTotalS, route.durationS, '★两者不许被悄悄统一成一个数');
+  assert.equal(route.cumulativeS[route.cumulativeS.length - 1], 29860, '累积曲线末值 = Σ annotation');
+  // 差值是「小差异」而不是算错：钉住量级，防止哪天差出一个数量级却没人发现
+  const diffRatio = (route.durationS - route.cumulativeTotalS) / route.durationS;
+  assert.ok(diffRatio >= 0 && diffRatio < 0.02, `差值比例 ${diffRatio} 超出「<1% 量级」的预期`);
 });
 
 test('③ annotations 缺失时给 null + kind=none，绝不按距离比例编一条', () => {
@@ -305,11 +322,20 @@ test('④ 没填 Key：build 当场失败，且 requestRoadSource 把它收敛�
   assert.equal(typeof res.meta.finishedAt, 'number');
 });
 
+/**
+ * 测试用的假 Key。
+ *
+ * ★刻意**不是** 32 位纯字母数字：架构 §9 new 增了一条约定「源码里不得出现疑似密钥常量
+ *   （32 位字母数字）」，而高德真实 Key 恰好就是 32 位十六进制。留一个 32 位假串在这里，
+ *   将来那条扫描上线就会被误判成硬编码密钥 —— 测试自己反倒成了反例。
+ */
+const FAKE_KEY = 'testkey-4f2a9c7e1b83';
+
 test('④ 填了 Key：URL 带 key，且不带任何凭据头（由 http.js 保证 credentials:omit）', () => {
-  assert.equal(apikeys.setAmapKey('  abcdef0123456789abcdef0123456789  '), true);
+  assert.equal(apikeys.setAmapKey(`  ${FAKE_KEY}  `), true);
   const req = amap.buildPoiRequest({ lat: 33.0728, lon: 107.0234, typecode: '100000', keyword: '民宿' });
   assert.equal(req.url, 'https://restapi.amap.com/v5/place/text');
-  assert.equal(req.params.key, 'abcdef0123456789abcdef0123456789', '写入时已 trim');
+  assert.equal(req.params.key, FAKE_KEY, '写入时已 trim');
   assert.equal(req.params.types, '100000');
   assert.equal(req.params.location, '107.0234,33.0728');
   assert.equal(req.params.radius, '5000');
@@ -330,10 +356,11 @@ test('⑤ apikeys：非法值一律拒绝（不静默接受），掩码不回显
   assert.equal(apikeys.setAmapKey(null), false);
   assert.equal(apikeys.setAmapKey(12345), false);
 
-  assert.equal(apikeys.setAmapKey('abcdef0123456789abcdef0123456789'), true);
-  assert.equal(apikeys.getAmapKey(), 'abcdef0123456789abcdef0123456789');
+  assert.equal(apikeys.setAmapKey(FAKE_KEY), true);
+  assert.equal(apikeys.getAmapKey(), FAKE_KEY);
   assert.equal(apikeys.hasAmapKey(), true);
-  assert.equal(apikeys.maskKey('abcdef0123456789abcdef0123456789'), 'abcd************************6789');
+  // 20 位：首 4 + 12 个星 + 末 4
+  assert.equal(apikeys.maskKey(FAKE_KEY), 'test************1b83');
   assert.equal(apikeys.maskKey('short'), '*****', '短串整串打星，避免首尾各留 4 位等于全露');
   assert.equal(apikeys.maskKey(''), '');
 
