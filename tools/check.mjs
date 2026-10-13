@@ -1417,26 +1417,44 @@ async function main() {
    * 背景：真机 bug（320px CSS 视口 + 「特大」档），页头标题「方位 · 磁偏角」折成两行。
    * 第 12 节只守了底部 tabbar 的空间预算，**没有守页头**，所以这条缺陷没人拦。
    *
-   * 根因（用本机 Chromium 在 320px 视口 + 三档字号下**实测**得出，不是纸面推演）：
-   *   ① `.hd-time` 原为 `white-space: nowrap` —— 文案被钉成一行不可断；
-   *   ② `.hd-time` 既无 `min-width: 0` 也无 `max-width`，flex 收缩下限 = 整行文案宽；
-   *   ③ `.hd-place` 是 flex item，`flex-basis: auto` 的自动最小尺寸 = min-content，
-   *      中文之间没有断行点 → min-content ≈ **2 × font-size**（默认档 32px、特大档 41.6px）。
-   *   实测左列实得宽度 70.59 / 40.97 / 20.81px（默认 / large / xlarge），
-   *   而标题「方位 · 磁偏角」真实需要 103.26 / 118.75 / 134.24px → 断成 2 / 3 / 6 行。
+   * 根因（本机 Chromium，320px CSS 视口 / DPR 2.75，三档字号下**实测**）：
+   *   ① `.hd-time` 原为 `white-space: nowrap`，且既无 `min-width: 0` 也无 `max-width`
+   *      → flex 收缩下限 = 整行文案宽 = **197.41 / 227.03 / 256.64px**（默认/large/xlarge）。
+   *   ② 于是留给左列的算术余量只剩 280 − 12 − 右列 = **70.59 / 40.97 / 11.36px**。
+   *   ③ 左列撑不到那么窄：作为 flex item，它的自动最小尺寸 = 自己的 min-content =
+   *      max(标题的 min-content, `.hd-coord` 的最长不可断词)。
    *
-   * 本节把这次的算术固化成断言。三档（默认 / large / xlarge）全部要过。
+   * ⚠️⚠️ 关于「修复前左列到底多宽」—— 这是一个**随手握住的量**，注释里写死过三轮，
+   *     三轮数字不一样。2026-10 复核时终于搞清楚原因：**它取决于 `.hd-coord`
+   *     当时显示的是什么**，而不是 CSS：
+   *       · 坐标已解析出真实数值时（如 `40.1712°N, 116.3112°E`）：左列被**钉在这个坐标串
+   *         的最长不可断词上**，实测 large / xlarge = 69.56 / 78.63px；把坐标换成
+   *         `1.2345°N, 6.7890°E`，同一秒同一个 CSS 立刻变成 70.77px —— 换一串坐标换一个数。
+   *       · 坐标尚未解析时（`snapshot.coord` 为 null）：左列里只剩标题这一个孩子，
+   *         此时左列 = max(算术余量, 标题 min-content) = **70.59 / 40.97 / 20.81px**，
+   *         标题断成 **2 / 3 / 6 行**（实测 `getClientRects()` 数行）。
+   *     ⇒ 本节的<｜hy_place▁holder▁no▁813｜>统一取后者（**左列只有标题**，也是标题最坏的那一档），理由有三：
+   *       它最坏、它**只由 CSS + 固定 i18n 文案决定**（不随用户坐标漂移，可复现）、
+   *       它正是当初真机截图里的形态。前一种口径的读数这里也保留了 ①，供将来对账。
+   *       余下的 `max(axis) `会让 flex 行撑出 `.hd`：实测 .hd 溢出 0 / 25 / 63px（缺陷 2）。
+   *
+   * ④ ★实测**推翻**了本注释早先的一句判词：标题 min-content 不是「2 × font-size」，
+   *    而是 **1 个汉字**。游离探针实测中文标题 minEm = **1.00**（即 1 × fs-lg，
+   *    xlarge 档 20.81px），与上一条 20.81 严丝合缝；`2 × font-size`(= 41.6px) 没有任何依据。
+   *    （每字典依据：汉字 / `·` / `：` / `，` 在本字体栈里都是 1.00 em，见下方字宽模型。）
+   *
+   * 本节把这次的算术固化成断言，并**按locale 分别读两张文案表的真实标题**来核算。
    *
    * ⚠️ 覆盖面（**不要把这条守卫当成「保证不换行」**）：
-   *   它能抓的是**声明的空间预算超限** —— 右列 `max-width` 被调大、`.hd` 的 gap / padding
-   *   变大、`--fs-lg` 阶梯被调大、右列 `nowrap` 被加回来这类「纸面上就该挤坏」的改动。
-   *   它**抓不住真实字体渲染差异**：这里的「标题宽度」取 `7 × 0.96 × --fs-lg`（7 个字形、
-   *   每字 0.96em），而本机 Chromium 实测系数是 6.4538 × --fs-lg（每字 0.922 em）。
-   *   本节的估计**比实测更保守**（更宽），所以「本节全绿」仍有真机余量；
-   *   但字重 / font-family 回退（Noto Sans SC 未命中时落到 PingFang / 微软雅黑）会改变
-   *   真实字宽，可能比这个数更宽。**本节全绿 ≠ 真机一定不换行；本节报红 = 纸面就已经不够。**
+   *   它能抓的是**声明的空间预算超限** —— 右列 `max-width` 百分比被调大、`.hd` 的
+   *   gap / padding 变大、`--fs-lg` 阶梯被调大、`.app` 的 padding 变大、右列 `nowrap`
+   *   被加回来、以及**任何一条 i18n 标题变长**这类「纸面上就该挤坏」的改动。
+   *   它**抓不住真实字体渲染差异**：这里的标题宽度取「逐字孤立步进求和」（见下方模型），
+   *   本机 Chromium 实测比它窄 0.09%（中文）/ 6.33%（英文），方向都是**保守**，
+   *   所以「本节全绿」仍有真机余量；但字重 / font-family 回退（字体栈未命中时落到
+   *   其他物理字体）会改变真实字宽。**本节全绿 ≠ 真机一定不换行；本节报红 = 纸面就已经不够。**
    *   真正的换行防线是 CSS 里的 `overflow-wrap: anywhere`（给中文一个兜底断点）
-   *   配合右列的 `max-width`（把「右列最多占多少」写成硬约束），本节另有两断言钉住它们。
+   *   配合右列的 `max-width`（把「右列最多占多少」写成硬约束），本节另有断言钉住它们。
    */
   section('16. 页头宽度预算（窄屏 320px 三档字号下标题不得折行 / 页头不得溢出）');
 
@@ -1462,84 +1480,274 @@ async function main() {
     '右列的宽度上限必须是百分比：它是「与文案长度解耦」的唯一手段 —— 去掉它，右列又会去抢左列的宽度'
   );
 
-  // 右列的宽度上限：百分比在 flex item 上按**包含块的 padding box（content box）**解析。
-  // 本机 Chromium 实测：320px 视口下 .hd 的 content box = 288px，45% 落到 126px
-  // 而 288 × 0.45 = 129.6 —— 说明解析基数是 280px（= 288 − 2 × .hd 的 --sp-1 padding）。
-  // 这里按 280px 复刻，误差方向保守（280 < 288，算出的上限更小 → 更严）。
+  // 右列的宽度上限：百分比宽度按**包含块的 content box** 解析（CSS 2.1 §10.4）。
+  //
+  // ⚠️ 别把两个盒子搞混 —— 这里踩过一次，名字写反发了一轮评审：`.hd` 有左右各
+  //    `--sp-1`(4px) 的 padding，于是
+  //       padding box = clientWidth       = 288px
+  //       content box = 288 − 2 × 4       = **280px**   ← 百分比解析基数
+  //    本机 Chromium 实测（`.hd-time` 实得宽 vs 两个候选基数）：
+  //       320px 视口 → 126.00px = 280 × 0.45 ✓（288 × 0.45 = 129.60 ✗）
+  //       360px 视口 → 144.00px = 320 × 0.45 ✓（147.60 ✗）
+  //       390px 视口 → 157.50px = 350 × 0.45 ✓（161.10 ✗）
+  //       414px 视口 → 168.30px = 374 × 0.45 ✓（171.90 ✗）
+  //       459px 视口 → 188.55px = 419 × 0.45 ✓（192.15 ✗）
+  //    540px 及以上不再是 content box × 0.45 —— 那时右列文案的 max-content(197.41px @默认档)
+  //    已经小于上限，两列不再争空间，`max-width` 不再生效（读数停在 197.41px 那个常数）。
+  //    这条提醒很重要：**别拿宽屏的读数去反推解析基数**，那里根本没到上限。
+  //
+  // 下面的 hdInnerW16 就是 content box（320 − 2×.app 的 16 − 2×.hd 的 4 = 280），
+  // 名字里的 Inner 特指 content box，别再改回 padding box。
   const hdInnerW16 = MIN_VIEWPORT - 2 * (appPadH || 0) - 2 * (hdPadH16 || 0);
   const hdTimeMaxW16 = hdTimeMaxPct16 === null ? null : (hdInnerW16 * hdTimeMaxPct16) / 100;
 
-  /** 页头标题「方位 · 磁偏角」7 个字形，每字按 0.96 em 保守估（实测 0.922 em）。 */
-  const HD_TITLE_GLYPHS = 7;
-  const HD_TITLE_ADVANCE = 0.96;
-  /** 左列的 min-content：nowrap 的中文里没有断行点 → 至少 2 个汉字 = 2 × font-size。 */
-  const HD_PLACE_FLOOR_GLYPHS = 2;
-  /**
-   * 右列在**可换行**时的 min-content：`overflow-wrap: anywhere` 会把 min-content 压到
-   * 一个字符。文案是等宽数字 + 汉字混排，取 1 个字高（= --fs-xs）作为下限保守估计。
+  /* ---- 字宽模型：逐字符步进求和（em），参数来自 Chromium 实测标定 ----
+   *
+   * 标定方法：把 `.hd-place` 的 font-family / font-weight / letter-spacing 原样复制到一个
+   * 游离探针上，塞进**父盒 `width: max-content`**、待测文本**静态定位**（不要绝对定位，
+   * 否则不参与父盒固有宽度计算，读出来的会是 min-content —— 这个坑踩过一次），
+   * 探针字号 100px，读数 ÷ 100 即 em。`font-weight: 600`。
+   * 实测（本机 Chromium，headless Edge，与 canvas measureText 交叉校验到小数点后 4 位）：
+   *   汉字（方 位 磁 偏 角）/ `·`(U+00B7) / `：` / `，` = **1.0000 em**（这个栈里都是全角宽）
+   *   空格                                          = **0.2270 em**（`white-space: pre` 下
+   *                                                   `a b` 与 `ab` 的 max-content 之差）
+   *   拉丁字母 0.3041(i) ~ 0.9150(W)，孤立均值     ≈ **0.572 em**（见 ADV_NARROW）
+   *
+   * ★ ADV_SPACE 取 0.23 而不是实测的 0.227：向上取整，方向**保守**（估宽偏大）。
+   *   这不是可选项 —— 用实测的 0.227 时，中文标题模型得 6.454em < 实测 6.4541em，
+   *   模型会比真机**窄** 0.0001em，「模型 ≥ 真机」的自检会当场翻红。
+   *
+   * ★为什么用「逐字孤立步进求和」而不是「拿本串实测宽度反推一个系数」：
+   *   真实排版会因 kerning / 连字而收缩 —— 英文整串实测 max-content = 15.5761em，
+   *   而孤立步进求和 = 16.562em（**宽 6.33%**）；中文实测 6.4541em，求和 = 6.460em（**宽 0.09%**）。
+   *   孤立求和天然偏保守，换来的是「对未来任意文案都不会低估」；反过来若按本串反推系数，
+   *   换一串宽字母居多的文案（满屏 W/M）就可能被低估 → 假绿。
+   *   护栏假绿（漏报）的代价远大于假红，所以选上界。这个差值在输出里也会打印出来。
    */
-  const HD_TIME_FLOOR_GLYPHS = 1;
+  const ADV_FULLWIDTH = 1.0;
+  const ADV_SPACE = 0.23;
+  const ADV_NARROW = 0.572;
+
+  /** 判定一个字符是否按全角宽度参与排版（汉字 / CJK 标点 / 全角形式 / 间隔号）。 */
+  const isFullwidth = (ch) => /[\u4E00-\u9FFF\u3000-\u303F\uFF00-\uFFEF\u00B7]/.test(ch);
 
   /**
-   * 复刻 flex 的实际分配（**这是本节的算术核心**，2026-真机 bug 就是用这一套复现的）。
+   * 估算一段文本在给定字号下的**单行渲染宽度**（px）。
    *
-   * `.hd` 是 `display: flex`，两个 item 的 `flex-basis` 都是 `auto`。Chromium 的
-   * auto basis 解析已不再是纯 max-content，而是「按 available space 确定性的按比例
-   * 分配」；但**真正决定「标题会不会折行」的不是这份分配，而是各自在空间不够时的
-   * 收缩下限**：flex item 的自动最小尺寸 = 自己的 min-content（除非显式 `min-width: 0`）。
+   * @param {string} text 文本内容。
+   * @param {number} fsPx 字号（px）。
+   * @returns {number} 估算宽度（px）。
+   */
+  function estimateTextWidth(text, fsPx) {
+    let em = 0;
+    for (const ch of String(text)) {
+      if (isFullwidth(ch)) em += ADV_FULLWIDTH;
+      else if (/\s/.test(ch)) em += ADV_SPACE;
+      else em += ADV_NARROW;
+    }
+    return em * fsPx;
+  }
+
+  /**
+   * 估算一段文本的 **min-content**（px）：即它不断行时能压到的最窄宽度。
    *
-   *   - 左列 `.hd-place` 未设 `min-width: 0` → 收缩下限 = min-content = 2 × font-size；
-   *   - 右列 `.hd-time` 设了 `min-width: 0` 且 `overflow-wrap: anywhere` → 下限 = 1 字。
+   * 规则：先按空白切词；词内含全角字符（汉字可字间断行）→ 该词的 min-content 退化为一个字符；
+   * 否则按整词宽。取所有词的最大值。
+   * 实测对照：中文标题 min-content = 1.00 em（本模型给出 1.00 em ✓）；
+   * 英文标题 min-content = 5.575 em（本模型给出 6.292 em，偏保守 ✓）。
    *
-   * 于是「左列实得宽」的下界是：
-   *     hdContent − gap − 右列能吃掉的最大宽度
-   *   其中「右列能吃掉的最大宽度」= max-width（45%）之后的**实际占用**，
-   *   但它至少也要放下自己的 min-content。
+   * @param {string} text 文本内容。
+   * @param {number} fsPx 字号（px）。
+   * @returns {number} 估算的 min-content（px）。
+   */
+  function estimateMinContent(text, fsPx) {
+    let maxEm = 0;
+    for (const tok of String(text).split(/\s+/)) {
+      if (!tok) continue;
+      const chars = [...tok];
+      const em = chars.some(isFullwidth)
+        ? Math.max(...chars.map((c) => (isFullwidth(c) ? ADV_FULLWIDTH : ADV_NARROW)))
+        : chars.reduce((a, c) => a + (/\s/.test(c) ? ADV_SPACE : ADV_NARROW), 0);
+      if (em > maxEm) maxEm = em;
+    }
+    return maxEm * fsPx;
+  }
+
+  /**
+   * 字号刻度记录：下面每条都在 Chromium + DevTools 里用 **`width: min-content` /
+   * `max-content` + canvas measureText 双路量过**（同一份 font-family / weight 600），
+   * 单位 em。它们的作用不是参与预算判定，而是**给上面的字宽模型兜底**：
+   * 一旦有人把 ADV_* 调小到让模型比真机窄，这几条会立刻变红，防止把护栏调成假绿。
    *
-   * 这里给出两个数并取**保守的那个**：
-   *   A) auto 分配：hdContent − gap − maxWidth（右列取满自己的上限）
-   *   B) 地板下界：hdContent − gap − 右列不被允许超过的上限，与 floor 比较
+   * @type {Object<string, {max:number, min:number}>}
+   */
+  const TITLE_GROUND_TRUTH = {
+    '方位 · 磁偏角': { max: 6.4541, min: 1.0 },
+    'Bearing · Magnetic declination': { max: 15.5761, min: 5.575 },
+  };
+
+  /**
+   * 页头标题的 i18n key。
    *
-   * ★ 判据：左列必须至少拿到「标题单行所需宽」。若只写 max-width 而不给右列
-   *   `min-width: 0`，右列的不变量会退化成「整行 nowrap 文案宽」——下面的
-   *   `hdTimeMinContent` 会把它抓出来（nowrap 时 min-content = 整行，极大）。
+   * ⚠️ 说清楚本节的覆盖面，别把它当成「所有页面的页头都守住了」：
+   *   - `.hd-place` 出现在 4 个页面：compass / compare / settings 用 `t('<page>.title')`，
+   *     **now 页用 dynamic placeName**（用户输入/GEO 反查出来的地名，长度无上界 ——
+   *     静态脚本没法给一个「通用预算」，它不进本模型，属于**已知覆盖缺口**）；
+   *   - 静态标题里 `compass.title` 是**最宽**的一条（按本节字宽模型逐条算过：
+   *     zh 6.460em vs compare 5.000 / settings 5.460 / tagline 5.460；
+   *     en 16.562em vs compare 7.666 / settings 7.180 / tagline 5.464），
+   *     守住它等价于守住其余三条静态标题。
+   */
+  const HD_TITLE_KEY = 'compass.title';
+
+  /**
+   * 两个语言包里**真实**的页头标题 —— 不写死 7 个字形。
+   *
+   * 之前这里写死 `7 字形 × 0.96em`，等于把英文整档**排除在模型之外**：英文标题
+   * `Bearing · Magnetic declination` 是中文的 ~2.4 倍宽，而当时的守卫连一格都看不见它。
+   * 现在标题直接从 i18n 表里读，改文案 → 这一节的数立刻跟着动。
+   *
+   * @type {Array<{locale:string, text:string}>}
+   */
+  const hdTitles = [
+    { locale: 'zh', text: ZH_TABLE[HD_TITLE_KEY] },
+    { locale: 'en', text: EN_TABLE[HD_TITLE_KEY] },
+  ];
+
+  hdTitles.forEach(({ locale, text }) => {
+    check(
+      `i18n 的 ${locale} 表含 ${HD_TITLE_KEY}（现为 ${text === undefined ? '缺失' : JSON.stringify(text)}）`,
+      typeof text === 'string' && text.length > 0,
+      '页头标题缺失就等于把这一整个语种排除在宽度预算之外'
+    );
+  });
+
+  // 模型自检：估算必须 ≥ 真机实测（保守方向），不然就是漏报。
+  // ★ 刻度记录是**按文案原文**查表的：改了文案就查不到 → 必须重测，不许静默跳过。
+  //   留一个 `if (!gt) continue` 看似方便，实际等于给「改文案」开了一条绕过自检的路，
+  //   所以这里把「查不到」本身判红。
+  for (const { locale, text } of hdTitles) {
+    if (typeof text !== 'string' || !text.length) continue;
+    const gt = TITLE_GROUND_TRUTH[text];
+    check(
+      `${locale} 的 ${HD_TITLE_KEY} 有真机实测刻度记录（现文案 ${JSON.stringify(text)}）`,
+      !!gt && typeof gt.max === 'number' && typeof gt.min === 'number',
+      `文案改过但 TITLE_GROUND_TRUTH 里没有对应刻度：必须在真实排版引擎里重新量 max-content / ` +
+        `min-content 再填进来 —— **不要凭感觉估一个数**，估窄了本节就变成假绿（漏报）`
+    );
+    if (!gt) continue;
+
+    const modelMaxEm = estimateTextWidth(text, 100) / 100;
+    const modelMinEm = estimateMinContent(text, 100) / 100;
+    check(
+      `字宽模型对 ${JSON.stringify(text)} 偏保守：模型 ${modelMaxEm.toFixed(3)}em ≥ 实测 ${gt.max}em`,
+      modelMaxEm >= gt.max - 1e-6,
+      `模型比真机窄 ${(gt.max - modelMaxEm).toFixed(3)}em —— 调小 ADV_* 会让本节变成假绿`
+    );
+    check(
+      `min-content 模型对 ${JSON.stringify(text)} 偏保守：模型 ${modelMinEm.toFixed(3)}em ≥ 实测 ${gt.min}em`,
+      modelMinEm >= gt.min - 1e-6,
+      `模型比真机窄 ${(gt.min - modelMinEm).toFixed(3)}em`
+    );
+  }
+
+  /**
+   * 复刻 flex 的实际分配（**本节算术核心**）。
+   *
+   * `.hd` 是 `display: flex`，两个 item 的 `flex-basis` 都是 `auto`。真正决定「标题会不会
+   * 折行」的不是 flex 的分配算法，而是**剩余空间够不够标题的 max-content**：
+   *   - 右列 `.hd-time` 有 `max-width: 45%` → 它被**钉死**在 content box 的 45%（126px）
+   *     —— 不是「约 45%」，是实测三档都是 126.00px 整，一分不多一分不少；
+   *   - 于是 `contentBox − gap − 126` = **280 − 12 − 126 = 142px** 就是左列**最多**能拿到的宽度；
+   *   - 这个上限不随字号档变化（百分比 + gap 都是与 fs 无关的量），所以**三档共用同一个
+   *     142px**，而标题所需宽度随 `--fs-lg` 放大 —— 压力集中在最大档。
+   *   实测左列实得宽从未越线：中文 103.27 / 142 / 142px，英文 142 / 142 / 142px（三档）。
+   *
+   * ⚠️ 本断言**故意不读右列文案的长度**，这不是偷懒，是实测结论。
+   *   右列文案已经加长到远超 126px 上限了（默认档实测 max-content = 197.41px），也就是
+   *   上限**早就饱和**。在「左列只有标题」的确定性状态下（去掉 `.hd-coord`，排除坐标干扰）
+   *   把 `compass.subtitle` 依次拉长：
+   *         文案长度 21 → 34(1.6×) → 84(4×)
+   *         右列实得   126 → 126 → 126px        ← 横向一分不动
+   *         左列实得 103.27 → 103.27 → 103.27px ← 一行也没变，标题恒为 1 行
+   *         唯一变化：右列行数 2 → 3 → 8 行、`.hd` 溢出恒为 0
+   *   反向才有效：文案缩短到 `--`(2 字符)，右列自然宽掉到 7.64px —— 证明 126 确实是
+   *   `max-width` 撑出来的上限，不是文案长度凑出来的巧合。
+   *   ⇒ 把文案长度塞进算式，得到的就是一个**永远不会影响结果**的项（上一版 `timeFloor`
+   *   正是这么一个死变量：`Math.min(max(126, 14), max(126, 0)) ≡ 126`，数学上恒等于 126，
+   *   而当时的 JSDoc 却声称它能抓住「右列 min-content 变化」—— 那半句是假的，已连同变量
+   *   一起删除，勿重建）。
+   *
+   *   真正会让右列横向变宽的唯一写法是**把 `nowrap` 加回来**：那时盒子仍被 max-width
+   *   钳在 126px，但内容一行写不下就**溢出盒外**，实测 `.hd` 溢出 67 / 97 / 127px
+   *   （默认 / large / xlarge）—— 那由下面四条专门的断点断言负责，不用宽度公式管。
    */
   const timeMaxW16 = hdTimeMaxW16 === null ? hdInnerW16 : hdTimeMaxW16;
+  /** 左列最多能拿到的宽度（px）。 */
+  const placeAvail16 = hdInnerW16 - (hdGap16 || 0) - timeMaxW16;
 
-  process.stdout.write(`  页头预算明细（视口 ${MIN_VIEWPORT}px，.hd content ${hdInnerW16}px，gap ${hdGap16}px）：\n`);
+  process.stdout.write(`  页头预算明细（视口 ${MIN_VIEWPORT}px，.hd content box ${hdInnerW16}px，gap ${hdGap16}px）：\n`);
   process.stdout.write(`    .hd-time max-width ${hdTimeMaxRaw16} → ${hdTimeMaxW16 === null ? '不可解析' : hdTimeMaxW16.toFixed(1) + 'px'}\n`);
+  process.stdout.write(`    左列可得上限 = ${hdInnerW16} − ${hdGap16} − ${timeMaxW16.toFixed(1)} = ${placeAvail16.toFixed(1)}px\n`);
 
-  for (const { tier, label } of FS_TIERS) {
-    const fsLgPx = fsAtTier[label]['fs-lg'];
-    const fsXsPx = fsAtTier[label]['fs-xs'];
-    if (!fsLgPx || !fsXsPx) continue;
+  /** 每个 locale 的「最紧那一档」的结算结果，用于末尾的**显式结论**（不许静默）。 */
+  const localeVerdict = [];
 
-    const titleNeed = HD_TITLE_GLYPHS * HD_TITLE_ADVANCE * fsLgPx;
-    const placeFloor = HD_PLACE_FLOOR_GLYPHS * fsLgPx;
-    const timeFloor = HD_TIME_FLOOR_GLYPHS * fsXsPx;
+  for (const { locale, text } of hdTitles) {
+    if (typeof text !== 'string' || !text.length) continue;
+    let worstSlack = Infinity;
+    let worstTier = '';
+    let worstNeed = 0;
+    for (const { tier, label } of FS_TIERS) {
+      const fsLgPx = fsAtTier[label]['fs-lg'];
+      if (!fsLgPx) continue;
 
-    // 右列实际占用：不超过自己的 max-width，也不低于自己的 min-content 地板
-    const timeGot = Math.min(Math.max(timeMaxW16, timeFloor), Math.max(timeMaxW16, 0));
-    // 左列实得宽 = hdContent − gap − 右列占用；但不得低于自己的 min-content 地板
-    const placeGot = Math.max(hdInnerW16 - (hdGap16 || 0) - timeGot, 0);
-    // ★ 关键：左列若被压到低于自己的 min-content，浏览器不会再压 —— 而是让标题折行。
-    //   所以「左列够不够标题单行」要拿 placeGot 与 titleNeed 比，并且额外确认
-    //   placeGot ≥ placeFloor（低于地板说明这一行已经在挤，属于危险区）。
-    const slack = placeGot - titleNeed;
+      const titleNeed = estimateTextWidth(text, fsLgPx);
+      const placeFloor = estimateMinContent(text, fsLgPx);
+      const slack = placeAvail16 - titleNeed;
+      const gtEm = TITLE_GROUND_TRUTH[text];
+      const conservativeNote = gtEm
+        ? `，模型比真机保守 ${(((titleNeed / fsLgPx - gtEm.max) / gtEm.max) * 100).toFixed(1)}%`
+        : '';
+      process.stdout.write(
+        `    [${locale}] ${label.padEnd(18)} fs-lg=${px2(fsLgPx)}px → 标题需 ${titleNeed.toFixed(1)}px` +
+          `（${(titleNeed / fsLgPx).toFixed(3)}em${conservativeNote}）` +
+          `，可得 ${placeAvail16.toFixed(1)}px（余量 ${slack.toFixed(1)}px）\n`
+      );
+      check(
+        `[${locale}] ${label} 档页头标题单行：可得 ${placeAvail16.toFixed(1)}px ≥ 标题所需 ${titleNeed.toFixed(1)}px（余量 ${slack.toFixed(1)}px）`,
+        placeAvail16 >= titleNeed,
+        `差 ${(-slack).toFixed(1)}px：**此模型下 ${locale} 页头标题无法单行**。可选处置 —— ① 缩短 ${locale} 文案；` +
+          `② 调小 .hd-time 的 max-width 百分比；③ 允许标题省略号截断。**不许靠放宽本节阈值让它变绿**`
+      );
+      check(
+        `[${locale}] ${label} 档左列未被压到 min-content 地板以下（${placeAvail16.toFixed(1)}px ≥ ${placeFloor.toFixed(1)}px）`,
+        placeAvail16 >= placeFloor,
+        '被压到地板以下说明页头这一行已经在硬挤；再窄一点标题就会折行'
+      );
+      if (slack < worstSlack) {
+        worstSlack = slack;
+        worstTier = label;
+        worstNeed = titleNeed;
+      }
+    }
+    localeVerdict.push({ locale, worstSlack, worstTier, worstNeed });
+  }
+
+  /* ★ 显式结论：不许把「某个语种放不下」藏在一堆明细里。
+   *
+   * 这里是本节给人看的那句话：哪个 locale 在本模型下装不下、差多少、以及**这不是 bug，
+   * 是如实反映**。做法上没有给任何 locale 开小灶 —— 中文英文走的是同一条公式、同一个阈值。
+   * 英文怎么处置（改文案 / 省略号 / 标题独占一行）是**产品决策**，本节无权替那个决策
+   * 松绑；在那之前，这里的红必须一直红着。
+   */
+  for (const v of localeVerdict) {
+    if (v.worstSlack >= 0) continue;
     process.stdout.write(
-      `    ${label.padEnd(18)} fs-lg=${px2(fsLgPx)}px → 标题需 ${titleNeed.toFixed(1)}px，` +
-        `右列占 ${timeGot.toFixed(1)}px（上限 ${timeMaxW16.toFixed(1)}）→ 左列得 ${placeGot.toFixed(1)}px` +
-        `（地板 ${placeFloor.toFixed(1)}，余量 ${slack.toFixed(1)}px）\n`
-    );
-    check(
-      `${label} 档页头标题单行：左列 ${placeGot.toFixed(1)}px ≥ 标题所需 ${titleNeed.toFixed(1)}px（余量 ${slack.toFixed(1)}px）`,
-      placeGot >= titleNeed,
-      `差 ${(-slack).toFixed(1)}px：调小 .hd-time 的 max-width 百分比，或收窄 .hd 的 gap / padding —— 不要动 --sp-* 与 --fs-*，那是全局栅格与字号阶梯`
-    );
-    check(
-      `${label} 档左列未被压到 min-content 地板以下（${placeGot.toFixed(1)}px ≥ ${placeFloor.toFixed(1)}px）`,
-      placeGot >= placeFloor,
-      '被压到地板以下说明页头这一行已经在硬挤；再窄一点标题就会折行'
+      `  ⚠️ [${v.locale}] **此模型下 ${v.locale} 页头标题无法单行**：最紧档 ${v.worstTier} 需 ` +
+        `${v.worstNeed.toFixed(1)}px，只有 ${placeAvail16.toFixed(1)}px 可用，差 ${(-v.worstSlack).toFixed(1)}px。\n` +
+        `     这不是守卫误报 —— 真实引擎同条件实测：320px 下英文标题断成 3 行。\n` +
+        `     修法属于产品决策（缩短文案 / 省略号 / 标题独占一行），本节维持报红。\n`
     );
   }
 
@@ -1566,11 +1774,11 @@ async function main() {
   /* ★ 回归直击：把「右列 nowrap」这一种写法单独建模，断言它会挤坏左列。
    *
    * 为什么不能只靠上面的宽度预算：那是按「右列可换行」的前提算的。`.hd-time` 一旦回到
-   * `white-space: nowrap`，右列的 min-content 就从「1 个字」变成「整行文案宽」，
-   * 而**整行文案宽是随文案内容变化的量**，静态脚本读不到。所以这里改用一个
-   * **与文案无关的下界**：右列文案「本机计算：WMM2025 地磁模型，不联网」共 24 个字符
-   * （含全角冒号与逗号），即使按最窄的全角标点估也要远超左列能承受的份额。
-   * 只要 `.hd-time` 处于 nowrap 且没有 max-width，就直接判红 —— 不依赖任何文案实测宽度。
+   * `white-space: nowrap`，它的 min-content 就从「一个字」退化成「整行文案宽」，
+   * 那时 `max-width` 也拦不住它（nowrap 内容的自动最小尺寸优先），且**整行文案宽是随
+   * 文案内容变化的量**，静态脚本里的字宽模型并不去读右列文案 —— 所以这里改用一个
+   * **与文案无关**的判据：`nowrap` 与 `max-width` 两者缺一不可，缺了就直接判红。
+   * 真实引擎对照：把右列改回修复前的三条声明，`.hd` 立刻溢出 25~63px、标题从 1 行变 2 行。
    */
   {
     const nowrapAgain = declValue(hdTimeRule16, 'white-space') === 'nowrap';
