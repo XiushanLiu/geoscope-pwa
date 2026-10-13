@@ -389,8 +389,8 @@ test('⑤ 删除：从索引摘掉；是当前行程时一并清空当前标记'
   assert.equal(store.getActiveTripId(), null, '删掉的正是当前行程，当前标记必须跟着清');
   assert.equal(store.deleteTrip(b.id), false, '本来就没有，不假称成功');
   assert.equal(store.deleteTrip(''), false);
-  assert.equal(store.listTrips().length, 1);
-  assert.equal(store.listTrips()[0].id, a.id);
+  assert.equal(store.listTripsWithIssues().trips.length, 1);
+  assert.equal(store.listTripsWithIssues().trips[0].id, a.id);
 });
 
 test('⑤ listTrips 按 updatedAt 倒序（saveTrip 会把 updatedAt 刷成当下）；更高版本一律拒写', () => {
@@ -404,7 +404,7 @@ test('⑤ listTrips 按 updatedAt 倒序（saveTrip 会把 updatedAt 刷成当�
   const t2 = rt.newTrip({});
   store.saveTrip(t2);
   // ★saveTrip 会覆写 updatedAt（保存即「改动过」），所以倒序 = 最近保存的在前
-  assert.deepEqual(store.listTrips().map((t) => t.id), [t2.id, t1.id]);
+  assert.deepEqual(store.listTripsWithIssues().trips.map((t) => t.id), [t2.id, t1.id]);
 
   assert.equal(store.saveTrip({ schema: 99, id: 'future' }), false);
   assert.equal(store.saveTrip(null), false);
@@ -449,7 +449,9 @@ test('⑤ ★坏掉的行程不许从列表里凭空消失：listTripsWithIssues
   assert.equal(skipped[0].id, bad.id);
   assert.equal(skipped[0].reasonKey, 'trip.newerSchema');
   assert.deepEqual(skipped[0].reasonParams, { schema: '2' });
-  // 简版仍然只给行程（不改动既有调用方）
+  // ★这一处**故意**用简版 `listTrips()`：它压的就是「向后兼容简版只给 trips、不破坏既有
+  //   调用方」这条契约本身。其余用例一律用 listTripsWithIssues() —— 简版是废弃入口，
+  //   只有这条契约测试该碰它（见 tripstore.js 里「新代码一律不要用」的注释）。
   assert.equal(store.listTrips().length, 1);
 });
 
@@ -466,7 +468,7 @@ test('⑤ ★删除必须精确：id 互为前缀的两条行程，删一条不�
 
   assert.equal(store.deleteTrip('abc'), true);
   assert.equal(store.tripCount(), 1);
-  assert.deepEqual(store.listTrips().map((t) => t.id), ['abcd'], '★abcd 必须还在');
+  assert.deepEqual(store.listTripsWithIssues().trips.map((t) => t.id), ['abcd'], '★abcd 必须还在');
 });
 
 test('⑤ clearAllTrips 清空索引与全部条目', () => {
@@ -476,7 +478,7 @@ test('⑤ clearAllTrips 清空索引与全部条目', () => {
   assert.equal(store.tripCount(), 2);
   assert.equal(store.clearAllTrips(), 2);
   assert.equal(store.tripCount(), 0);
-  assert.deepEqual(store.listTrips(), []);
+  assert.deepEqual(store.listTripsWithIssues().trips, []);
 });
 
 /* ------------------------------------------------------------------ */
