@@ -31,7 +31,12 @@ const execFileAsync = promisify(execFile);
 /** 仓库根目录。 */
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 允许出现的外部宿主（六路数据源 + SVG 命名空间 + Open-Meteo 文档域名）。 */
+/**
+ * 允许出现的外部宿主。
+ *
+ * 六路自检数据源 + 自驾两路（OSRM 公共实例 / 高德 Web 服务）+ SVG 命名空间 + Open-Meteo 文档域名。
+ * ★新增数据源必须同步加到这里，否则第 7 节会以「白名单外外链」报红 —— 这条最容易被漏。
+ */
 const ALLOWED_HOSTS = [
   'api.open-meteo.com',
   'air-quality-api.open-meteo.com',
@@ -40,6 +45,8 @@ const ALLOWED_HOSTS = [
   'server.arcgisonline.com',
   'www.w3.org',
   'open-meteo.com',
+  'router.project-osrm.org',
+  'restapi.amap.com',
 ];
 
 /**

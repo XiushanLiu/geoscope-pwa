@@ -102,9 +102,11 @@ function stripComments(src) {
 }
 
 test('隐私红线：全仓库不得出现 six 数据源以外的域名、http:// 明文、CDN 与被剔除的源', () => {
+  // ★新增数据源必须同步加到这张表（与 tools/check.mjs 的 ALLOWED_HOSTS 是同一条红线的两只眼睛）
   const allowed = [
     'api.open-meteo.com', 'air-quality-api.open-meteo.com', 'geocoding-api.open-meteo.com',
     'photon.komoot.io', 'server.arcgisonline.com',
+    'router.project-osrm.org', 'restapi.amap.com',
   ];
   const forbidden = ['nominatim.openstreetmap.org', 'basemaps.cartocdn.com', 'tile.openstreetmap.org', 'overpass-api.de', 'googleapis', 'gstatic', 'cdn.', 'fonts.googleapis', 'jsdelivr', 'unpkg'];
   const externalRe = /https?:\/\/([a-zA-Z0-9.-]+)/g;

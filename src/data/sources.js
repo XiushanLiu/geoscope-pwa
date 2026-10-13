@@ -1,9 +1,18 @@
 /**
  * 源注册表（唯一真相源）
  *
- * 职责：集中声明六路数据源的 id / 标签 / 宿主 / 超时 / 重试 / TTL / 缓存键 / 请求构造 /
+ * 职责：集中声明数据源的 id / 标签 / 宿主 / 超时 / 重试 / TTL / 缓存键 / 请求构造 /
  * 响应解析 / 瓦片指纹 / 署名 / 优先级。适配器只负责「构造 + 解析」，UI 只负责渲染，
  * 新增数据源只需在此追加条目，不改 UI（架构第 3 条）。
+ *
+ * ★两张表，别搞混（架构 §3.2）：
+ *   - `SOURCES` / `SOURCE_LIST`：**自检六路**。自检页遍历它，`tests/sources.test.mjs:57`
+ *     与 `tools/verify-standalone.mjs:106` 用「恰好六路」硬断言钉着。
+ *   - `SOURCE_TABLE`：**全量表**（六路 + 自驾两路 = 八路）。`getSource()` 查它，
+ *     也就是 `core/http.js` 解析源规格时看到的全部。
+ *   拆开这两张表，是为了让「自检只跑那六路可公开取样的源」与「新源可以被请求」
+ *   同时成立 —— 自驾两路不适合进自检（OSRM 不可缓存、高德需要用户自填 Key，
+ *   进了自检页只会出现永远的失败项），把它们塞进 SOURCE_LIST 会直接把那两条断言弄红。
  *
  * 依赖方向：data → core。本模块在加载时把 getSource 注入 core/http.js 的解析器，
  * 从而让 core 层保持对 data 层零依赖。
@@ -43,6 +52,7 @@ import {
   parseReverse,
 } from './photon.js';
 import { TILE_BASE, TILE_ATTRIBUTION_KEY, tileUrl, fingerprint } from './tiles.js';
+import { ROAD_SOURCES } from './roadsources.js';
 
 /**
  * ★label 与 attribution 是**惰性 getter**，不是写死的字符串：
@@ -207,17 +217,27 @@ export const SOURCES = {
   },
 };
 
-/** 自检页与聚合遍历顺序（= 上表键顺序）。 */
+/** 自检页与聚合遍历顺序（= 自检六路的键顺序）。★保持恰好六路，别往里加。 */
 export const SOURCE_LIST = Object.values(SOURCES);
 
 /**
- * 按 id 取源规格。
+ * 全量源表：自检六路 + 自驾两路（osrmRoute / amapPoi）。
+ *
+ * `getSource()` 只查这一张表，因此 `core/http.js` 能解析到自驾两路；而自检与聚合
+ * 一律走 `SOURCE_LIST`，仍是六路。
+ *
+ * @type {Object<string, SourceSpec>}
+ */
+export const SOURCE_TABLE = { ...SOURCES, ...ROAD_SOURCES };
+
+/**
+ * 按 id 取源规格（查**全量表**）。
  *
  * @param {string} id 源 id。
  * @returns {SourceSpec|null} 源规格或 null。
  */
 export function getSource(id) {
-  return Object.prototype.hasOwnProperty.call(SOURCES, id) ? SOURCES[id] : null;
+  return Object.prototype.hasOwnProperty.call(SOURCE_TABLE, id) ? SOURCE_TABLE[id] : null;
 }
 
 /**

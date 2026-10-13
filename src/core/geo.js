@@ -1,8 +1,22 @@
 /**
  * 定位与坐标工具
  *
- * 职责：封装浏览器定位（WGS84）、坐标四舍五入（toFixed(4) ≈ 11 m）、缓存键片段生成，
- * 并提供 GCJ-02 纠偏的**占位**实现（阶段二实现，业务层本阶段禁止调用）。
+ * 职责：封装浏览器定位（WGS84）、坐标四舍五入（toFixed(4) ≈ 11 m）、缓存键片段生成、
+ * 两点球面距离，以及 **GCJ-02 ↔ WGS84 双向纠偏**。
+ *
+ * ★坐标系方向（改代码前先读）：本模块的**内部与对外口径一律是 WGS84**。
+ *   - `wgs84ToGcj02()`：把 WGS84 加偏成 GCJ-02（只在「要按中国法规提交给国内服务」时用）；
+ *   - `gcj02ToWgs84()`：把 GCJ-02 反解回 WGS84（**本次自驾模块真正要用的方向** —— 高德
+ *     返回的 POI 是 GCJ-02，必须转回 WGS84 才能和 OSRM 路线、Esri 底图画在同一张图上）。
+ *   两者**不是**同一个函数，方向搞反会把点位挪到几百米外（架构 §2.2：天安门处经度偏移
+ *   可达 531 m），属于「看起来正常但错了」的最坏一类 bug。
+ *
+ * ★境外（含港澳台以外的中国境外偏移区）一律**原样返回、不纠偏**，由 `isInOffsetZone()`
+ *   判定（实测口径：东京坐标经 gcj02ToWgs84 返回原值）。
+ *
+ * 算法说明（不是本仓库自创）：GCJ-02 加偏使用官方公布的克拉索夫斯基椭球参数与三角级数，
+ * 反解（GCJ-02 → WGS84）用 **5 次定常迭代反演** —— 偏移量本身只有几百米、梯度平缓，
+ * 迭代 5 次后往返残差已远小于 1 m（tests/roadtrip-sources.test.mjs 有 6 个样本的断言）。
  *
  * 红线：内部坐标一律 WGS84；绝不上传用户坐标到数据源以外的任何地方。
  */
@@ -154,32 +168,155 @@ export function distanceKm(a, b) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/* ------------------------------------------------------------------ */
+/* GCJ-02 纠偏（官方算法常量 + 双向变换）                                */
+/* ------------------------------------------------------------------ */
+
+/** GCJ-02 加偏所用椭球的长半轴（克拉索夫斯基 1940，单位：米）。 */
+const GCJ_A = 6378245.0;
+
+/** 该椭球的第一偏心率平方。 */
+const GCJ_EE = 0.00669342162296594323;
+
+/** 圆周率：与公开实现保持一致，改精度会让结果差出米级。 */
+const GCJ_PI = 3.1415926535897932384626;
+
+/** GCJ-02 施加偏移的经度范围（中国大陆的粗略外包框，境外一律不纠偏）。 */
+const OFFSET_LON_MIN = 72.004;
+const OFFSET_LON_MAX = 137.8347;
+/** GCJ-02 施加偏移的纬度范围。 */
+const OFFSET_LAT_MIN = 0.8293;
+const OFFSET_LAT_MAX = 55.8271;
+
 /**
- * WGS84 → GCJ-02 纠偏。
+ * 安全取有限数字（缺失一律 null，绝不变成 0）。
  *
- * 阶段二实现。当前为**空实现（原值返回）**，并明确注释：本阶段业务层禁止调用本函数，
- * 显示层不做任何坐标变换，界面坐标即数据源返回的 WGS84 原值。
+ * ★为什么不能直接 `Number(v)`：`Number(null) === 0`、`Number('') === 0` —— 于是
+ *   「没有坐标」会被变成「几内亚湾 0,0」，再经过加偏计算后看起来是一个合法的中国境外
+ *   坐标，错得悄无声息。口径与 core/format.js 的 `_num()` 完全一致。
  *
- * @param {number} lat WGS84 纬度。
- * @param {number} lon WGS84 经度。
- * @returns {{lat:number, lon:number}} GCJ-02 坐标（当前等于入参）。
+ * @param {*} v 任意值。
+ * @returns {number|null} 有限数字或 null。
  */
-export function wgs84ToGcj02(lat, lon) {
-  // 阶段二实现：需引入加密纠偏算法（含中国境外不纠偏的边界判断）。
-  // 本阶段保持恒等返回，避免误以为已纠偏。
-  return { lat: Number(lat), lon: Number(lon) };
+function _finite(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'boolean') return null;
+  if (Array.isArray(v)) return null;
+  if (typeof v === 'string' && v.trim() === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
- * GCJ-02 → WGS84 逆变换。
+ * 判定一个坐标是否落在 GCJ-02 的偏移区（中国大陆粗略外包框）内。
  *
- * 阶段二实现；当前为空实现（原值返回）。
+ * ★为什么是「粗略外包框」而不是精确国界：GCJ-02 的加偏范围从来没有被官方公布过精确
+ *   边界，公开实现一致使用这个外包框。**框外的点一律原样返回** —— 拿一个框外的坐标去
+ *   加偏/反解，会凭空制造几百米的误差，那是比不纠偏严重得多的错。
+ *
+ * @param {number} lat 纬度。
+ * @param {number} lon 经度。
+ * @returns {boolean} 落在偏移区内返回 true；非数字一律 false（宁可不纠偏，也不制造假偏移）。
+ */
+export function isInOffsetZone(lat, lon) {
+  const la = _finite(lat);
+  const lo = _finite(lon);
+  if (la === null || lo === null) return false;
+  if (lo < OFFSET_LON_MIN || lo > OFFSET_LON_MAX) return false;
+  if (la < OFFSET_LAT_MIN || la > OFFSET_LAT_MAX) return false;
+  return true;
+}
+
+/**
+ * 纬度方向的加偏分量（官方算法的三角级数项）。
+ *
+ * @param {number} x 相对 105°E 的经度差。
+ * @param {number} y 相对 35°N 的纬度差。
+ * @returns {number} 以「米」为量纲的中间量，调用方再换算成角度。
+ */
+function _transformLat(x, y) {
+  let ret =
+    -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  ret += ((20.0 * Math.sin(6.0 * x * GCJ_PI) + 20.0 * Math.sin(2.0 * x * GCJ_PI)) * 2.0) / 3.0;
+  ret += ((20.0 * Math.sin(y * GCJ_PI) + 40.0 * Math.sin((y / 3.0) * GCJ_PI)) * 2.0) / 3.0;
+  ret += ((160.0 * Math.sin((y / 12.0) * GCJ_PI) + 320 * Math.sin((y * GCJ_PI) / 30.0)) * 2.0) / 3.0;
+  return ret;
+}
+
+/**
+ * 经度方向的加偏分量（官方算法的三角级数项）。
+ *
+ * @param {number} x 相对 105°E 的经度差。
+ * @param {number} y 相对 35°N 的纬度差。
+ * @returns {number} 以「米」为量纲的中间量，调用方再换算成角度。
+ */
+function _transformLon(x, y) {
+  let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  ret += ((20.0 * Math.sin(6.0 * x * GCJ_PI) + 20.0 * Math.sin(2.0 * x * GCJ_PI)) * 2.0) / 3.0;
+  ret += ((20.0 * Math.sin(x * GCJ_PI) + 40.0 * Math.sin((x / 3.0) * GCJ_PI)) * 2.0) / 3.0;
+  ret += ((150.0 * Math.sin((x / 12.0) * GCJ_PI) + 300.0 * Math.sin((x / 30.0) * GCJ_PI)) * 2.0) / 3.0;
+  return ret;
+}
+
+/**
+ * WGS84 → GCJ-02 加偏。
+ *
+ * 用途：只在「必须按 GCJ-02 提交坐标给国内服务」时才用。自驾模块的主路径是**反方向**
+ * （`gcj02ToWgs84`），别拿错。境内返回加偏后的坐标，境外（见 `isInOffsetZone`）原样返回。
+ *
+ * @param {number} lat WGS84 纬度。
+ * @param {number} lon WGS84 经度。
+ * @returns {{lat:number, lon:number}} GCJ-02 坐标（境外 = 入参原值）。
+ */
+export function wgs84ToGcj02(lat, lon) {
+  const la = _finite(lat);
+  const lo = _finite(lon);
+  // 非数字 / 境外：原样返回（★注意返回的是**入参原值**，不是 Number() 后的 0）
+  if (la === null || lo === null) return { lat, lon };
+  if (!isInOffsetZone(la, lo)) return { lat: la, lon: lo };
+
+  let dLat = _transformLat(lo - 105.0, la - 35.0);
+  let dLon = _transformLon(lo - 105.0, la - 35.0);
+
+  const radLat = (la / 180.0) * GCJ_PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - GCJ_EE * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+
+  dLat = (dLat * 180.0) / (((GCJ_A * (1 - GCJ_EE)) / (magic * sqrtMagic)) * GCJ_PI);
+  dLon = (dLon * 180.0) / ((GCJ_A / sqrtMagic) * Math.cos(radLat) * GCJ_PI);
+
+  return { lat: la + dLat, lon: lo + dLon };
+}
+
+/** GCJ-02 → WGS84 的反演迭代次数。 */
+export const GCJ_INVERSE_ITERATIONS = 5;
+
+/**
+ * GCJ-02 → WGS84 逆变换（**自驾模块真正要用的方向**）。
+ *
+ * 方法：定常迭代反演 —— 从一个 WGS84 猜测值出发，反复「加偏 → 用残差修正猜测值」。
+ * 加偏量只有几百米且梯度平缓，5 次迭代后往返残差远小于 1 m（比 GPS 自身精度还小一个量级），
+ * 再增加迭代没有实际意义。
+ *
+ * ★境外坐标**原样返回**（`converted` 语义由调用方据 `isInOffsetZone()` 自行标注）。
  *
  * @param {number} lat GCJ-02 纬度。
  * @param {number} lon GCJ-02 经度。
- * @returns {{lat:number, lon:number}} WGS84 坐标（当前等于入参）。
+ * @returns {{lat:number, lon:number}} WGS84 坐标（境外 = 入参原值）。
  */
 export function gcj02ToWgs84(lat, lon) {
-  // 阶段二实现。
-  return { lat: Number(lat), lon: Number(lon) };
+  const la = _finite(lat);
+  const lo = _finite(lon);
+  if (la === null || lo === null) return { lat, lon };
+  if (!isInOffsetZone(la, lo)) return { lat: la, lon: lo };
+
+  let guessLat = la;
+  let guessLon = lo;
+  for (let i = 0; i < GCJ_INVERSE_ITERATIONS; i += 1) {
+    const gcj = wgs84ToGcj02(guessLat, guessLon);
+    guessLat += la - gcj.lat;
+    guessLon += lo - gcj.lon;
+  }
+  return { lat: guessLat, lon: guessLon };
 }

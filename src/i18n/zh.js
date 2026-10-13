@@ -294,7 +294,9 @@ export const ZH = {
   'about.noCommercial': '不商业化：自用工具，无广告、无第三方统计、无账号登录、无后端。',
   'about.noE2ee': '不做端到端加密同步：数据只存本机 localStorage，搬家靠导出 JSON。',
   'about.noAlert': '预警不采购数据源：本阶段不实现预警推送。',
-  'about.privacy': '除六路数据源之外，本应用不向任何域名发起请求；你的坐标不会被上传到数据源以外的地方。',
+  // ★「六路」已不再准确：自驾模块新增了 OSRM 路线与高德 POI 两路（现共八路）。
+  //   诚实原则 —— 加了源就得改说法，否则这句话本身就成了假的隐私承诺。
+  'about.privacy': '除已声明的数据源（现有八路）之外，本应用不向任何域名发起请求；你的坐标不会被上传到数据源以外的地方。',
 
   // ---------- 收藏 ----------
   // 收藏是「地点」，不是天气快照：只存 名称 + 经纬度，不存任何取回来的数据。
@@ -733,6 +735,28 @@ export const ZH = {
   'attr.openmeteo': 'Open-Meteo.com（CC-BY 4.0）',
   'attr.photon': 'Photon by Komoot（基于 OpenStreetMap，ODbL）',
   'attr.tile': 'Esri ArcGIS Online World Tile Service',
+  'attr.osrm': 'OSRM（基于 OpenStreetMap，ODbL）',
+  'attr.amap': '高德地图 Web 服务 API',
+
+  // ---------- 自驾模块：两路新源的源名 ----------
+  'source.osrmRoute': '路线规划（OSRM 公共实例）',
+  'source.amapPoi': '地点候选（高德 Web 服务）',
+
+  // ---------- 自驾模块：失败桶（data 层翻译，UI 层上屏） ----------
+  // ★这几句必须是**具体的**：高德的业务失败是 HTTP 200 包着 status:"0"，
+  //   分桶的用处是让用户知道该做什么（换 Key / 等明天 / 稍后再试 / 去关签名），
+  //   一句「请求失败」等于什么都没说。{code} 是数字，双语通用。
+  'rt.amap.noKey': '未填高德 Key',
+  'rt.amap.invalidKey': '高德 Key 无效或已过期（错误码 {code}）',
+  'rt.amap.quota': '今日配额已用尽（错误码 {code}）',
+  'rt.amap.busy': '调用过于频繁（错误码 {code}），请稍后再试',
+  'rt.amap.sig': '请在控制台关闭数字签名后重试（错误码 {code}）',
+  'rt.amap.other': '高德返回错误（错误码 {code}）',
+  'rt.err.noRoute': '未能算出路线（OSRM 返回 {code}）',
+  'rt.err.zeroDistance': '算出的路线距离为 0：坐标可能落在没有道路的地方',
+  'rt.err.noGeometry': 'OSRM 未返回路线几何',
+  'rt.err.needMorePoints': '至少需要 2 个坐标点才能算路线（现在 {n} 个）',
+  'rt.err.badAnchor': '候选搜索的中心坐标非法',
 
   // ---------- 备份导入失败原因 ----------
   // core/backup.js 只回 reasonKey / reasonParams（core 不许 import i18n），

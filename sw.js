@@ -48,12 +48,16 @@ const SHELL_ASSETS = [
   './src/core/format.js',
   './src/core/backup.js',
   './src/core/csv.js',
+  './src/core/apikeys.js',
   './src/data/sources.js',
   './src/data/openmeteo.js',
   './src/data/photon.js',
   './src/data/tiles.js',
   './src/data/health.js',
   './src/data/wmm2025.js',
+  './src/data/osrm.js',
+  './src/data/amap.js',
+  './src/data/roadsources.js',
 ];
 
 self.addEventListener('install', (event) => {

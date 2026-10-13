@@ -298,7 +298,10 @@ export const EN = {
   'about.noCommercial': 'Not commercial: a personal tool. No ads, no third-party tracking, no accounts, no backend.',
   'about.noE2ee': 'No end-to-end encrypted sync: data lives only in this device\'s localStorage; moving it means exporting JSON.',
   'about.noAlert': 'No alerting data source bought: push alerts are out of scope for this stage.',
-  'about.privacy': 'Apart from the six data sources, this app contacts no other domain; your coordinates are not uploaded anywhere beyond those sources.',
+  // "six" is no longer accurate: the road-trip module added OSRM routing and Amap POI
+  // (eight in total). Honesty rule — adding a source means updating this sentence,
+  // otherwise the privacy promise itself becomes false.
+  'about.privacy': 'Apart from the declared data sources (eight at present), this app contacts no other domain; your coordinates are not uploaded anywhere beyond those sources.',
 
   // ---------- Favorites ----------
   // A favourite is a PLACE, not a weather snapshot: it stores a name + lat/lon only.
@@ -757,6 +760,29 @@ export const EN = {
   'attr.openmeteo': 'Open-Meteo.com (CC-BY 4.0)',
   'attr.photon': 'Photon by Komoot (based on OpenStreetMap, ODbL)',
   'attr.tile': 'Esri ArcGIS Online World Tile Service',
+  'attr.osrm': 'OSRM (based on OpenStreetMap, ODbL)',
+  'attr.amap': 'Amap Web Service API',
+
+  // ---------- Road trip: the two new sources ----------
+  'source.osrmRoute': 'Routing (OSRM public instance)',
+  'source.amapPoi': 'Place candidates (Amap Web Service)',
+
+  // ---------- Road trip: failure buckets (translated at the data layer, shown by the UI) ----------
+  // These must be SPECIFIC: Amap reports business failures as HTTP 200 with status:"0",
+  // and bucketing exists so the user knows what to do next (replace the key / wait until
+  // tomorrow / retry later / turn signing off). A generic "request failed" says nothing.
+  // {code} is numeric, so it reads the same in both languages.
+  'rt.amap.noKey': 'Amap key is not set',
+  'rt.amap.invalidKey': 'Amap key is invalid or expired (code {code})',
+  'rt.amap.quota': "today's quota is used up (code {code})",
+  'rt.amap.busy': 'too many requests (code {code}); please try again later',
+  'rt.amap.sig': 'turn off digital signature in the console and retry (code {code})',
+  'rt.amap.other': 'Amap returned an error (code {code})',
+  'rt.err.noRoute': 'no route could be calculated (OSRM returned {code})',
+  'rt.err.zeroDistance': 'the calculated route distance is 0: the coordinates may be somewhere without roads',
+  'rt.err.noGeometry': 'OSRM returned no route geometry',
+  'rt.err.needMorePoints': 'at least 2 coordinates are needed to calculate a route (got {n})',
+  'rt.err.badAnchor': 'the candidate search centre coordinates are invalid',
 
   // ---------- Backup import failure reasons ----------
   // core/backup.js returns only reasonKey / reasonParams (core may not import i18n);

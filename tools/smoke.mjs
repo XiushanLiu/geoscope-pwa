@@ -519,7 +519,30 @@ async function main() {
   check('round4 归一', geo.round4(39.908749) === 39.9087 && geo.round4('116.39749') === 116.3975);
   check('coordKey 片段', geo.coordKey(39.9087, 116.3975) === '39.9087:116.3975');
   check('默认地点为北京天安门', geo.DEFAULT_PLACE.lat === 39.9087 && geo.DEFAULT_PLACE.lon === 116.3975);
-  check('GCJ-02 占位为恒等（阶段二实现）', geo.wgs84ToGcj02(39.9, 116.4).lat === 39.9);
+  // ★阶段二已兑现：占位恒等被真算法取代。断言随之升级为「加偏量级 + 往返残差 + 境外不纠偏」三条，
+  //   只钉算法自洽，不钉真机数值（架构 §0 的偏移/体积数字是沙箱口径）。
+  check(
+    'GCJ-02 加偏量级在 100–1000 m（不再是恒等占位）',
+    (() => {
+      const gcj = geo.wgs84ToGcj02(39.9087, 116.3975);
+      const m = geo.distanceKm({ lat: 39.9087, lon: 116.3975 }, gcj) * 1000;
+      return m > 100 && m < 1000;
+    })()
+  );
+  check(
+    'GCJ-02 往返残差 < 1 m',
+    (() => {
+      const gcj = geo.wgs84ToGcj02(39.9087, 116.3975);
+      const back = geo.gcj02ToWgs84(gcj.lat, gcj.lon);
+      return geo.distanceKm({ lat: 39.9087, lon: 116.3975 }, back) * 1000 < 1;
+    })()
+  );
+  check(
+    '境外（东京）原样返回不纠偏',
+    geo.isInOffsetZone(35.6762, 139.6503) === false &&
+      geo.gcj02ToWgs84(35.6762, 139.6503).lat === 35.6762 &&
+      geo.wgs84ToGcj02(35.6762, 139.6503).lon === 139.6503
+  );
 
   /* ---------- 15. 缓存容量与清理 ---------- */
   section('15. 缓存清理');
