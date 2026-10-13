@@ -36,9 +36,17 @@ const ORDER = [
   'src/core/store.js',
   'src/core/wmo.js',
   'src/core/http.js',
+  // 高德 Key 的「孤儿存储」：只依赖 cache.js，必须排在 amap.js 之前。
+  'src/core/apikeys.js',
   'src/data/tiles.js',
   'src/data/openmeteo.js',
   'src/data/photon.js',
+  // 自驾三件套：sources.js 顶层 `import { ROAD_SOURCES } from './roadsources.js'`，
+  // 而 roadsources.js 又依赖 osrm.js / amap.js —— 三者都必须在 sources.js **之前**登记，
+  // 少登记一个 build 就直接「打包中止」（依赖校验未通过），verify-standalone 也就跟着跑不了。
+  'src/data/osrm.js',
+  'src/data/amap.js',
+  'src/data/roadsources.js',
   'src/data/sources.js',
   'src/data/health.js',
   'src/ui/theme.js',
