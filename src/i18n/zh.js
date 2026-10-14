@@ -874,6 +874,7 @@ export const ZH = {
   'rt.mapGeo': '几何来源：{src}',
   'rt.mapGeoSimplified': 'OSRM 简化几何（simplified）',
   'rt.mapGeoNone': '没有几何',
+  'rt.mapLoad': '取这一段的几何（simplified，1 次请求）',
   'rt.mapFetching': '正在取几何…',
   'rt.mapGeoFail': '几何没取到：{msg}',
   'rt.mapSchematic': '★这条是**示意直线**（起点到终点直连），不是真实路径 —— 没拿到几何时不许画成实线。',

@@ -903,6 +903,7 @@ export const EN = {
   'rt.mapGeo': 'Geometry source: {src}',
   'rt.mapGeoSimplified': 'OSRM simplified geometry',
   'rt.mapGeoNone': 'no geometry',
+  'rt.mapLoad': 'Fetch geometry for this part (simplified, 1 request)',
   'rt.mapFetching': 'Fetching geometry…',
   'rt.mapGeoFail': 'Could not get the geometry: {msg}',
   'rt.mapSchematic': '★This is a **schematic straight line** (start to end), not the real path — without geometry it must never be drawn as a solid line.',

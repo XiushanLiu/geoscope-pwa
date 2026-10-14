@@ -52,10 +52,18 @@ import {
   splitStopovers,
   partitionByFilter,
   adoptCandidate,
+  exportTrips,
+  inspectTripFile,
+  applyTripFile,
+  roadtripFilename,
   DAILY_PRESETS,
   MAX_VIA,
   DEFAULT_FILTERS,
 } from '../core/roadtrip.js';
+// 路线图（投影与绘制都在 ui/roadmap.js，本模块只负责取数与编排）
+import { renderRouteCard } from './roadmap.js';
+// 导出落盘用既有下载助手，不自己拼 <a download>
+import { downloadJson } from './download.js';
 // 行程持久化（★列行程用带回 skipped 的那个入口 —— 简版入口会静默丢数据）
 import { saveTrip, listTripsWithIssues } from '../core/tripstore.js';
 // 两路源：求路走 osrmRoute、候选走 amapPoi
@@ -138,6 +146,22 @@ const _state = {
   searchTarget: null,
   /** @type {{list:Array<Object>, skipped:Array<Object>}} */
   trips: { list: [], skipped: [] },
+  /** @type {'whole'|number} 路线图当前视图：'whole' 或第 N 天（1 起）。 */
+  mapScope: 'whole',
+  /**
+   * 简化几何缓存（键：'whole' / `day:${n}`）。
+   *
+   * ★为什么是内存态：simplified 几何只有 1 KB 量级，但它**可再生**且会随路网变化，
+   *   落盘就得跟着行程一起被备份 / 被淘汰（架构 §4.3.2），不值当。
+   * @type {Object<string, {ok:boolean, points:Array<{lat:number,lon:number}>, error:string}>}
+   */
+  mapGeo: {},
+  /** @type {string} 取几何时的人话状态。 */
+  mapMsg: '',
+  /** @type {string} 搬家（导出 / 导入）的结果提示。 */
+  moveMsg: '',
+  /** @type {Object|null} `inspectTripFile()` 的预览计划（用户确认后才落盘）。 */
+  importPlan: null,
 };
 
 /** @type {Object<string,Object>} 渲染后需要再次取用的容器。 */
@@ -939,6 +963,297 @@ async function _onPlan() {
 }
 
 /* ------------------------------------------------------------------ */
+/* 路线图（T05）                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 取第 n 天的起终点（用于「按天」再请求一次简化几何）。
+ *
+ * @param {number} day 第几天（1 起）。
+ * @returns {Array<{lat:number, lon:number, name:string}>} 该段的起终点；凑不齐就返回短数组。
+ */
+function _dayEndpoints(day) {
+  const sp = _state.split;
+  const pts = _points();
+  if (!sp || !sp.ok || pts.length < 2) return [];
+  const startIdx = day - 2; // 第 1 天从上一个停留点（没有就是起点）开始
+  const from = startIdx >= 0 && sp.stopovers[startIdx] ? sp.stopovers[startIdx].coord : pts[0];
+  const to = sp.stopovers[day - 1] ? sp.stopovers[day - 1].coord : pts[pts.length - 1];
+  const out = [];
+  for (const c of [from, to]) {
+    if (c && Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lon))) {
+      out.push({ lat: Number(c.lat), lon: Number(c.lon), name: String(c.name || '') });
+    }
+  }
+  return out;
+}
+
+/**
+ * 当前视图要用的求路点。
+ *
+ * @returns {Array<{lat:number, lon:number, name:string}>} 点序列。
+ */
+function _scopePoints() {
+  return _state.mapScope === 'whole' ? _points() : _dayEndpoints(Number(_state.mapScope));
+}
+
+/**
+ * 取当前视图的简化几何。
+ *
+ * ★为什么这里**只**用 `overview:'simplified'`：full 几何是百 KB 量级（体积口径见
+ *   `src/data/osrm.js` 文件头，全仓唯一出处），而这张卡只有 350×260 px —— 726 km 的
+ *   full 几何在这种尺寸下和 simplified 看不出区别，却要多传两个数量级的字节。
+ *   ★两级策略（架构 §4.3.2）：整段一次；切到某天再用该段起终点请求一次。
+ *
+ * @returns {Promise<void>}
+ */
+async function _onLoadGeometry() {
+  const pts = _scopePoints();
+  if (pts.length < 2) return;
+  const key = _state.mapScope === 'whole' ? 'whole' : `day:${_state.mapScope}`;
+  _state.mapMsg = t('rt.mapFetching');
+  _renderPage();
+
+  const res = await requestRoadSource('osrmRoute', {
+    points: pts,
+    overview: 'simplified',
+    annotations: false,
+  });
+  if (!res || !res.ok) {
+    _state.mapGeo[key] = { ok: false, points: [], error: errorText(res && res.error) };
+    _state.mapMsg = t('rt.mapGeoFail', { msg: errorText(res && res.error) });
+  } else {
+    const geo = Array.isArray(res.data && res.data.geometry) ? res.data.geometry : [];
+    // OSRM 的几何是 [lon, lat]；★逐个判有限值 —— 缺分量的一律丢，不补 0（补 0 就是
+    // 把「没画出来」画成几内亚湾上的一段线）
+    const points = [];
+    for (const g of geo) {
+      if (Array.isArray(g) && Number.isFinite(Number(g[0])) && Number.isFinite(Number(g[1]))) {
+        points.push({ lat: Number(g[1]), lon: Number(g[0]) });
+      }
+    }
+    _state.mapGeo[key] = { ok: true, points, error: '' };
+    _state.mapMsg = '';
+  }
+  _renderPage();
+}
+
+/**
+ * 画路线图卡。
+ *
+ * @returns {Object} 卡片节点。
+ */
+function _renderRouteCard() {
+  const sp = _state.split;
+  const key = _state.mapScope === 'whole' ? 'whole' : `day:${_state.mapScope}`;
+  const geo = _state.mapGeo[key];
+  const card = h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('rt.mapTitle') }),
+    h('p', { class: 'card-note', text: t('rt.mapHint') }),
+  ]);
+
+  if (!sp || !sp.ok) {
+    card.appendChild(h('p', { class: 'card-note', text: t('rt.mapEmpty') }));
+    return card;
+  }
+
+  // 视图 chip：整段 / 第 N 天
+  const chips = h('div', { class: 'field field--row' });
+  const mkChip = (label, value) => {
+    const on = _state.mapScope === value;
+    const b = h('button', {
+      class: on ? 'btn btn--primary' : 'btn',
+      type: 'button',
+      'data-scope': String(value),
+      text: label,
+    });
+    b.addEventListener('click', () => {
+      _state.mapScope = value;
+      _state.mapMsg = '';
+      _renderPage();
+    });
+    chips.appendChild(b);
+  };
+  mkChip(t('rt.mapWhole'), 'whole');
+  for (let d = 1; d <= sp.dayCount; d += 1) mkChip(t('rt.dayTitle', { n: d }), d);
+  card.appendChild(chips);
+
+  card.appendChild(
+    h('div', { class: 'field field--row' }, [
+      h('button', { class: 'btn', type: 'button', id: 'btn-geo', text: t('rt.mapLoad') }),
+    ])
+  );
+
+  if (_state.mapMsg) card.appendChild(h('p', { class: 'card-note', text: _state.mapMsg }));
+
+  // 标记：停留点 + 已定位的打卡。★`coord` 为空的打卡**不传** —— roadmap.js 只画收到的点，
+  //   但本层也不许把缺坐标的项塞进去（它们归「实录」列表里的「未定位」管）。
+  const markers = [];
+  for (const so of sp.stopovers) {
+    if (so && so.coord && Number.isFinite(Number(so.coord.lat)) && Number.isFinite(Number(so.coord.lon))) {
+      markers.push({ lat: so.coord.lat, lon: so.coord.lon, name: so.placeName || '', kind: 'stay' });
+    }
+  }
+  for (const ck of _state.adoptedList) {
+    if (ck && ck.coord && Number.isFinite(Number(ck.coord.lat)) && Number.isFinite(Number(ck.coord.lon))) {
+      markers.push({ lat: ck.coord.lat, lon: ck.coord.lon, name: ck.name || '', kind: 'check' });
+    }
+  }
+
+  const points = geo && geo.ok ? geo.points : [];
+  const holder = h('div', { class: 'field' });
+  card.appendChild(holder);
+  renderRouteCard(holder, {
+    points,
+    markers: markers.length > 0 ? markers : _points(),
+    schematic: !(geo && geo.ok && points.length >= 2),
+    note: t('rt.mapGeo', { src: geo && geo.ok ? t('rt.mapGeoSimplified') : t('rt.mapGeoNone') }),
+  });
+  return card;
+}
+
+/* ------------------------------------------------------------------ */
+/* 实录（T05）                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 画实录卡（已采用的打卡）。
+ *
+ * ★`coord` 为空的一条**只写在列表里、不上图**，并标注「未定位」：给它编一个坐标画上去，
+ *   用户会以为自己真的在那儿停过 —— 那是把「没记录」伪装成「有记录」。
+ *
+ * @returns {Object} 卡片节点。
+ */
+function _renderRecordCard() {
+  const card = h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('rt.recordTitle') }),
+    h('p', { class: 'card-note', text: t('rt.recordHint') }),
+  ]);
+  const list = _state.adoptedList;
+  if (list.length === 0) {
+    card.appendChild(h('p', { class: 'card-note', text: t('rt.recordEmpty') }));
+    return card;
+  }
+  let noCoord = 0;
+  for (const ck of list) {
+    const located = !!(ck.coord && Number.isFinite(Number(ck.coord.lat)) && Number.isFinite(Number(ck.coord.lon)));
+    if (!located) noCoord += 1;
+    const addr = ck.address ? ` · ${ck.address}` : '';
+    card.appendChild(
+      h('p', {
+        class: 'card-note',
+        text: `${t('rt.recordItem', { name: ck.name || fmt.DASH, addr })}${located ? '' : ` · ${t('rt.mapNoCoord')}`}`,
+      })
+    );
+  }
+  if (noCoord > 0) {
+    card.appendChild(h('p', { class: 'card-note', text: t('rt.recordNoLocated', { n: noCoord }) }));
+  }
+  return card;
+}
+
+/* ------------------------------------------------------------------ */
+/* 搬家（导出 / 导入，T05）                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 导出全部行程。
+ *
+ * ★导出的文件里含用户去过的地方（行程名、停留点、打卡坐标），与备份 JSON 同级敏感 ——
+ *   所以提示语里必须写明「别发到公开场合」，且导出走 `exportTrips()`（内部过
+ *   `slimTrip()`，几何在那道口子上被拦下）。
+ *
+ * @returns {void}
+ */
+function _onExport() {
+  const { trips: list } = _state.trips;
+  if (list.length === 0) {
+    _state.moveMsg = t('rt.exportEmpty');
+    _renderPage();
+    return;
+  }
+  const name = roadtripFilename();
+  downloadJson(name, exportTrips(list));
+  _state.moveMsg = t('rt.exportOk', { n: list.length, file: name });
+  _renderPage();
+}
+
+/**
+ * 导入一份行程文件（先 inspect 预览，用户确认才 apply）。
+ *
+ * ★为什么不选完文件就写：导入是**覆盖性**操作（同 id 会被替换）。让用户先看见
+ *   「将导入 N 条」再按确认，是把「误选一个月前的旧文件」从不可逆事故变成可撤销动作
+ *   （照 `core/backup.js` 的「先 inspect 后 apply」两步法）。
+ *
+ * @param {string} text 文件内容。
+ * @returns {void}
+ */
+function _onImportFile(text) {
+  const ins = inspectTripFile(text);
+  if (!ins.ok) {
+    _state.importPlan = null;
+    _state.moveMsg = t('rt.importFail', { msg: tr({ key: ins.reasonKey, params: ins.reasonParams }) });
+    _renderPage();
+    return;
+  }
+  _state.importPlan = ins.plan;
+  _state.moveMsg = t('rt.importPreview', { n: ins.plan.trips.length, d: ins.plan.dropped });
+  _renderPage();
+}
+
+/**
+ * 真正落盘导入（`saveTrip()` 逐条写；返回 false 的条数要如实说）。
+ *
+ * @returns {void}
+ */
+function _onApplyImport() {
+  const plan = _state.importPlan;
+  if (!plan) return;
+  const applied = applyTripFile(plan);
+  if (!applied.ok) {
+    _state.moveMsg = t('rt.importFail', { msg: tr({ key: applied.reasonKey }) });
+    _renderPage();
+    return;
+  }
+  let ok = 0;
+  for (const trip of applied.trips) if (saveTrip(trip)) ok += 1;
+  const failed = applied.trips.length - ok;
+  _state.moveMsg =
+    failed === 0
+      ? t('rt.importOk', { n: ok })
+      : `${t('rt.importOk', { n: ok })} · ${t('rt.saveFail')}`;
+  _state.importPlan = null;
+  _state.trips = listTripsWithIssues();
+  _renderPage();
+}
+
+/**
+ * 画搬家卡。
+ *
+ * @returns {Object} 卡片节点。
+ */
+function _renderMoveCard() {
+  const card = h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('rt.moveTitle') }),
+    h('p', { class: 'card-note', text: t('rt.moveHint') }),
+  ]);
+  card.appendChild(
+    h('div', { class: 'field field--row' }, [
+      h('button', { class: 'btn', type: 'button', id: 'btn-export', text: t('rt.exportBtn') }),
+      // 文件选择用原生 <input type="file">：本仓没有打包器，也不引第三方选择库
+      h('input', { class: 'btn', type: 'file', id: 'in-trip-file', accept: 'application/json,.json' }),
+    ])
+  );
+  if (_state.importPlan) {
+    card.appendChild(
+      h('button', { class: 'btn btn--primary', type: 'button', id: 'btn-import-apply', text: t('rt.importApply') })
+    );
+  }
+  if (_state.moveMsg) card.appendChild(h('p', { class: 'card-note', text: _state.moveMsg }));
+  return card;
+}
+
+/* ------------------------------------------------------------------ */
 /* 整页渲染与事件绑定                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -971,7 +1286,10 @@ function _renderPage() {
   const result = _renderResultCard();
   if (result) app.appendChild(result);
   app.appendChild(_renderPoiCard());
+  app.appendChild(_renderRecordCard());
+  app.appendChild(_renderRouteCard());
   app.appendChild(_renderSaveCard());
+  app.appendChild(_renderMoveCard());
 
   _bindControls();
   _renderPlaceResults();
@@ -1019,6 +1337,31 @@ function _bindControls() {
 
   const save = _el('btn-save');
   if (save) save.addEventListener('click', () => _onSave());
+
+  const geo = _el('btn-geo');
+  if (geo) geo.addEventListener('click', () => _onLoadGeometry());
+
+  const exp = _el('btn-export');
+  if (exp) exp.addEventListener('click', () => _onExport());
+
+  const applyImp = _el('btn-import-apply');
+  if (applyImp) applyImp.addEventListener('click', () => _onApplyImport());
+
+  const file = _el('in-trip-file');
+  if (file) {
+    file.addEventListener('change', () => {
+      const f = file.files && file.files[0] ? file.files[0] : null;
+      // ★没有 FileReader（测试台 / 老环境）就如实说读不了，不许静默当成功
+      if (!f || typeof FileReader !== 'function') return;
+      const reader = new FileReader();
+      reader.onload = () => _onImportFile(String(reader.result || ''));
+      reader.onerror = () => {
+        _state.moveMsg = t('rt.importFail', { msg: t('app.unknown') });
+        _renderPage();
+      };
+      reader.readAsText(f);
+    });
+  }
 
   // 表单里两个非受控输入（出发日期 / 行程名）**只在用的时候读**，不绑 input 事件：
   // 绑了就会每敲一下重画整页，输入框被销毁，焦点和光标一起没了。

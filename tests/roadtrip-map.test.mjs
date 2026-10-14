@@ -153,6 +153,9 @@ test('★Esri 署名行必须保留且随样式切换：删掉一行字就是违
   });
   const credit = box.querySelector('.map-credit');
   assert.ok(credit, '必须有 .map-credit 署名行');
+  // ★连「被隐藏」也算删：署名行看不见 = 不构成署名，条款上等同于删掉
+  assert.equal(credit.hidden, false, '署名行不许被隐藏');
+  assert.equal(credit.parentNode !== null, true, '署名行不许被摘掉');
   assert.ok(
     credit.textContent.indexOf(tileAttribution('street')) !== -1,
     `署名行要带 Esri 署名串，实际：${credit.textContent}`

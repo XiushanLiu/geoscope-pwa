@@ -75,6 +75,11 @@ const dom = createFakeDom([
   { id: 'in-manual-name' },
   { id: 'sel-manual-type' },
   { id: 'place-results' },
+  // 路线图 / 实录 / 搬家
+  { id: 'btn-geo' },
+  { id: 'btn-export' },
+  { id: 'btn-import-apply' },
+  { id: 'in-trip-file' },
 ]);
 
 /** 必须在 import 被测模块之前装好全局（理由同上）。 */
@@ -622,6 +627,22 @@ test('★④ saveTrip() 返回 false 必须看得见：不许静默当成功', a
     appText().indexOf(t('rt.saveOk', { name: '成都—西安' })) === -1,
     '存失败不许同时报成功 —— 那等于告诉用户「存好了」'
   );
+});
+
+test('★路线图取几何只许 simplified：full 是百 KB 量级，任何时候都不许请求', async () => {
+  await ensurePlanned();
+  net.reset();
+  reloadRoadtrip();
+  await clickOnce('btn-geo');
+  const osrm = net.calls.filter((u) => String(u).indexOf('osrm') !== -1);
+  assert.ok(osrm.length > 0, `点「取几何」要真的发一次请求，实际：${JSON.stringify(net.calls)}`);
+  for (const u of osrm) {
+    assert.ok(
+      String(u).indexOf('overview=simplified') !== -1,
+      `路线图只许要 simplified 几何，实际：${u}`
+    );
+    assert.equal(String(u).indexOf('overview=full'), -1, `★路线图不许请求 full 几何：${u}`);
+  }
 });
 
 test('★缺 Key 时手动添加照样能用：降级不是锁死', async () => {
