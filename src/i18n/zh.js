@@ -773,7 +773,10 @@ export const ZH = {
   'rt.keyPlaceholder': '粘贴你的高德 Web 服务 Key',
   'rt.keySave': '保存',
   'rt.keyClear': '清除',
-  'rt.keyCheck': '校验（会消耗 1 次配额）',
+  'rt.keyCheck': '校验（会真的发请求、消耗配额）',
+  // ★不写「1 次」：amapPoi 的 retry = 1，业务失败（HTTP 200 包 status:"0"）不重试，
+  //   但**传输层**超时会重试一次 → 最坏 2 次。写死「1 次」在正常路径成立、在超时路径是假的。
+  'rt.keyCheckHint': '正常情况下 1 次；网络超时会自动重试，最多 2 次。',
   'rt.keyChecking': '正在校验…',
   'rt.keyOk': 'Key 可用：这次搜到 {count} 条候选',
   'rt.keyOkZero': 'Key 可用（这次搜索返回 0 条候选，坐标或类别可能太窄）',

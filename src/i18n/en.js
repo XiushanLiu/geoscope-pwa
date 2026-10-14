@@ -799,7 +799,11 @@ export const EN = {
   'rt.keyPlaceholder': 'Paste your Amap web service key',
   'rt.keySave': 'Save',
   'rt.keyClear': 'Clear',
-  'rt.keyCheck': 'Verify (uses 1 quota call)',
+  'rt.keyCheck': 'Verify (sends a real request, uses quota)',
+  // ★Not "1 call": amapPoi has retry = 1. A business failure (HTTP 200 with status:"0")
+  //   does not retry, but a **transport** timeout does — so at most 2 calls.
+  //   Hard-coding "1" is true on the happy path and false on the timeout path.
+  'rt.keyCheckHint': 'Normally 1 call; a timeout retries once, so at most 2.',
   'rt.keyChecking': 'Verifying…',
   'rt.keyOk': 'Key works: this search returned {count} candidates',
   'rt.keyOkZero': 'Key works (this search returned 0 candidates — the coordinates or category may be too narrow)',

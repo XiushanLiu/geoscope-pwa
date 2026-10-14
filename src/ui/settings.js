@@ -695,6 +695,9 @@ function _renderAmapKeyCard() {
       h('button', { class: 'btn', type: 'button', id: 'btn-key-clear', text: t('rt.keyClear') }),
       checkBtn,
     ]),
+    // 代价说明**常驻**在按钮下方：配额是限量的，用户要在按下去之前就知道。
+    // ★不写「1 次」—— amapPoi 的 retry = 1，超时会重试，最坏 2 次。
+    h('p', { class: 'card-note', text: t('rt.keyCheckHint') }),
     result,
     // 隐私说明**常驻**：与导出备份那张卡同一个道理 —— 用户在填之前就该知道 Key 去哪了
     h('p', { class: 'card-note', text: t('rt.keyStored') }),

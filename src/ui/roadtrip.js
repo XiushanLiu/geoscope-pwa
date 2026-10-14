@@ -94,6 +94,13 @@ export function init() {
   _renderShell();
   // 静态 HTML 里的 data-i18n 属性（title / meta）在渲染之后统一翻译一次。
   applyI18n(document);
+  // ★再显式设一次 document.title：applyI18n 只会把 <title> 翻成页名（「自驾」），
+  //   而 compare / selfcheck / settings 三页用的是「地候 GeoScope · 页名」——
+  //   切到别的标签页 / 加书签时，带 App 名的那个标题才认得出来是哪一页。
+  //   HTML 里那个简短 <title> 保留着：它是无 JS 时的兜底，不是死代码。
+  if (typeof document !== 'undefined' && document.title !== undefined) {
+    document.title = `${t('app.name')} · ${t('rt.title')}`;
+  }
 }
 
 // 三个全站属性已在上面的模块顶层引导过（不在这里重复）。其余装配仍需守卫：Node 侧
