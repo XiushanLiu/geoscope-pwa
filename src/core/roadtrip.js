@@ -235,6 +235,10 @@ export function emptyRoute() {
     snapMaxM: null,
     legs: [],
     cumulativeS: null,
+    // ★逐边累积里程（米）：与 cumulativeS 一一对应，同为「点数」长度。它的唯一用途是让
+    //   Stopover.driveFromPrevM 能靠**求和**得到真值（架构 §4.4.1 第 7 条不许估算）。
+    //   缺失时为 null —— 那时 driveFromPrevM 也只能为 null，不许按「时长 × 速度」补。
+    cumulativeM: null,
     // ★Σ annotation.duration（逐边实算）。它与 durationS（OSRM 总时长）**不是同一个数**：
     //   实测恒小 0.13 %–0.66 %（726 km 差 38 s）。两者都留着，UI 注脚要照实写，不许混用。
     cumulativeTotalS: null,
@@ -297,6 +301,7 @@ export function slimRoute(route) {
     legs,
     // ★两个大头：一律不落盘
     cumulativeS: null,
+    cumulativeM: null,
     // 单个标量，落盘（界面注脚要在重载后仍说得清「两者相差 <1 %」）
     cumulativeTotalS: _num(route.cumulativeTotalS),
     cumulativeKind: typeof route.cumulativeKind === 'string' ? route.cumulativeKind : 'none',

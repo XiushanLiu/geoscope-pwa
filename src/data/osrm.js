@@ -225,30 +225,52 @@ export function parseRoute(json, ctx = {}) {
   // ★Σ annotation.duration：与 durationS（OSRM 给的总时长）**不是同一个数**，
   //   实测恒小 0.13 %–0.66 %。分开返回是「不许假装相等」的落地，UI 注脚要用它。
   let cumulativeTotalS = null;
+  // ★逐边累积**里程**（米）。`annotation.distance` 与 `annotation.duration` 逐边一一对应、
+  //   长度相同（实测：都等于「点数 − 1」）。它的存在是为了满足架构 §4.4.1 第 7 条「不估算」：
+  //   Stopover 的 `driveFromPrevM` 必须是这一段**边距离的求和**（实测真值），
+  //   而不是「直线距离」或「时长 × 假想速度」。没有这条曲线，切段就只能给出
+  //   driveFromPrevM = null —— 那也比编一个数强，所以缺失时同样给 null。
+  let cumulativeM = null;
+  let cumulativeTotalM = null;
   let cumulativeKind = 'none';
   let edgeCount = 0;
+  let distanceOk = true;
   for (const leg of rawLegs) {
     const durs = leg && leg.annotation && Array.isArray(leg.annotation.duration) ? leg.annotation.duration : null;
     if (!durs) {
       edgeCount = -1;
       break;
     }
+    const dists = leg && leg.annotation && Array.isArray(leg.annotation.distance) ? leg.annotation.distance : null;
+    if (!dists || dists.length !== durs.length) distanceOk = false;
     edgeCount += durs.length;
   }
   if (edgeCount >= 0 && geo.length === edgeCount + 1) {
     const acc = [];
+    const accM = [];
     let sum = 0;
+    let sumM = 0;
     for (const leg of rawLegs) {
       const durs = leg.annotation.duration;
+      const dists = distanceOk && leg.annotation.distance ? leg.annotation.distance : null;
       for (let i = 0; i < durs.length; i += 1) {
         acc.push(sum);
         sum += _num(durs[i]) || 0;
+        if (dists) {
+          accM.push(sumM);
+          sumM += _num(dists[i]) || 0;
+        }
       }
     }
     acc.push(sum);
     cumulativeS = acc;
     cumulativeTotalS = sum;
     cumulativeKind = 'annotations';
+    if (distanceOk) {
+      accM.push(sumM);
+      cumulativeM = accM;
+      cumulativeTotalM = sumM;
+    }
   }
 
   return {
@@ -263,6 +285,9 @@ export function parseRoute(json, ctx = {}) {
     legs,
     cumulativeS,
     cumulativeTotalS,
+    // 逐边累积里程（缺失为 null）：Stopover.driveFromPrevM 的唯一真值来源
+    cumulativeM,
+    cumulativeTotalM,
     cumulativeKind,
     geometry: geo,
     geometryPoints: geo.length,
