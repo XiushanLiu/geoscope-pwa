@@ -21,6 +21,8 @@
  *      防止「坏行程凭空消失」那个 bug 从后门回来（第 19 节）。
  *   11) **体积数字单一来源**：OSRM 几何体积那组 KB 数字只允许出现在 `src/data/osrm.js`，
  *      并反向钉住出处自己没有被删空（第 20 节）。
+ *   12) **壳资产指纹**：`sw.js` 的 `SHELL_FINGERPRINT` 必须与 `SHELL_ASSETS` 里每个文件的
+ *      当前内容算出来的指纹一致 —— 改了壳资产却没 bump 就报红（第 22 节）。
  *
  * 用法：node tools/check.mjs
  * 退出码：全部通过 0；存在失败 1。
@@ -31,6 +33,10 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+// ★指纹算法**只准有一份**：与 `bump-shell.mjs` 共用同一个实现（本文件 import 它）。
+//   两处各写一份必然漂移 —— 那时候「指纹不一致」会变成一个永远红的假警报，
+//   而假警报的下场是所有人都学会忽略它，护栏等于被自己拆掉。
+import { shellFingerprint } from './bump-shell.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -2258,6 +2264,65 @@ async function main() {
         `    \`./amap.js\` / \`../core/geo.js\` / 裸文件名（\`app.css\`）—— 分不清「缩写」与「写错」，一律放过。\n` +
         `  ℹ 本次按规则排除：glob 与模板名 ${skippedGlob} 条、import/export 行 ${skippedImport} 条\n` +
         `    （两者今天都是 0：src 的 import 一律用 \`./\`、\`../\` 说明符，本就进不了判定）。\n`
+    );
+  }
+
+  /* ---------- 22. 壳资产指纹 ---------- */
+  //
+  // ★背景（真事故，不是假想）：改了 `src/ui/map.js` / `src/ui/roadmap.js` 而 sw.js 一个
+  //   字节没变 → 浏览器判定「SW 没更新」→ 真机继续从旧壳缓存拿旧文件 → 新功能不生效，
+  //   **而且页面不报错**。这类失效既不会进控制台也不会进测试，只能靠人记得跑
+  //   `node tools/bump-shell.mjs`。本节把「记得」变成「门禁会红」。
+  //
+  // ★为什么是「指纹」而不是「版本号必须比上次大」：版本号只能证明有人 bump 过，证明不了
+  //   bump 发生在**这次改动之后**。指纹是内容派生的 —— 内容一变，旧指纹立刻失配。
+  //
+  // ★本节不自己实现算法：`shellFingerprint()` 从 `tools/bump-shell.mjs` import，
+  //   两边共用一份（见文件头 import 处那条注释）。
+  {
+    const swText = read('sw.js');
+    const fpMatch = swText.match(/const SHELL_FINGERPRINT\s*=\s*'([^']*)';/);
+    let expected = '';
+    let missing = [];
+    let count = 0;
+    try {
+      const r = shellFingerprint(swText, ROOT);
+      expected = r.fingerprint;
+      missing = r.missing;
+      count = r.count;
+    } catch (err) {
+      expected = `计算失败：${err && err.message ? err.message : err}`;
+    }
+    const recorded = fpMatch ? fpMatch[1] : '';
+
+    section(`22. 壳资产指纹（改了壳资产却没 bump 就报红 · ${count} 个资产）`);
+
+    // 「不加也红」：常量被删掉时，下面那条比对会因为形状不对而红，但那句报错看不出是
+    //   「常量没了」还是「值错了」—— 单独钉一条，让人一眼知道该怎么修。
+    check(
+      'sw.js 含 SHELL_FINGERPRINT 常量（壳资产指纹的落点）',
+      Boolean(fpMatch),
+      fpMatch ? '' : 'sw.js 里找不到 `const SHELL_FINGERPRINT = \'…\';` —— 跑 node tools/bump-shell.mjs 会自动补上',
+      ''
+    );
+    check(
+      'SHELL_FINGERPRINT 形状合法（16 位小写 hex）',
+      /^[0-9a-f]{16}$/.test(recorded),
+      /^[0-9a-f]{16}$/.test(recorded) ? '' : `实际 '${recorded}'：应当是 sha256 前 16 位小写 hex，别手改 —— 跑 node tools/bump-shell.mjs 重写`
+    );
+    check(
+      'SHELL_ASSETS 里的文件全部可读（指纹才算得准）',
+      missing.length === 0,
+      missing.length === 0 ? '' : `读不到 ${missing.length} 个：${missing.join('、')}`
+    );
+    check(
+      `SHELL_FINGERPRINT 与当前壳资产内容一致（记录 ${recorded || '(缺失)'} vs 期望 ${expected}）`,
+      Boolean(fpMatch) && recorded === expected && missing.length === 0,
+      recorded === expected
+        ? ''
+        : `★壳资产内容变了却没重新发布：sw.js 记录的指纹是 ${recorded || '(缺失)'}，实际算出来是 ${expected}。\n` +
+          '      浏览器只看 sw.js 自身字节判断要不要更新 SW —— 不 bump 的话真机会一直用旧壳，且**不报错**。\n' +
+          '      修法：跑 `node tools/bump-shell.mjs`，并把改写后的 sw.js 随本次发布一起提交。'
     );
   }
 
