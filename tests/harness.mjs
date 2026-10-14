@@ -361,8 +361,22 @@ class FakeNode {
     this.parentNode = null;
     this._text = '';
     this.hidden = false;
-    this.disabled = false;
     this.className = '';
+    // ★`disabled` 必须与 `disabled` **属性**双向同步：真浏览器里 `el.disabled = false`
+    //   会把属性一并去掉，两者永远一致。这里若只存一个普通字段，就会出现「渲染时
+    //   `h({disabled:true})` 写了属性、之后代码 `el.disabled = false` 只改了字段」——
+    //   于是 `hasAttribute('disabled')` 与 `.disabled` 给出**相反**的结论，
+    //   「刷新后按钮该解锁」这类断言会变成「不加也绿」的假绿。所以直接以属性为准。
+    Object.defineProperty(this, 'disabled', {
+      get: () => this.attrs.has('disabled'),
+      set: (v) => {
+        if (v) this.attrs.set('disabled', '');
+        else this.attrs.delete('disabled');
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    this.disabled = false;
     this.scrollTop = 0;
     this.scrollHeight = 0;
     this.listeners = new Map();
