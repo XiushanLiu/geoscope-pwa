@@ -5,6 +5,10 @@
 # 才会残留。忽略它，避免把一堆落盘的模块副本误当源码提交。
 .tmp-standalone-verify/
 
+# 应用运行时的本地状态与产物，不是源码。
+.workbuddy/
+.wbapp_*.genie
+
 # ★下面这些**故意不忽略**，别顺手加上：
 #   - selfcheck-standalone.html —— 虽然是生成产物，但它是发到手机真机验证的那一份，留档省事；
 #   - docs/data/WMM2025.COF 与 docs/data/WMM2025_TEST_VALUES.txt —— 官方系数与官方测试值，是模型的溯源依据；
