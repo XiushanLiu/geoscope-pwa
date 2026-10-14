@@ -15,11 +15,17 @@
  *
  * 另外一条：导出 → 在另一台机器导入必须出**等价行程**（round-trip）。
  *
+ * 还有一条**零回归**断言：本轮为了装下整程给路线图放宽了缩放下界（`ROADMAP_MIN_ZOOM`），
+ *   而放宽的手段是动 `src/ui/map.js`。★「动 map.js 不许影响此刻屏」必须有证据，不能只
+ *   靠「我觉得没影响」—— 见文末那条用例（DEFAULT_ZOOM 值钉死 + app.js 不传 zoom +
+ *   不传下界时钳位仍按 MIN_ZOOM）。
+ *
  * 环境：复用 tests/harness.mjs 的假 DOM + 假 localStorage（零第三方依赖）。
  */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { createFakeDom, installNavigator, installStorage, installFetch, FakeStorage } from './harness.mjs';
 
 // store.js / cache.js 在**模块加载期**就决定走内存还是 localStorage，必须先装全局。
@@ -31,13 +37,14 @@ installFetch();
 const dom = createFakeDom([{ id: 'app' }]);
 
 const { fitBoundsZoom, projectRoute, renderRouteCard } = await import('../src/ui/roadmap.js');
-const { lonLatToTile, MIN_ZOOM, MAX_ZOOM, TILE_SIZE, tileAttribution } = await import('../src/data/tiles.js');
+const { lonLatToTile, MIN_ZOOM, MAX_ZOOM, DEFAULT_ZOOM, TILE_SIZE, tileAttribution } = await import('../src/data/tiles.js');
+const { VIEW_W, VIEW_H, ROADMAP_MIN_ZOOM, mapView, setMapView } = await import('../src/ui/map.js');
 const { t } = await import('../src/i18n/index.js');
 const { newTrip, exportTrips, inspectTripFile, applyTripFile, slimTrip } = await import('../src/core/roadtrip.js');
 
-/** 视口尺寸：与 src/ui/roadmap.js 的 VIEW_W / VIEW_H 一致（错位就会被下面的用例抓到）。 */
-const VIEW_W = 350;
-const VIEW_H = 260;
+/** ★视口尺寸直接从 src/ui/map.js 取，不抄一份：抄了就会和底图的视口错位（静默）。 */
+assert.equal(VIEW_W, 350, '视口宽与 map.js 一致（改动前先读 map.js 的 VIEW_W 注释）');
+assert.equal(VIEW_H, 260, '视口高与 map.js 一致');
 
 /** 成都 → 西安（真实夹具 `fixtures/osrm-cd-xian.json` 的两端）。 */
 const CD = { lat: 30.572795, lon: 104.066298 };
@@ -56,30 +63,42 @@ test('fitBounds：跨度越大层级越低（单调性）', () => {
   assert.ok(city.z >= trip.z, `城区层级 ${city.z} 不应低于整程 ${trip.z}`);
   assert.ok(near.z > MIN_ZOOM, '几百米的跨度不该降到底层');
   assert.equal(near.covers, true, '几公里的跨度应当装得下');
-  // 城区（约 57 km）在 z≥10 也装不下：z10 一屏只约 48 km。见下一条用例。
-  // ★成都→西安（约 716 km）**装不下** —— 这不是 bug，是本卡视野的硬边界：
-  //   350 px 宽的视口在 MIN_ZOOM=10 只能看约 48 km（= 360° × 350 / (256 × 2^10)），
-  //   716 km 需要 z≈6，而 tiles.js 的 MIN_ZOOM 是 10、ui/map.js 的 setMapView 也会钳。
-  //   这条断言把「装不下」钉成**已知事实**而不是悄悄接受；真要显示整程就得先解决
-  //   层级下限（见报告）。covers=false 时界面必须明说（下一条用例）。
-  assert.equal(trip.covers, false, '716 km 装不进 z≥10 的视口（已知边界，不许假装装得下）');
-  assert.equal(trip.z, MIN_ZOOM, '装不下就退到 MIN_ZOOM');
+  // ★成都→西安（约 716 km）**装得下**：这是本轮放宽下界之后的事实。
+  //   不放宽时 z10 一屏只约 48 km（= 360° × 350 / (256 × 2^10)），716 km 需要 z≈6，
+  //   而 tiles.js 的 MIN_ZOOM = 10 —— 那时 covers 只能是 false，「路线图」装不下整程。
+  //   现在路线图用 ROADMAP_MIN_ZOOM = 3 作下界（实测 z3–z6 Esri 均有真瓦片，
+  //   数据见 src/ui/map.js 的 ROADMAP_MIN_ZOOM 注释），整程落到 **z6**。
+  // ★这条断言是变异点：把 ROADMAP_MIN_ZOOM 改回 10，它必须红（见文末注释）。
+  assert.equal(trip.covers, true, '716 km 必须真的装得下（放宽下界就是为了这个）');
+  assert.equal(trip.z, 6, `716 km 实测落在 z6，实际 z${trip.z}`);
+  assert.ok(trip.z < MIN_ZOOM, '整程层级必须低于街道级下界 —— 否则等于没放宽');
 });
 
-test('★装不下必须明说，不许假装装得下（716 km 实测落在 MIN_ZOOM 且 covers=false）', () => {
+test('★716 km 真的装得下：一屏宽度必须 ≥ 716 km（不许靠 covers=true 自欺）', () => {
   const trip = fitBoundsZoom({ minLat: CD.lat, maxLat: XA.lat, minLon: CD.lon, maxLon: XA.lon });
-  const spanKmAt = (z) => (360 * VIEW_W) / (TILE_SIZE * 2 ** z) * 111;
+  // 赤道处一屏的东西向公里数（视口宽 VIEW_W，世界宽 TILE_SIZE × 2^z）
+  const spanKmAt = (z) => ((360 * VIEW_W) / (TILE_SIZE * 2 ** z)) * 111;
   assert.ok(
-    spanKmAt(trip.z) < 716,
-    `z${trip.z} 一屏只约 ${spanKmAt(trip.z).toFixed(0)} km，装不下 716 km —— 所以 covers 必须是 false`
+    spanKmAt(trip.z) >= 716,
+    `z${trip.z} 一屏约 ${spanKmAt(trip.z).toFixed(0)} km（赤道处），装不下 716 km —— covers 不许是 true`
   );
+  assert.equal(trip.covers, true);
 });
 
-test('fitBounds：装不下就退到 MIN_ZOOM 并把 covers 置 false —— 不许硬抬层级把路线裁掉', () => {
-  // 横跨欧亚：任何层级都装不进 350×260
+test('★放宽的下界必须真的传到 setMapView：否则路线按 z6 投影、底图仍按 z10 铺', () => {
+  // ★这是本轮唯一的跨模块隐式契约：fitBounds 算得出 z6 不算数，**底图**也得按 z6 铺。
+  //   两者不一致时路线会画在错的地方，而且没有任何报错 —— 只能靠这条断言发现。
+  const box = renderRouteCard(dom.byId.app, { points: [CD, XA], styleId: 'street' });
+  assert.ok(box, '渲染应成功');
+  assert.equal(mapView().zoom, 6, `底图视图必须是 fitBounds 算出的 z6，实际 z${mapView().zoom}`);
+});
+
+test('fitBounds：极端跨度仍装不下 —— 退到下界并把 covers 置 false，不许硬抬层级裁掉路线', () => {
+  // 横跨欧亚（约 130°）：连 z3 都装不进 350×260
   const huge = fitBoundsZoom({ minLat: 10, maxLat: 60, minLon: -10, maxLon: 120 });
-  assert.equal(huge.z, MIN_ZOOM, '装不下时必须退到最小层级');
+  assert.equal(huge.z, ROADMAP_MIN_ZOOM, '装不下时必须退到路线图的层级下界');
   assert.equal(huge.covers, false, '★covers=false 是给用户的说明：可能看不全');
+  assert.notEqual(huge.z, MAX_ZOOM, '绝不许为了「装得下」而硬抬层级');
 });
 
 test('fitBounds：中心取墨卡托中点（高纬度不偏北）', () => {
@@ -294,4 +313,39 @@ test('导入坏文件：必须给出可读原因，不许静默当成功', () =>
   const noTrips = applyTripFile({});
   assert.equal(noTrips.ok, false);
   assert.equal(noTrips.reasonKey, 'trip.planNoTrips');
+});
+
+/* ------------------------------------------------------------------ */
+/* 零回归：动 map.js 不许影响此刻屏                                        */
+/* ------------------------------------------------------------------ */
+
+test('★零回归证明：放宽下界只作用于路线图，此刻屏一个字都没变', () => {
+  // ★为什么要有这条：本轮为了装下整程，改了 `src/ui/map.js`（新增 ROADMAP_MIN_ZOOM +
+  //   setMapView 的可选下界参数）。「我觉得没影响」不算证据，这里逐条钉死：
+  //
+  // ① 此刻屏的层级常量值没变（写死实测到的数，改了就红）
+  assert.equal(DEFAULT_ZOOM, 12, '此刻屏默认层级必须仍是 12');
+  assert.equal(MIN_ZOOM, 10, '底图层级下界必须仍是 10（街道级）');
+  assert.equal(MAX_ZOOM, 16, '底图层级上界必须仍是 16');
+  assert.equal(ROADMAP_MIN_ZOOM, 3, '路线图下界必须是 3，且**不等于** MIN_ZOOM');
+
+  // ② 不传下界时，钳位行为与改动前**逐字一致**（这是「可选参数」的立身之本）
+  assert.equal(setMapView({ zoom: -5 }).zoom, MIN_ZOOM, '不传下界 → 仍钳到 MIN_ZOOM（此刻屏行为不变）');
+  assert.equal(setMapView({ zoom: 99 }).zoom, MAX_ZOOM, '上界不变');
+  assert.equal(setMapView({ zoom: 6 }).zoom, MIN_ZOOM, '★此刻屏传 z6 也要被钳回 z10 —— 街道级下界仍然生效');
+  assert.equal(setMapView({ zoom: 6 }, ROADMAP_MIN_ZOOM).zoom, 6, '只有显式传下界时才允许低层级');
+  assert.equal(setMapView({ zoom: 6 }, undefined).zoom, MIN_ZOOM, '传 undefined 等于不传');
+
+  // ③ 编排层（此刻屏）根本不传 zoom，更不会传 minZoom —— 它连碰都碰不到新参数
+  const appSrc = fs.readFileSync(new URL('../src/ui/app.js', import.meta.url), 'utf8');
+  const calls = appSrc.split(/\r?\n/).filter((line) => line.indexOf('renderMapCard(') !== -1);
+  assert.ok(calls.length > 0, '此刻屏应当有 renderMapCard 调用（找不到说明断言本身失效了）');
+  for (const line of calls) {
+    assert.equal(line.indexOf('zoom'), -1, `此刻屏不许传 zoom / minZoom，实际：${line.trim()}`);
+    assert.equal(line.indexOf('minZoom'), -1, `此刻屏不许传 minZoom，实际：${line.trim()}`);
+  }
+
+  // ④ 收尾：把视图恢复成此刻屏的默认值，避免本用例的副作用影响同进程内的后来者
+  setMapView({ zoom: DEFAULT_ZOOM });
+  assert.equal(mapView().zoom, DEFAULT_ZOOM);
 });
