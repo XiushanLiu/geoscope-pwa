@@ -2185,6 +2185,78 @@ async function main() {
     );
   }
 
+  /* ---------- 21. 注释里的路径引用不得悬空（src/**） ---------- */
+  //
+  // ★背景（历史事故）：`33d8f01` 修的就是「代码注释里写的『见架构文档 §0.1』此前指向一个
+  //   **没入库的文件**」。注释里的路径永远编译得过，也永远不会被 import 引用校验覆盖 ——
+  //   import 行有 build-standalone 的依赖校验和 check.mjs 的「模块 → ./相对路径」断言守着，
+  //   本节**故意不重复它们**，只抓注释里那一类。
+  //
+  // ★覆盖面边界（不进判定的，一律放过；机器分不清「缩写」和「写错」）：
+  //   1. **缩写 / 相对 / 裸文件名**：`core/cache.js`（指 `src/core/cache.js`）、`./amap.js`、
+  //      `../core/geo.js`、`app.css`、`now.js` —— 这类占绝大多数（实测 404 / 475）。
+  //   2. **glob 与模板名**：`ui/*.js`、`geoscope-roadtrip-*.json`。
+  //   3. **import / export 行**：交给 build-standalone 与第 3 节，本节不重复。
+  //   4. 只认**完整仓库相对路径**（`src/` `tests/` `tools/` `styles/` `docs/` 开头）。
+  //   ⚠️ 上面 2、3 两条**今天各排除 0 条**（src 里的 import 一律用 `./` `../` 说明符，
+  //   本来就被第 4 条卡掉了）—— 它们是保险费，**今天不可观测**，不假装自己有牙。
+  {
+    // ⚠️ 段内必须允许点号：第一版正则把段写成 `[A-Za-z0-9_-]+`，结果
+    //    `tests/roadtrip-sources.test.mjs` 这类多段点号文件名被整条漏掉（实测少判 8 条）。
+    const ANY_PATH_RE =
+      /(?<![A-Za-z0-9_.\/-])((?:\.{1,2}\/)?[A-Za-z0-9_*.-]+(?:\/[A-Za-z0-9_*.-]+)*\.(?:js|mjs|html|css|json|md|txt))/g;
+    const FULL_PREFIX = /^(src|tests|tools|styles|docs)\//;
+    const GLOB_OR_TEMPLATE = /[*?]|\$\{|\{[A-Za-z]/;
+
+    const dangling = [];
+    let pathTokens = 0;
+    let judgedPaths = 0;
+    let skippedGlob = 0;
+    let skippedImport = 0;
+    for (const rel of srcFiles) {
+      let inFence = false;
+      read(rel)
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          if (/^\s*```/.test(line)) {
+            inFence = !inFence;
+            return;
+          }
+          if (inFence) return;
+          let m;
+          ANY_PATH_RE.lastIndex = 0;
+          while ((m = ANY_PATH_RE.exec(line)) !== null) {
+            pathTokens += 1;
+            const t = m[1];
+            if (!FULL_PREFIX.test(t)) continue;
+            if (GLOB_OR_TEMPLATE.test(t)) {
+              skippedGlob += 1;
+              continue;
+            }
+            if (/^\s*(import|export)\b/.test(line)) {
+              skippedImport += 1;
+              continue;
+            }
+            judgedPaths += 1;
+            if (!fs.existsSync(path.join(ROOT, t))) dangling.push(`${rel}:${i + 1} → ${t}`);
+          }
+        });
+    }
+
+    section(`21. 注释里的路径引用不得悬空（src/** · 扫到 ${pathTokens} 个路径 token，${judgedPaths} 条入判定）`);
+    check(
+      `src/** 注释里的完整仓库相对路径全部指向真实文件（断链 ${dangling.length} 处：${dangling.join('、') || '无'}）`,
+      dangling.length === 0,
+      '历史事故 33d8f01：注释里写的「见架构文档 §0.1」此前指向一个没入库的文件 —— 注释永远编译得过，也不会被 import 引用校验覆盖'
+    );
+    process.stdout.write(
+      `  ℹ 不进判定的 ${pathTokens - judgedPaths} 条：缩写（\`core/cache.js\` 指 \`src/core/cache.js\`）/\n` +
+        `    \`./amap.js\` / \`../core/geo.js\` / 裸文件名（\`app.css\`）—— 分不清「缩写」与「写错」，一律放过。\n` +
+        `  ℹ 本次按规则排除：glob 与模板名 ${skippedGlob} 条、import/export 行 ${skippedImport} 条\n` +
+        `    （两者今天都是 0：src 的 import 一律用 \`./\`、\`../\` 说明符，本就进不了判定）。\n`
+    );
+  }
+
   /* ---------- 汇总 ---------- */
   const total = PASS + FAIL + ACCEPT;
   process.stdout.write(`\n${'-'.repeat(52)}\n`);
