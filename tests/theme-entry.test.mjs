@@ -1,5 +1,5 @@
 /**
- * 主题引导必须覆盖全部四个入口（<html data-theme>）
+ * 主题引导必须覆盖全部手写入口（<html data-theme>）
  *
  * 背景：commit a0dde93 加了三档主题切换，写属性的 `applyThemeMode()` 只活在
  * src/ui/settings.js 里，而且只有那一页在模块顶层调用过。src/ui/app.js（index.html）、
@@ -12,8 +12,12 @@
  *
  * 本文件钉死的契约：**仅完成 import、不调 boot() / init()**，`<html data-theme>` 就已经
  * 按 `getThemeMode()` 落好 —— 也就是主题引导必须写在模块顶层，不能塞进启动函数里。
- * 四个入口逐一验，只验一个等于没验（漏的就是没验的那个）。
+ * 手写入口逐一验，只验一个等于没验（漏的就是没验的那个）。
  *
+ * ★曾经漏过两个：`compare.html` 与 `roadtrip.html` 都在这里**没有条目**，而文件头上
+ *   那句「必须与 check.mjs 的 ENTRY_OF_PAGE 保持一致」是散文 —— 它不会变红。
+ *   这两个页面的入口本来就在模块顶层引导主题，check.mjs 第 11 节的源码扫描也早就
+ *   覆盖了它们，所以缺的那六条用例从来没有报过警（「不加也绿」）。2026-10 补上。
  * 手法：ES module 是**缓存**的，同一个说明符第二次 import 不会重新求值、顶层代码不会再
  * 跑。所以每个用例给入口模块加一个唯一的 `?theme-case=N` 查询串，强制 Node 重新求值该
  * 模块（其依赖仍命中缓存，store 的内存态因此得以保留，setThemeMode 才有效）。
@@ -37,8 +41,12 @@ const { getThemeMode, setThemeMode } = await import('../src/core/store.js');
 const { applyThemeMode } = await import('../src/ui/theme.js');
 
 /**
- * 四个页面 → 入口模块。必须与 tools/check.mjs 的 ENTRY_OF_PAGE 保持一致
- * （check.mjs 第 11 节已用源码扫描钉死「每个入口都引导」，本文件钉死「引导真的生效」）。
+ * 手写入口 → 入口模块。必须与 tools/check.mjs 的 ENTRY_OF_PAGE **除生成产物之外的部分**
+ * 保持一致（check.mjs 第 11 节用源码扫描钉死「每个入口都引导」，本文件钉死「引导真的
+ * 生效」—— 两件事，缺一不可）。
+ *
+ * ★`selfcheck-standalone.html` 故意不在内：它是打包产物，入口写在内联脚本里、
+ * 由浏览器原生解析，Node 侧 import 不到，且与 selfcheck.js 是同一个模块（重复验）。
  *
  * @type {Array<{page:string, entry:string}>}
  */
@@ -47,6 +55,10 @@ const ENTRIES = [
   { page: 'selfcheck.html', entry: '../src/ui/selfcheck.js' },
   { page: 'compass.html', entry: '../src/ui/compass.js' },
   { page: 'settings.html', entry: '../src/ui/settings.js' },
+  // 以下两个**不进 tabbar**（底部胶囊在 320px 屏上四个 tab 已贴临界点，加第五项必断行），
+  // 但它们同样是手写入口、同样有独立的一份「引导」，漏掉就等于默认它们可以不引导。
+  { page: 'compare.html', entry: '../src/ui/compare.js' },
+  { page: 'roadtrip.html', entry: '../src/ui/roadtrip.js' },
 ];
 
 /** 期望的 <html data-theme> 值：system 是**没有**这个属性（null），不是字符串。 */
@@ -83,8 +95,8 @@ for (const { page, entry } of ENTRIES) {
   }
 }
 
-test('四个入口的引导是同一个实现（applyThemeMode 唯一，语义一致）', async () => {
-  // 三档语义逐值过一遍：这是四个入口共用同一实现的兜底断言，
+test('手写入口的引导是同一个实现（applyThemeMode 唯一，语义一致）', async () => {
+  // 三档语义逐值过一遍：这是全部手写入口共用同一实现的兜底断言，
   // 防止将来某个入口自己抄一份、把 system 写成 "system"（那会挡掉 :not() 守卫 → 永远深色）。
   for (const mode of ['light', 'dark', 'system']) {
     assert.equal(applyThemeMode(mode), mode, `applyThemeMode(${mode}) 应回显 ${mode}`);
