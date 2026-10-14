@@ -62,6 +62,10 @@ const ENTRY_OF_PAGE = {
   // 对比页**不进 tabbar**（底部胶囊在 320px 屏上四个 tab 已贴临界点，加第五项必断行），
   // 但它仍然是一个手写页面，入口登记同样要在这儿占一行 —— 漏登记等于漏引 JS、白屏。
   'compare.html': 'src/ui/compare.js',
+  // 自驾页同样**不进 tabbar**（底部胶囊在 320px 屏上四个 tab 已贴临界点，加第五项必断行），
+  // 入口只在「我的」页那张「自驾」卡上，页面内给一条明确的「返回『我的』」路。
+  // 但它仍然是一个手写页面，入口登记同样要在这儿占一行 —— 漏登记等于漏引 JS、白屏。
+  'roadtrip.html': 'src/ui/roadtrip.js',
   // 生成产物：入口写在内联引导脚本的 `var ENTRY = "src/ui/selfcheck.js"` 里，
   // 不是 <script src=…> 属性，所以也能被同一条断言覆盖到。
   'selfcheck-standalone.html': 'src/ui/selfcheck.js',
@@ -1423,11 +1427,11 @@ async function main() {
   /* ---------- 15. 语言引导 ---------- */
   /*
    * 与第 11 节（主题）／第 13 节（字号）同一条道理：语言是**全站属性**，而本仓库是
-   * 零构建原生 PWA —— 五个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap。
+   * 零构建原生 PWA —— 六个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap。
    * 只要有一个入口漏掉那一行，用户从设置页切到英文再进那一页，就会看到半中半英。
    */
-  section(`15. 语言引导（${PAGES.length + 1} 个手写页面的入口必须在模块顶层切 i18n）`);
-  for (const html of [...PAGES, 'compare.html']) {
+  section(`15. 语言引导（${PAGES.length + 2} 个手写页面的入口必须在模块顶层切 i18n）`);
+  for (const html of [...PAGES, 'compare.html', 'roadtrip.html']) {
     const entry = ENTRY_OF_PAGE[html];
     const entrySrc = read(entry);
     check(`${html} 入口 ${entry} 引用语言引导 applyLocale`, entrySrc.indexOf('applyLocale') !== -1, '漏了它，这一页永远说中文');

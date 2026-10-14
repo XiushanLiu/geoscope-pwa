@@ -717,6 +717,7 @@ export const ZH = {
   'desc.compass': '地候 GeoScope —— 磁偏角与真/磁方位换算，本机 WMM2025 计算，不联网。',
   'desc.settings': '地候 GeoScope —— 备份导出与导入、主题切换，数据只留本机，不联网。',
   'desc.compare': '地候 GeoScope —— 多地点对比：把收藏地点的同一批指标并排列出来。',
+  'desc.roadtrip': '地候 GeoScope —— 自驾：路线规划、行程实录与自驾路线图。',
   'a11y.mainNav': '主导航',
   'a11y.checkParams': '自检参数',
   // ---------- 界面语言 ----------
@@ -757,6 +758,32 @@ export const ZH = {
   'rt.err.noGeometry': 'OSRM 未返回路线几何',
   'rt.err.needMorePoints': '至少需要 2 个坐标点才能算路线（现在 {n} 个）',
   'rt.err.badAnchor': '候选搜索的中心坐标非法',
+
+  // ---------- 自驾模块：页面文案（T03 页面外壳 + 设置页两张卡） ----------
+  'rt.title': '自驾',
+  'rt.subtitle': '规划路线与停留点、记录实际打卡、画出自驾路线图',
+  'rt.back': '返回「我的」',
+  'rt.empty': '这一版只有入口',
+  'rt.emptyHint': '路线规划、行程实录、路线图还没做完 —— 做完后就从这一页开始。现在这里不会发任何请求。',
+  'rt.entry': '自驾',
+  'rt.entryBtn': '进入自驾',
+  'rt.entryHint': '从出发地到目的地，按每天开 3–5 小时规划停留点，并记录实际打卡的住宿 / 景点 / 美食。',
+  'rt.keyTitle': '高德 Key',
+  'rt.keyHint': '住宿 / 景点 / 美食的候选走高德搜索，需要你自己的 Key（个人实名认证有免费额度）。没填也能求路和画路线图，只是候选搜不出来。',
+  'rt.keyPlaceholder': '粘贴你的高德 Web 服务 Key',
+  'rt.keySave': '保存',
+  'rt.keyClear': '清除',
+  'rt.keyCheck': '校验（会消耗 1 次配额）',
+  'rt.keyChecking': '正在校验…',
+  'rt.keyOk': 'Key 可用：这次搜到 {count} 条候选',
+  'rt.keyOkZero': 'Key 可用（这次搜索返回 0 条候选，坐标或类别可能太窄）',
+  'rt.keyCurrent': '当前：{mask}',
+  'rt.keyNone': '当前：未填',
+  'rt.keySaved': '已保存（{mask}）',
+  'rt.keyCleared': '已清除',
+  'rt.keyBad': '没存进去：Key 为空、超过 {max} 个字符，或者中间有空格',
+  'rt.keyClearFail': '本来就没填，不用清',
+  'rt.keyStored': 'Key 只存在这台设备上，不进备份文件、不上传。',
 
   // ---------- 自驾模块：行程导入失败原因 ----------
   // core/roadtrip.js 与 core/tripstore.js 只回 reasonKey / reasonParams

@@ -740,6 +740,7 @@ export const EN = {
   'desc.compass': 'GeoScope — magnetic declination and true/magnetic bearing conversion, computed on device with WMM2025, offline.',
   'desc.settings': 'GeoScope — backup export and import, theme switching; data stays on this device, no network.',
   'desc.compare': 'GeoScope — compare places: the same readings for each saved place, side by side.',
+  'desc.roadtrip': 'GeoScope — road trip: route planning, trip log and the trip map.',
   'a11y.mainNav': 'Main navigation',
   'a11y.checkParams': 'Self-check parameters',
   // ---------- Interface language ----------
@@ -783,6 +784,32 @@ export const EN = {
   'rt.err.noGeometry': 'OSRM returned no route geometry',
   'rt.err.needMorePoints': 'at least 2 coordinates are needed to calculate a route (got {n})',
   'rt.err.badAnchor': 'the candidate search centre coordinates are invalid',
+
+  // ---------- Road trip: page copy (T03 page shell + two settings cards) ----------
+  'rt.title': 'Road trip',
+  'rt.subtitle': 'Plan routes and stops, log what you actually did, draw the trip map',
+  'rt.back': 'Back to "Me"',
+  'rt.empty': 'This build is only the entry point',
+  'rt.emptyHint': 'Route planning, the trip log and the map are not built yet — they will start from this page. Nothing here sends a request right now.',
+  'rt.entry': 'Road trip',
+  'rt.entryBtn': 'Open road trip',
+  'rt.entryHint': 'From start to destination, plan stops at 3–5 hours of driving per day, and log the places you actually stayed, visited and ate at.',
+  'rt.keyTitle': 'Amap key',
+  'rt.keyHint': 'Lodging / sight / food candidates come from Amap search, which needs your own key (the personal verified tier has a free quota). Routing and the map work without it — only candidates come up empty.',
+  'rt.keyPlaceholder': 'Paste your Amap web service key',
+  'rt.keySave': 'Save',
+  'rt.keyClear': 'Clear',
+  'rt.keyCheck': 'Verify (uses 1 quota call)',
+  'rt.keyChecking': 'Verifying…',
+  'rt.keyOk': 'Key works: this search returned {count} candidates',
+  'rt.keyOkZero': 'Key works (this search returned 0 candidates — the coordinates or category may be too narrow)',
+  'rt.keyCurrent': 'Current: {mask}',
+  'rt.keyNone': 'Current: not set',
+  'rt.keySaved': 'Saved ({mask})',
+  'rt.keyCleared': 'Cleared',
+  'rt.keyBad': 'Not saved: the key is empty, longer than {max} characters, or contains whitespace',
+  'rt.keyClearFail': 'Nothing was set, so there is nothing to clear',
+  'rt.keyStored': 'The key stays on this device only — it is not written into backups and never uploaded.',
 
   // ---------- Road trip: trip import failure reasons ----------
   // core/roadtrip.js and core/tripstore.js return only reasonKey / reasonParams

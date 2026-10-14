@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="styles/app.css" />
 
   <!-- 无障碍字号档位预置（防跳档）
-       与另外四个页面完全同一段：ES module 是 defer 的，等 src/ui/*.js 跑起来才去写
+       与另外五个页面完全同一段：ES module 是 defer 的，等 src/ui/*.js 跑起来才去写
        <html data-fs>，浏览器很可能已经按默认字号画过一帧 —— 用户会看到整页文字
        「先小后大」地跳一下。这段同步脚本在 <head> 里直接读本机偏好把属性设上。
        ★键 'gs:v1:store:prefs' = core/cache.js 的 NS('gs:v1:') + store 的 prefs 键，

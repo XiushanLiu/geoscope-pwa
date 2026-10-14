@@ -142,7 +142,7 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
 
   /** @type {string[]} 仓库内需要离线可用的运行时资源。 */
   const runtimeFiles = [
-    'index.html', 'selfcheck.html', 'compass.html', 'settings.html', 'manifest.webmanifest',
+    'index.html', 'selfcheck.html', 'compass.html', 'settings.html', 'compare.html', 'roadtrip.html', 'manifest.webmanifest',
     'styles/tokens.css', 'styles/app.css',
     'src/i18n/zh.js',
     'src/i18n/en.js',
@@ -159,7 +159,7 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
     'src/data/wmm2025.js',
     'src/data/osrm.js', 'src/data/amap.js', 'src/data/roadsources.js',
     'src/ui/app.js', 'src/ui/now.js', 'src/ui/selfcheck.js', 'src/ui/compass.js', 'src/ui/map.js',
-    'src/ui/settings.js', 'src/ui/download.js',
+    'src/ui/settings.js', 'src/ui/download.js', 'src/ui/roadtrip.js',
   ];
   for (const f of runtimeFiles) {
     assert.ok(fs.existsSync(path.resolve(ROOT, f)), `清单引用了不存在的文件 ${f}`);
