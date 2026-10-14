@@ -732,6 +732,17 @@ function _evaluate(type, item, f) {
  *   而「未填」的数量由 `unknownCounts` **按字段**单独统计（与分组无关），
  *   所以「未填：房价（3）」这个计数依然是全量、诚实的。
  *
+ * ★入参契约（**踩过一次坑，改这里之前先读**）：`list` 必须是 **CheckIn 形状** ——
+ *   它按 `item.type`（只能是 'stay' / 'sight' / 'food'）取对应的筛选条件，并按
+ *   `item[type]`（即 `item.stay` / `item.sight` / `item.food`）读参与筛选的字段。
+ *   ★`data/amap.js::parsePoi()` 产出的 **PoiCandidate 不是这个形状**：它没有 `type`
+ *   （它的 `type` 是高德原文，如「住宿服务;宾馆酒店」），也没有那三个子结构。直接把候选
+ *   喂进来，`type` 会判成 null，于是走到「没有对应的筛选条件 = 原样通过」分支 ——
+ *   界面表现为**全部落进「达标」、「未填」组恒为空**，即把「看不清」伪装成「都挺好」，
+ *   比报错还糟（T04b 实测）。调用方（UI）必须先把候选补成
+ *   `{...cand, type, category: cand.type}` 再喂进来，且**只补 type** ——
+ *   房价 / 房型 / 等级这些参与筛选的字段一律不许补，补了就是把推算值冒充实测值。
+ *
  * @param {Array<Object>} list CheckIn 列表（按各自的 type 取对应的筛选条件）。
  * @param {{stay?:Object, sight?:Object, food?:Object}} [filters] 三类筛选条件（PlanInput.filters 的形状）。
  * @returns {{pass:Array, fail:Array, unknown:Array, unknownCounts:Object, total:number}} 三元组与计数。
