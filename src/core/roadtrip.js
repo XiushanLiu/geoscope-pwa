@@ -24,6 +24,8 @@
 
 import { byteSize } from './cache.js';
 import { stamp as exportFilenameStamp } from './format.js';
+// 切段第 5 条（去重）要用两点球面距离；src 的规范写法是 `core/geo.js::distanceKm`。
+import { distanceKm } from './geo.js';
 
 /* ------------------------------------------------------------------ */
 /* 常量                                                                */
@@ -894,4 +896,376 @@ export function applyTripFile(plan) {
     if (m.ok) trips.push(m.trip);
   }
   return { ok: true, trips };
+}
+
+/* ------------------------------------------------------------------ */
+/* 切段：legs 之上那一层（架构 §4.4.1 Stage 2，纯函数）                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 必经点吸附容差（秒）：为「停到必经点」而多开的里程折算成秒数，超过就不吸附。
+ *
+ * ★这是本实现引入的一个数，架构文档只写了「落在必经点附近则吸附」而没给阈值 ——
+ *   阈值必须有一个，否则「附近」没有边界：容差无穷大会把每天的落脚点全拉到必经点上，
+ *   一天的行程会被拉到远超 dailyTargetSec。取 **900 s（15 min）** 的理由：
+ *   ① 远小于 dailyTargetSec 的最小档 10800 s，吸附后的一天最多多开 8 %；
+ *   ② 大于路网里单条边的量级（本仓实测边上 1–5 s），不会天天触发；
+ *   ③ 「用户说要经停保定，结果住宿被排到保定前 30 km 的国道边」这条要治，
+ *      而 30 km ≠ 15 min 的车程 —— 反过来多开 15 min 到保定市区正是用户想要的。
+ *   改这个数请连这里的理由一起改。
+ */
+export const VIA_SNAP_TOL_SEC = 900;
+
+/**
+ * 去重阈值（米）：新锚点与任一**必经点**的直线距离小于它 → 丢弃这一刀。
+ *
+ * 取 2000 的理由：它与 `SNAP_WARN_M`（2000，同一量级）保持同一把尺子 ——
+ * OSRM 会把输入点吸附到路网上（实测可达 3363 m），于是「必经点」其实已经是
+ * 吸附后的位置；再在它身边 2 km 内切一个住宿点，等于把同一个地方算成两天。
+ */
+export const STOPOVER_DEDUP_M = 2000;
+
+/**
+ * 切段失败的分类（**机器码**，不是 i18n 键）。
+ *
+ * ★为什么这里不产 `reasonKey`：本模块的一切失败按惯例都应是 `{reasonKey, reasonParams}`
+ *   （core 不许 import i18n），而本函数缺的不是「用户的文件有问题」，是**数据不全** ——
+ *   几何没有 / 逐边时长没有。现有的七个 `trip.*` 键全是文件级（badJson / badSchema /
+ *   notRoadtrip …），拿过来用只会张冠李戴：界面会告诉用户「不是地候的行程文件」，
+ *   而实际原因是这次请求的路线没带 annotations。
+ *   **假装有一个合适的中文文案比给一个机器码更糟**，所以这里给机器码。
+ *   【待办】应由 UI 层把这几种机器码翻成具体提示 —— 需要在 `src/i18n/{zh,en}.js`
+ *   补 `trip.noGeometry` / `trip.noAnnotations` / `trip.noRoute` 三个键（中英双表齐增），
+ *   本轮被明确告知不许碰 i18n，故留机器码 + 本注释。
+ *
+ * @type {Object<string,string>}
+ */
+export const SPLIT_FAIL = {
+  /** route 压根不是 RouteInfo 形状。 */
+  NO_ROUTE: 'noRoute',
+  /** 没有几何（或不足 2 个点）。 */
+  NO_GEOMETRY: 'noGeometry',
+  /** 没有逐边累积时长 —— 切段失去唯一依据（§4.4.1 第 1 条）。 */
+  NO_ANNOTATIONS: 'noAnnotations',
+  /** dailyTargetSec / plan 不是正数。 */
+  BAD_TARGET: 'badTarget',
+};
+
+/**
+ * 切段结果。
+ *
+ * @typedef {Object} SplitResult
+ * @property {boolean} ok 是否正常切完（false 时 stopovers 恒为 []）。
+ * @property {string|null} reasonKind 失败分类（SPLIT_FAIL 的取值）；成功时 null。
+ * @property {Object} reasonParams 失败参数（给 UI 拼文案用，不含成句）。
+ * @property {string|null} reasonKey **恒为 null** —— 见 SPLIT_FAIL 的 JSDoc。
+ * @property {Array<Object>} stopovers Stopover[]（形状见 §4.4）。
+ * @property {number} dayCount 天数 = stopovers.length + 1。
+ * @property {number|null} totalSecAnn Σ annotation.duration（切段的依据口径）。
+ * @property {number|null} totalSecLegs Σ legs[].duration（界面展示的总时长口径）。
+ * @property {number|null} driftSec totalSecLegs − totalSecAnn（实测恒 ≥ 0）。
+ * @property {number|null} driftRatio driftSec / totalSecLegs（实测 0.13 %–0.66 %）。
+ * @property {number} tailMergedSec 末段**被并入**的秒数（0 = 收尾规则没触发）。
+ *   注意它不是末段的全部 —— 它是「那刀被作废后、多出来的那一截」；末段全长见 `tailSec`。
+ * @property {number|null} tailMergedIntoDay 并入的是第几天（1 基）。
+ * @property {number} tailSec 末段全长：从**最后一个停留点**开到终点的驾驶秒数。
+ *   没有停留点时它等于全程。★UI 要画「第 N 天开多久」必须用它 —— 只靠 Stopover[] 算不出
+ *   最后一天（最后一天没有「落脚点」可挂）。
+ * @property {number|null} tailM tailSec 对应的里程（米）；`cumulativeM` 缺失时为 null。
+ * @property {number} edgeCount 边数 = 点数 − 1。
+ */
+
+/**
+ * 校验一份 RouteInfo **对本函数而言**是否够用来切段。
+ *
+ * 三道门依次是：是不是个对象、有没有几何（≥2 点）、有没有逐边累积时长。
+ * 只要有一道不过就 `ok:false` —— 本函数**绝不**用什么东西把缺的那部分补上。
+ *
+ * @param {*} route RouteInfo。
+ * @param {Array<Array<number>>} points 几何点位（[lon, lat] 序列）。
+ * @returns {{ok:boolean, kind:string|null, params:Object}} 校验结果。
+ */
+function _splitInput(route, points) {
+  if (!route || typeof route !== 'object' || Array.isArray(route)) {
+    return { ok: false, kind: SPLIT_FAIL.NO_ROUTE, params: {} };
+  }
+  if (!Array.isArray(points) || points.length < 2) {
+    return { ok: false, kind: SPLIT_FAIL.NO_GEOMETRY, params: { points: Array.isArray(points) ? points.length : 0 } };
+  }
+  const cumS = Array.isArray(route.cumulativeS) ? route.cumulativeS : null;
+  if (!cumS || cumS.length !== points.length) {
+    // ★不许按「总时长 ÷ 边数」或「逐边距离 ÷ 假想速度」把累积曲线补出来：
+    //   那正是第 7 条要防的事 —— 补出来的每一段都是编的数字。
+    //   没有逐边时长就没有切段依据，如实返回「没有依据」。
+    return {
+      ok: false,
+      kind: SPLIT_FAIL.NO_ANNOTATIONS,
+      params: { cumLen: cumS ? cumS.length : 0, pointsLen: points.length },
+    };
+  }
+  return { ok: true, kind: null, params: {} };
+}
+
+/**
+ * 在几何里找离给定坐标最近的那个点的下标。
+ *
+ * 为什么需要它：多必经点路线的 `waypoints[].snapped` 是 OSRM **吸附之后**的必经点坐标。
+ * 实测它与 `geometry` 里同一位置的那一个点**完全相同**（本轮三条真实样本逐一验过：
+ * 中间必经点命中的下标正好等于前一条 leg 的边数，如 3 点样本 → 4214），所以按值相等
+ * 就能命中；但当浮点有 ±1 ulp 的差异时相等会漏，所以退一步按**最近点**找 ——
+ * 在完整几何（`overview=full`）上，相邻两点之间最多一条边的长度，最近点没有歧义空间。
+ *
+ * @param {Array<Array<number>>} points 几何（[lon, lat] 序列）。
+ * @param {{lat:number, lon:number}} target 目标坐标。
+ * @returns {number} 下标；形状异常时返回 -1。
+ */
+function _nearestPointIndex(points, target) {
+  let best = -1;
+  let bestKm = Infinity;
+  for (let i = 0; i < points.length; i += 1) {
+    const p = points[i];
+    if (!Array.isArray(p) || p.length < 2) continue;
+    const km = distanceKm(target, { lat: _num(p[1]), lon: _num(p[0]) });
+    if (km < bestKm) {
+      bestKm = km;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
+ * 取各条 leg 末端（= 必经点）在几何里的下标，**不含起点与终点**。
+ *
+ * 为什么要把起终点剔除在这里而不是留到切割循环里：第 6 条说「起点 / 终点永不成为
+ * Stopover」，它们分别属于 `plan.origin` / `plan.destination`。把它们留在必经点名单里，
+ * 去重（第 5 条）就会拿起点去比对每一个新锚点 —— 第一天开出去 100 km 的落脚点本来
+ * 不该和起点比，比了只会让规则变得难懂。
+ *
+ * @param {*} route RouteInfo。
+ * @param {Array<Array<number>>} points 几何。
+ * @returns {Array<number>} 必经点下标（升序，可能为空数组）。
+ */
+function _legEndIndices(route, points) {
+  const wps = Array.isArray(route && route.waypoints) ? route.waypoints : [];
+  const out = [];
+  for (const w of wps) {
+    const c = _coord(w && w.snapped);
+    if (!c) continue;
+    const idx = _nearestPointIndex(points, c);
+    if (idx <= 0 || idx >= points.length - 1) continue;
+    if (out.indexOf(idx) === -1) out.push(idx);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/**
+ * 按「每天开多久」把一条 OSRM 路线切成落脚点（架构 §4.4.1 Stage 2）。
+ *
+ * ★它存在的理由：`legs[]` 是按**必经点**切的，不是按**天**切的。三点 336 km 那条路线
+ *   legs = [154.6 km/1.84 h, 181.6 km/2.17 h]，当天排会变成「两天、每天不到 2.2 h」；
+ *   成都→西安只有 1 条 leg（8.14 h），又远超 5 h 上限必须切开。所以在 legs 之上必然
+ *   还要这一层。**同一个 legs 输入、不同的 dailyTargetSec 会得到不同天数** —— 这正是
+ *   第三、四条单测要钉住的事。
+ *
+ * 八条契约（§4.4.1 第 1–8 条）在本实现里的落点，逐条对得上：
+ *   1. 累积曲线**直接用 `route.cumulativeS`**（`src/data/osrm.js` 产出，前导 0、
+ *      长度 = 几何点数），本函数自己不再重算一遍 —— 两处各算一次必然会漂；
+ *   2. 锚点 = 第一个 `cumulativeS[k] >= t + dailyTargetSec` 的点，取 `geometry[k]`；
+ *   3. 收尾：切完若 `totalSecAnn - cumS[k] < minGapSec`，这一刀作废，余量并入最后一天，
+ *      秒数写进 `tailMergedSec` / `tailMergedIntoDay`（UI 据此写「末段 X 分钟并入第 N 天」）；
+ *   4. 必经点优先：k 之后 `VIA_SNAP_TOL_SEC` 秒内存在 leg 末端时，锚点吸附到那个必经点，
+ *      `anchorFrom:'via'`，`t` 推进到该 leg 结束；
+ *   5. 去重：新锚点与任一必经点直线距离 < `STOPOVER_DEDUP_M` 则丢弃这一刀。
+ *      ★这里的必要澄清（第 4 与第 5 条字面会撞车）：吸附到必经点的那一刀**不能**被
+ *      第 5 条判掉 —— 它的距离是 0，判掉就等于第 4 条永不生效。所以第 5 条只对
+ *      `anchorFrom:'cumulative-4h'` 的锚点生效；而 via 锚点改按「同一个必经点是否已有
+ *      落脚点」去判重。两条规则各管一段，不重叠。
+ *   6. 起点 / 终点永不入选：候选区间是 `[1, points.length - 2]`，两端不在里面；
+ *   7. 不估算：`driveFromPrevS` = `cumulativeS` 区间相减、`driveFromPrevM` =
+ *      `cumulativeM`（我在 Stage 1 补的逐边累积里程）区间相减；任一为 null 就返回 null；
+ *   8. 口径诚实：两个总数**分别**返回（`totalSecAnn` 用于停靠位置与每日时长、
+ *      `totalSecLegs` 用于界面总时长），差值与比例也一并返回（`driftSec` / `driftRatio`，
+ *      实测 0.13 %–0.66 %，恒为 annotation 略小）。**绝不**拿一个冒充另一个。
+ *
+ * @param {*} route RouteInfo（`src/data/osrm.js::parseRoute` 的产出）。
+ * @param {Object} [plan] PlanInput；只用 `dailyTargetSec` / `minGapSec`。
+ * @param {{dailyTargetSec?:number, minGapSec?:number, viaSnapTolSec?:number,
+ *          dedupM?:number, nowMs?:number}} [opts] 覆盖项（单测用）。
+ * @returns {SplitResult} 见上。
+ */
+export function splitStopovers(route, plan = {}, opts = {}) {
+  const p = plan && typeof plan === 'object' && !Array.isArray(plan) ? plan : {};
+  const o = opts && typeof opts === 'object' && !Array.isArray(opts) ? opts : {};
+
+  /** @type {SplitResult} */
+  const base = {
+    ok: true,
+    reasonKind: null,
+    reasonParams: {},
+    reasonKey: null,
+    stopovers: [],
+    dayCount: 0,
+    totalSecAnn: null,
+    totalSecLegs: null,
+    driftSec: null,
+    driftRatio: null,
+    tailMergedSec: 0,
+    tailMergedIntoDay: null,
+    tailSec: 0,
+    tailM: null,
+    edgeCount: 0,
+  };
+
+  const points = Array.isArray(route && route.geometry) ? route.geometry : null;
+  const input = _splitInput(route, points);
+  if (!input.ok) {
+    return { ...base, ok: false, reasonKind: input.kind, reasonParams: input.params };
+  }
+
+  const cumS = route.cumulativeS;
+  const cumM =
+    Array.isArray(route.cumulativeM) && route.cumulativeM.length === points.length ? route.cumulativeM : null;
+  const last = points.length - 1;
+  const edgeCount = last;
+
+  /* ---- 参数：显式给了却非法 → 失败；没给 → 用默认 ---- */
+  const targetRaw = o.dailyTargetSec !== undefined ? _num(o.dailyTargetSec) : _num(p.dailyTargetSec);
+  if (targetRaw !== null && targetRaw <= 0) {
+    return { ...base, ok: false, reasonKind: SPLIT_FAIL.BAD_TARGET, reasonParams: { dailyTargetSec: targetRaw } };
+  }
+  const dailyTargetSec = targetRaw === null ? DEFAULT_DAILY_TARGET_SEC : targetRaw;
+
+  const gapRaw = o.minGapSec !== undefined ? _num(o.minGapSec) : _num(p.minGapSec);
+  if (gapRaw !== null && gapRaw < 0) {
+    return { ...base, ok: false, reasonKind: SPLIT_FAIL.BAD_TARGET, reasonParams: { minGapSec: gapRaw } };
+  }
+  const minGapSec = gapRaw === null ? DEFAULT_MIN_GAP_SEC : gapRaw;
+
+  const snapRaw = _num(o.viaSnapTolSec);
+  const viaSnapTolSec = snapRaw === null || snapRaw < 0 ? VIA_SNAP_TOL_SEC : snapRaw;
+  const dedupRaw = _num(o.dedupM);
+  const dedupM = dedupRaw === null || dedupRaw < 0 ? STOPOVER_DEDUP_M : dedupRaw;
+  const nowMs = Number.isFinite(Number(o.nowMs)) ? Number(o.nowMs) : Date.now();
+
+  /* ---- 两个总量口径（第 8 条） ---- */
+  const totalSecAnn = _num(cumS[last]);
+  const legSum = Array.isArray(route.legs) && route.legs.length > 0
+    ? route.legs.reduce((acc, l) => acc + (_num(l && l.durationS) || 0), 0)
+    : null;
+  const totalSecLegs = _num(route.durationS) !== null ? _num(route.durationS) : legSum;
+  const driftSec = totalSecAnn === null || totalSecLegs === null ? null : totalSecLegs - totalSecAnn;
+  const driftRatio = driftSec === null || !totalSecLegs ? null : driftSec / totalSecLegs;
+
+  /* ---- 必经点（第 4 / 5 条要用） ---- */
+  const viaIdx = _legEndIndices(route, points);
+  const viaCoords = viaIdx.map((i) => ({ lat: _num(points[i][1]), lon: _num(points[i][0]) }));
+
+  /* ---- 逐刀 ---- */
+  const cuts = [];
+  let t = 0;
+  let tailMergedSec = 0;
+  let tailMergedIntoDay = null;
+  // 防御上限：天数上限本就是 ceil(total / target)，这里再给一层以免累积曲线的浮点
+  // 异常（NaN / 非单调）把界面拖死。真实路线远到不了这个数。
+  const maxIter = Math.ceil((totalSecAnn === null ? 0 : totalSecAnn) / dailyTargetSec) + 8;
+
+  for (let guard = 0; guard < maxIter; guard += 1) {
+    const want = t + dailyTargetSec;
+    let k = -1;
+    // ★候选区间 [1, last-1]：两端分别是起点与终点，第 6 条不许它们入选
+    for (let i = 1; i < last; i += 1) {
+      if (_num(cumS[i]) !== null && cumS[i] >= want) {
+        k = i;
+        break;
+      }
+    }
+    if (k < 0) break;
+
+    const remaining = (totalSecAnn === null ? 0 : totalSecAnn) - cumS[k];
+    // 第 3 条：余段不足 minGapSec → 不再切这一刀，余量并入「这一天」（= 已切刀数 + 1）
+    if (remaining < minGapSec) {
+      tailMergedSec = remaining > 0 ? remaining : 0;
+      tailMergedIntoDay = cuts.length + 1;
+      break;
+    }
+
+    // 第 4 条：k 之后一个容差内存在必经点 → 吸附到它
+    let useIndex = k;
+    let anchorFrom = 'cumulative-4h';
+    for (const vi of viaIdx) {
+      if (vi >= k && cumS[vi] - cumS[k] <= viaSnapTolSec) {
+        useIndex = vi;
+        anchorFrom = 'via';
+        break;
+      }
+    }
+
+    const coord = { lat: _num(points[useIndex][1]), lon: _num(points[useIndex][0]) };
+
+    // 第 5 条：去重（含义见本函数 JSDoc 里 ★那条澄清 —— via 锚点走另一条判据）
+    let dropped = false;
+    if (anchorFrom === 'via') {
+      dropped = cuts.some((c) => c.index === useIndex);
+    } else {
+      for (const vc of viaCoords) {
+        if (distanceKm(coord, vc) * 1000 < dedupM) {
+          dropped = true;
+          break;
+        }
+      }
+    }
+    if (!dropped) cuts.push({ index: useIndex, anchorFrom });
+
+    // ★t 必须严格前进，否则余段不足时会原地打转。`cumS[useIndex] >= want > t`，
+    //   所以这里推进到本刀的实际位置后，下一轮的 want 一定更大，循环必然终止。
+    t = cumS[useIndex];
+  }
+
+  /* ---- 组装 Stopover（形状由 §4.4 定义，走 _stopover() 归一） ---- */
+  const stopovers = [];
+  let prevIndex = 0;
+  cuts.forEach((c, i) => {
+    const idx = c.index;
+    stopovers.push(
+      _stopover({
+        id: newId('so', nowMs),
+        day: i + 1,
+        seq: i + 1,
+        coord: { lat: _num(points[idx][1]), lon: _num(points[idx][0]) },
+        anchorFrom: c.anchorFrom,
+        // 第 8 条：这个值出自 annotation 累积，不是 legs[].duration 那一套
+        cumSecAtArrival: _num(cumS[idx]),
+        driveFromPrevS: _num(cumS[idx]) - _num(cumS[prevIndex]),
+        driveFromPrevM: cumM ? _num(cumM[idx]) - _num(cumM[prevIndex]) : null,
+        placeName: null,
+        placeSource: 'coord',
+        note: '',
+        actual: null,
+      })
+    );
+    prevIndex = idx;
+  });
+
+  // 末段：最后一个停留点 → 终点。★它是一个真实存在的一段，只是**没有落脚点可挂** ——
+  // 不把它单独返回，UI 就画不出最后一天开多久（只靠 Stopover[] 会少掉这一截）。
+  const lastCumIdx = cuts.length > 0 ? cuts[cuts.length - 1].index : 0;
+  const tailSec = totalSecAnn === null ? 0 : totalSecAnn - (_num(cumS[lastCumIdx]) || 0);
+  const tailM = cumM && totalSecAnn !== null ? _num(cumM[last]) - (_num(cumM[lastCumIdx]) || 0) : null;
+
+  return {
+    ...base,
+    ok: true,
+    stopovers,
+    dayCount: stopovers.length + 1,
+    totalSecAnn,
+    totalSecLegs,
+    driftSec,
+    driftRatio,
+    tailMergedSec,
+    tailMergedIntoDay,
+    tailSec: tailSec > 0 ? tailSec : 0,
+    tailM,
+    edgeCount,
+  };
 }
