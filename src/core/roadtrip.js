@@ -928,15 +928,10 @@ export const STOPOVER_DEDUP_M = 2000;
 /**
  * 切段失败的分类（**机器码**，不是 i18n 键）。
  *
- * ★为什么这里不产 `reasonKey`：本模块的一切失败按惯例都应是 `{reasonKey, reasonParams}`
- *   （core 不许 import i18n），而本函数缺的不是「用户的文件有问题」，是**数据不全** ——
- *   几何没有 / 逐边时长没有。现有的七个 `trip.*` 键全是文件级（badJson / badSchema /
- *   notRoadtrip …），拿过来用只会张冠李戴：界面会告诉用户「不是地候的行程文件」，
- *   而实际原因是这次请求的路线没带 annotations。
- *   **假装有一个合适的中文文案比给一个机器码更糟**，所以这里给机器码。
- *   【待办】应由 UI 层把这几种机器码翻成具体提示 —— 需要在 `src/i18n/{zh,en}.js`
- *   补 `trip.noGeometry` / `trip.noAnnotations` / `trip.noRoute` 三个键（中英双表齐增），
- *   本轮被明确告知不许碰 i18n，故留机器码 + 本注释。
+ * ★机器码与 i18n 键为什么**并存**、各管一段：`reasonKind` 给程序分支用（单测断言、
+ *   埋点、将来要判「这类失败值不值得重试」），`reasonKey` 给 UI 上屏用。只给机器码，
+ *   UI 就得拿 `reasonKind` 自己去猜一句中文 —— 那正是「各层自己编一套说法」，与本仓
+ *   「core 产键、UI 翻译」的既定约定相悖；只给键，程序就没法稳定分支。
  *
  * @type {Object<string,string>}
  */
@@ -952,13 +947,61 @@ export const SPLIT_FAIL = {
 };
 
 /**
+ * 机器码 → i18n 键。
+ *
+ * ★为什么复用 `rt.err.*` 而不是 `trip.*`：那七个 `trip.*` 全是**文件级**失败
+ *   （badJson / badSchema / notRoadtrip / newerSchema …），拿过来界面会告诉用户
+ *   「不是地候的行程文件」，而实际原因是这条路线缺逐边时长 —— 张冠李戴比不说话更糟。
+ *   `rt.err.*` 是「路线数据本身」这一族的桶（osrm.js 抛的也是它们），语义正好对得上。
+ *
+ * ★`rt.err.badTarget` 是本轮**新增**的第四个键：本函数有两条失败路径
+ *   （`dailyTargetSec <= 0` / `minGapSec < 0`）走 `BAD_TARGET`，它们同样来自用户输入
+ *   （「每天开几小时」），同样是用户看得见的失败。若唯独它不给键，UI 就不得不为它
+ *   单独编一句文案 —— 那正好是「各层自己编一套说法」，比多一个键糟。
+ *
+ * ★`rt.err.noRoute` 的 `{code}` 占位：它的文案是「未能算出路线（OSRM 返回 {code}）」，
+ *   而 `NO_ROUTE` 的成因是「传进来的压根不是一份 RouteInfo」，没有 OSRM 错误码可填 ——
+ *   `t()` 缺参时**不替换**（占位符原样留在句里，见 `src/i18n/index.js` 的 t()）。
+ *   真会走到用户面前的路径是「上游 SourceError 已经带了 `rt.err.noRoute` + `code`」，
+ *   本分支只是兜底：宁可显示一个看得见的 `{code}`，也不拿一句「文件不是行程」糊弄。
+ *   【待办】UI 层落地时若发现这条真的会上屏，再补一个不带占位的键。
+ *
+ * @type {Object<string,string>}
+ */
+export const SPLIT_FAIL_KEY = {
+  [SPLIT_FAIL.NO_ROUTE]: 'rt.err.noRoute',
+  [SPLIT_FAIL.NO_GEOMETRY]: 'rt.err.noGeometry',
+  [SPLIT_FAIL.NO_ANNOTATIONS]: 'rt.err.noAnnotations',
+  [SPLIT_FAIL.BAD_TARGET]: 'rt.err.badTarget',
+};
+
+/**
+ * 组装一条切段失败结果（机器码与 i18n 键**一起**给）。
+ *
+ * @param {Object} base 基础结果（成功态的骨架）。
+ * @param {string} kind SPLIT_FAIL 的取值。
+ * @param {Object} params 失败参数（不含成句）。
+ * @returns {Object} 失败结果。
+ */
+function _splitFail(base, kind, params) {
+  return {
+    ...base,
+    ok: false,
+    reasonKind: kind,
+    reasonKey: SPLIT_FAIL_KEY[kind] || null,
+    reasonParams: params,
+  };
+}
+
+/**
  * 切段结果。
  *
  * @typedef {Object} SplitResult
  * @property {boolean} ok 是否正常切完（false 时 stopovers 恒为 []）。
  * @property {string|null} reasonKind 失败分类（SPLIT_FAIL 的取值）；成功时 null。
  * @property {Object} reasonParams 失败参数（给 UI 拼文案用，不含成句）。
- * @property {string|null} reasonKey **恒为 null** —— 见 SPLIT_FAIL 的 JSDoc。
+ * @property {string|null} reasonKey 失败原因的 i18n 键（SPLIT_FAIL_KEY 的产出），
+ *   供 UI 层 `tr()` 上屏；成功时 null。core 不许 import i18n，所以这里只给键名。
  * @property {Array<Object>} stopovers Stopover[]（形状见 §4.4）。
  * @property {number} dayCount 天数 = stopovers.length + 1。
  * @property {number|null} totalSecAnn Σ annotation.duration（切段的依据口径）。
@@ -1120,7 +1163,7 @@ export function splitStopovers(route, plan = {}, opts = {}) {
   const points = Array.isArray(route && route.geometry) ? route.geometry : null;
   const input = _splitInput(route, points);
   if (!input.ok) {
-    return { ...base, ok: false, reasonKind: input.kind, reasonParams: input.params };
+    return _splitFail(base, input.kind, input.params);
   }
 
   const cumS = route.cumulativeS;
@@ -1132,13 +1175,13 @@ export function splitStopovers(route, plan = {}, opts = {}) {
   /* ---- 参数：显式给了却非法 → 失败；没给 → 用默认 ---- */
   const targetRaw = o.dailyTargetSec !== undefined ? _num(o.dailyTargetSec) : _num(p.dailyTargetSec);
   if (targetRaw !== null && targetRaw <= 0) {
-    return { ...base, ok: false, reasonKind: SPLIT_FAIL.BAD_TARGET, reasonParams: { dailyTargetSec: targetRaw } };
+    return _splitFail(base, SPLIT_FAIL.BAD_TARGET, { dailyTargetSec: targetRaw });
   }
   const dailyTargetSec = targetRaw === null ? DEFAULT_DAILY_TARGET_SEC : targetRaw;
 
   const gapRaw = o.minGapSec !== undefined ? _num(o.minGapSec) : _num(p.minGapSec);
   if (gapRaw !== null && gapRaw < 0) {
-    return { ...base, ok: false, reasonKind: SPLIT_FAIL.BAD_TARGET, reasonParams: { minGapSec: gapRaw } };
+    return _splitFail(base, SPLIT_FAIL.BAD_TARGET, { minGapSec: gapRaw });
   }
   const minGapSec = gapRaw === null ? DEFAULT_MIN_GAP_SEC : gapRaw;
 

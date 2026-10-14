@@ -784,6 +784,10 @@ export const EN = {
   'rt.err.noGeometry': 'OSRM returned no route geometry',
   'rt.err.needMorePoints': 'at least 2 coordinates are needed to calculate a route (got {n})',
   'rt.err.badAnchor': 'the candidate search centre coordinates are invalid',
+  // Failure buckets of the day-splitter (`core/roadtrip.js::splitStopovers`).
+  // It has no OSRM error code to report, so it can only say what the route data is missing.
+  'rt.err.noAnnotations': 'OSRM returned no per-edge durations, so the route cannot be split by day',
+  'rt.err.badTarget': 'the daily target must be greater than 0 and the minimum gap cannot be negative',
 
   // ---------- Road trip: page copy (T03 page shell + two settings cards) ----------
   'rt.title': 'Road trip',

@@ -758,6 +758,10 @@ export const ZH = {
   'rt.err.noGeometry': 'OSRM 未返回路线几何',
   'rt.err.needMorePoints': '至少需要 2 个坐标点才能算路线（现在 {n} 个）',
   'rt.err.badAnchor': '候选搜索的中心坐标非法',
+  // 下面两个是切段（`core/roadtrip.js::splitStopovers`）的失败桶：
+  // 它拿不到 OSRM 错误码，只能说「这份路线数据缺了什么」，与上面几条同族。
+  'rt.err.noAnnotations': 'OSRM 未返回逐边时长，无法按天切分',
+  'rt.err.badTarget': '每天目标时长必须大于 0，最小间隔不能为负',
 
   // ---------- 自驾模块：页面文案（T03 页面外壳 + 设置页两张卡） ----------
   'rt.title': '自驾',

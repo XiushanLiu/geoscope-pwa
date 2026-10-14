@@ -43,6 +43,9 @@ const ROOT = process.cwd();
 
 const rt = await import('../src/core/roadtrip.js');
 const geo = await import('../src/core/geo.js');
+// 只为了核对「core 吐出的键，两张表都有」。core 自己不许 import i18n（单向依赖），
+// 但**测试**站在最外层，可以两边都看 —— 这正是它该盯的那条缝。
+const { ZH, EN } = await import('../src/i18n/index.js');
 
 /**
  * 读一份真实夹具。
@@ -450,16 +453,51 @@ test('⑮ 数据不全 → 失败并给机器码；**绝不**用估算把缺的�
   assert.ok(Number.isFinite(noMeters.stopovers[0].driveFromPrevS), '时长照给');
 });
 
-test('⑯ 失败时 reasonKey 恒为 null（机器码在 reasonKind，不留中文、不张冠李戴）', () => {
-  for (const r of [
+test('⑯ ★失败时机器码与 i18n 键**并存**：不许把「猜文案」的活丢给 UI', () => {
+  const cases = [
     rt.splitStopovers(null, {}, { nowMs: NOW }),
-    rt.splitStopovers({ ...CD_XIAN, cumulativeS: null }, {}, { nowMs: NOW }),
-  ]) {
+    rt.splitStopovers({ ...CD_XIAN, geometry: null }, {}, { nowMs: NOW }),
+    rt.splitStopovers({ ...CD_XIAN, cumulativeS: null, cumulativeKind: 'none' }, {}, { nowMs: NOW }),
+    rt.splitStopovers(CD_XIAN, { dailyTargetSec: 0 }, { nowMs: NOW }),
+    rt.splitStopovers(CD_XIAN, { minGapSec: -1 }, { nowMs: NOW }),
+  ];
+  const seen = new Set();
+  for (const r of cases) {
     assert.equal(r.ok, false);
-    assert.equal(r.reasonKey, null, '本函数不产 reasonKey（见 SPLIT_FAIL 的 JSDoc）');
-    assert.ok(typeof r.reasonKind === 'string' && r.reasonKind.length > 0);
+    assert.ok(typeof r.reasonKind === 'string' && r.reasonKind.length > 0, '机器码必须有（程序分支用）');
+    // ★核心：`reasonKey` 恒为 null 是**回退** —— 那等于断了「core 产键、UI 翻译」这条
+    //   全仓约定，UI 只能拿 `reasonKind` 自己编一句说法，于是每层各有一套措辞。
+    assert.ok(
+      typeof r.reasonKey === 'string' && r.reasonKey.length > 0,
+      `${r.reasonKind} 必须给出 i18n 键（不许恒 null），实际 ${JSON.stringify(r.reasonKey)}`
+    );
+    // ★必须是 `rt.err.*` 这一族：`trip.*` 那七个是**文件级**失败（不是行程文件 / 版本
+    //   太新），拿来描述「这条路线缺逐边时长」就是张冠李戴 —— 界面会告诉用户一个
+    //   跟实际原因无关的理由。这一条断言就是防那个的。
+    assert.ok(
+      r.reasonKey.indexOf('rt.err.') === 0,
+      `${r.reasonKind} 的键必须落在 rt.err.* 族，实际 ${r.reasonKey}`
+    );
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(ZH, r.reasonKey),
+      `中文表必须有 ${r.reasonKey}（漏翻会让界面直接显示键名）`
+    );
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(EN, r.reasonKey),
+      `英文表必须有 ${r.reasonKey}（两张表必须同构）`
+    );
     assert.ok(r.reasonParams && typeof r.reasonParams === 'object');
+    seen.add(r.reasonKind);
   }
+  // 四种失败分类全部被走到 —— 少一种就说明有分支没被这条用例覆盖
+  assert.deepEqual([...seen].sort(), Object.values(rt.SPLIT_FAIL).sort(), 'SPLIT_FAIL 的每一档都要被覆盖');
+});
+
+test('⑯b 成功时 reasonKind / reasonKey 都是 null（失败才给，成功不占位）', () => {
+  const r = rt.splitStopovers(CD_XIAN, { dailyTargetSec: 14400 }, { nowMs: NOW });
+  assert.equal(r.ok, true);
+  assert.equal(r.reasonKind, null);
+  assert.equal(r.reasonKey, null);
 });
 
 test('⑰ 天数语义：dayCount = 停留点数 + 1，且每个 Stopover 是「第 N 天的落脚点」', () => {
