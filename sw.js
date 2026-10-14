@@ -11,7 +11,7 @@
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v22';
+const SHELL_CACHE = 'geoscope-shell-v23';
 const SHELL_ASSETS = [
   './',
   './index.html',
