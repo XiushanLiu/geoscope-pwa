@@ -959,17 +959,18 @@ export const SPLIT_FAIL = {
  *   （「每天开几小时」），同样是用户看得见的失败。若唯独它不给键，UI 就不得不为它
  *   单独编一句文案 —— 那正好是「各层自己编一套说法」，比多一个键糟。
  *
- * ★`rt.err.noRoute` 的 `{code}` 占位：它的文案是「未能算出路线（OSRM 返回 {code}）」，
- *   而 `NO_ROUTE` 的成因是「传进来的压根不是一份 RouteInfo」，没有 OSRM 错误码可填 ——
- *   `t()` 缺参时**不替换**（占位符原样留在句里，见 `src/i18n/index.js` 的 t()）。
- *   真会走到用户面前的路径是「上游 SourceError 已经带了 `rt.err.noRoute` + `code`」，
- *   本分支只是兜底：宁可显示一个看得见的 `{code}`，也不拿一句「文件不是行程」糊弄。
- *   【待办】UI 层落地时若发现这条真的会上屏，再补一个不带占位的键。
+ * ★`NO_ROUTE` 为什么用 `rt.err.noRouteData` 而不是 `rt.err.noRoute`：后者的文案带
+ *   `{code}` 占位（「未能算出路线（OSRM 返回 {code}）」），而本分支的成因是「传进来的
+ *   压根不是一份 RouteInfo」，**没有 OSRM 错误码可填** —— `t()` 缺参时不替换，占位符会
+ *   原样上屏，用户会看到「…（OSRM 返回 {code}）」这种半成品句子。本仓「刻意不兜底」是
+ *   让**缺键**变成可见的失败（t() 返回键名本身），不是让**占位符**裸奔 —— 后者是文案
+ *   bug，不是诚实。所以这里用不带占位的 `rt.err.noRouteData`；
+ *   上游真正拿到 OSRM 错误码的那条路径仍走 `rt.err.noRoute` + `code`，两者不混。
  *
  * @type {Object<string,string>}
  */
 export const SPLIT_FAIL_KEY = {
-  [SPLIT_FAIL.NO_ROUTE]: 'rt.err.noRoute',
+  [SPLIT_FAIL.NO_ROUTE]: 'rt.err.noRouteData',
   [SPLIT_FAIL.NO_GEOMETRY]: 'rt.err.noGeometry',
   [SPLIT_FAIL.NO_ANNOTATIONS]: 'rt.err.noAnnotations',
   [SPLIT_FAIL.BAD_TARGET]: 'rt.err.badTarget',

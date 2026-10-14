@@ -491,6 +491,15 @@ test('⑯ ★失败时机器码与 i18n 键**并存**：不许把「猜文案」
   }
   // 四种失败分类全部被走到 —— 少一种就说明有分支没被这条用例覆盖
   assert.deepEqual([...seen].sort(), Object.values(rt.SPLIT_FAIL).sort(), 'SPLIT_FAIL 的每一档都要被覆盖');
+
+  // ★`noRoute` 这一档必须落在**不带占位符**的键上：它的成因是「压根没拿到一份路线数据」，
+  //   没有 OSRM 错误码可填；用 `rt.err.noRoute`（带 {code}）会让占位符原样上屏，
+  //   用户看到「…（OSRM 返回 {code}）」这种半成品句子。
+  const noRouteKey = rt.splitStopovers(null, {}, { nowMs: NOW }).reasonKey;
+  assert.ok(
+    ZH[noRouteKey].indexOf('{') === -1 && EN[noRouteKey].indexOf('{') === -1,
+    `noRoute 的文案不许带占位符（没有码可填），实际 zh「${ZH[noRouteKey]}」/ en「${EN[noRouteKey]}」`
+  );
 });
 
 test('⑯b 成功时 reasonKind / reasonKey 都是 null（失败才给，成功不占位）', () => {

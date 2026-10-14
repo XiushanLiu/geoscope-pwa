@@ -788,6 +788,10 @@ export const EN = {
   // It has no OSRM error code to report, so it can only say what the route data is missing.
   'rt.err.noAnnotations': 'OSRM returned no per-edge durations, so the route cannot be split by day',
   'rt.err.badTarget': 'the daily target must be greater than 0 and the minimum gap cannot be negative',
+  // Distinct from rt.err.noRoute: that one needs {code} (OSRM really returned an error
+  // code). This one means "we never got route data at all" — reusing the {code} variant
+  // would print a raw {code} on screen.
+  'rt.err.noRouteData': 'did not receive route data, so it cannot be split into days',
 
   // ---------- Road trip: page copy (T03 page shell + two settings cards) ----------
   'rt.title': 'Road trip',
