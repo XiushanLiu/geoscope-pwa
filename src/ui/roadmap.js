@@ -83,6 +83,21 @@ function _invMercY(y) {
 }
 
 /**
+ * 判断一个坐标分量是不是**真的有值**。
+ *
+ * ★为什么不能直接 `Number.isFinite(Number(v))`：`Number(null)` 是 **0**、「几内亚湾」
+ *   （0°N 0°E）会被当成合法坐标画上去。缺坐标的打卡于是凭空出现在非洲外海 ——
+ *   那正是「不许替没记录的东西编一个位置」最容易被绕过的地方（本仓踩过同一类坑：
+ *   `ui/placesearch.js` 的 `_finiteCoord`）。
+ *
+ * @param {*} v 坐标分量。
+ * @returns {boolean} 是否可用。
+ */
+function _isFiniteCoord(v) {
+  return v !== null && v !== undefined && typeof v !== 'boolean' && Number.isFinite(Number(v));
+}
+
+/**
  * 取一批坐标的包围盒。
  *
  * @param {Array<{lat:number, lon:number}>} points 坐标点。
@@ -95,9 +110,9 @@ function _bboxOf(points) {
   let maxLon = -Infinity;
   let seen = 0;
   for (const p of points) {
-    const la = Number(p && p.lat);
-    const lo = Number(p && p.lon);
-    if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
+    if (!_isFiniteCoord(p && p.lat) || !_isFiniteCoord(p && p.lon)) continue;
+    const la = Number(p.lat);
+    const lo = Number(p.lon);
     seen += 1;
     if (la < minLat) minLat = la;
     if (la > maxLat) maxLat = la;
@@ -127,8 +142,9 @@ export function fitBoundsZoom(bbox) {
     return { z: MIN_ZOOM, center: { lat: 0, lon: 0 }, covers: false, bbox: null };
   }
 
-  // 中心取**墨卡托空间**的中点：直接取纬度算术平均会让高纬度段的中心偏北，
-  // 于是「刚好装下」在视觉上变成「上半截被裁」。
+  // 中心取**墨卡托空间**的中点。★为什么不是纬度算术平均：墨卡托在高纬度被拉伸，
+  //   等像素间距的中点比算术中点更靠北（60°–70° 段实测：算术中点 65°，墨卡托中点
+  //   65.47°）。视口是**按像素**等分上下留白的，用算术中点会让下边距不够、下半截被裁。
   const cy = (_mercY(b.minLat) + _mercY(b.maxLat)) / 2;
   const center = {
     lat: _invMercY(cy),
@@ -170,9 +186,9 @@ export function projectRoute(points, center, z) {
   const cy = ct.y + ct.fy;
   const out = [];
   for (const p of list) {
-    const la = Number(p && p.lat);
-    const lo = Number(p && p.lon);
-    if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
+    if (!_isFiniteCoord(p && p.lat) || !_isFiniteCoord(p && p.lon)) continue;
+    const la = Number(p.lat);
+    const lo = Number(p.lon);
     const tp = lonLatToTile(la, lo, z);
     out.push({
       lat: la,
@@ -340,7 +356,7 @@ export function renderRouteCard(root, opts = {}) {
 
   // ★示意直线的点是**两端直连**：起点 → 终点（+ 途中已定位的点），不是编出来的路径。
   //   它只在没有几何时出现，且界面必须标注（见下面的 rt.mapSchematic）。
-  const pts = rawPts.filter((p) => Number.isFinite(Number(p && p.lat)) && Number.isFinite(Number(p && p.lon)));
+  const pts = rawPts.filter((p) => _isFiniteCoord(p && p.lat) && _isFiniteCoord(p && p.lon));
   const bbox = _bboxOf(pts.length > 0 ? pts : rawMarks);
   const fit = fitBoundsZoom(bbox);
 
@@ -354,13 +370,24 @@ export function renderRouteCard(root, opts = {}) {
 
   _hideOwnPositionUi(box);
 
-  const projected = projectRoute(pts, fit.center, fit.z);
+  const located = rawMarks.filter(
+    (m) => _isFiniteCoord(m && m.lat) && _isFiniteCoord(m && m.lon)
+  );
+
+  // ★降级为「示意直线」：没有几何时，用**已定位的点直连**画一条虚线。
+  //   为什么不干脆不画：一张只有底图、什么都没有的卡，用户分不清「没画出来」和
+  //   「这一程是空的」；而实线会被当成真实路径 —— 所以画，但画成虚线并标注（见下）。
+  const linePts = pts.length >= 2 ? pts : located.length >= 2 ? located : [];
+  const projected = projectRoute(linePts, fit.center, fit.z);
+
   const marks = [];
-  for (const m of rawMarks) {
-    if (!Number.isFinite(Number(m && m.lat)) || !Number.isFinite(Number(m && m.lon))) continue;
-    const one = projectRoute([m], fit.center, fit.z);
-    if (one.length === 0) continue;
-    marks.push({ x: one[0].x, y: one[0].y, kind: m.kind === 'stay' ? 'stay' : 'check', label: m.name || '' });
+  for (const one of projectRoute(located, fit.center, fit.z)) {
+    marks.push({
+      x: one.x,
+      y: one.y,
+      kind: (located.find((m) => m.lat === one.lat && m.lon === one.lon) || {}).kind === 'stay' ? 'stay' : 'check',
+      label: (located.find((m) => m.lat === one.lat && m.lon === one.lon) || {}).name || '',
+    });
   }
 
   const viewport = box.querySelector('.map-viewport');
