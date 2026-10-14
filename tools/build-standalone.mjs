@@ -16,9 +16,27 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// ★换行规范化**只准有一份实现**：直接复用 bump-shell.mjs 导出的 `normalizeEol()`，
+//   不在这里抄第三份。抄散了就会互相打架（壳指纹按 A 规范化、产物按 B 规范化），
+//   而这类不一致不报错，只在「哪天有人改了其中一份」的时候突然冒出来。
+import { normalizeEol } from './bump-shell.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const read = (p) => readFileSync(resolve(ROOT, p), 'utf8');
+
+/**
+ * 读文件（**全仓唯一的读取入口**，规范化也只在这一处做）。
+ *
+ * ★为什么要规范化：本仓 `.gitattributes` 锁 `* text=auto eol=lf`，但工作副本在 Windows 上
+ *   会残留 CRLF（`styles/app.css`、`index.html` 实测就是）。产物把源码**原样**内联，
+ *   于是产物字节会随工作副本的换行形态漂移 —— 实测 1473 字节（= app.css 1405 行 +
+ *   index.html 68 行的 CR）。那会污染一个真在用的判据：「重跑 build 后 git status 干净
+ *   ⇒ 产物真没变」—— 它可能因为 EOL 变化而脏，也可能因为 EOL 恰好抵消而干净。
+ *   产物字节必须只由源码的**逻辑内容**决定。
+ *
+ * @param {string} p 仓库相对路径。
+ * @returns {string} 换行统一为 `\n` 的内容。
+ */
+const read = (p) => normalizeEol(readFileSync(resolve(ROOT, p), 'utf8'));
 
 /** 入口模块 */
 const ENTRY = 'src/ui/selfcheck.js';
