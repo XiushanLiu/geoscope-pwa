@@ -58,7 +58,12 @@ const ORDER = [
   // 自检页本身不显示图例，但闭包校验是「import 了就必须在闭包内」，少登记会直接打包中止。
   'src/ui/legend.js',
   'src/ui/now.js',
-  'src/ui/map.js',
+  // ★ `src/ui/map.js` **故意不登记在 ORDER 里**：它只被 `src/ui/app.js:52`（「此刻」页）import，
+  //   不在本产物入口 `src/ui/selfcheck.js` 的依赖闭包内 —— 内联进去是 20.3 KB 的死重量
+  //   （本仓实测：登记时 28 模块 / 481.3 KB，移除后 27 模块 / 461.0 KB，verify 仍 18/18）。
+  //   文件本身**保留在仓库**（不是死代码，是「此刻」页在用的真模块），只是不进这个单文件产物。
+  //   ⚠️ 将来若 selfcheck.js 的闭包真的引到它，build 会直接「打包中止：依赖不在闭包内」——
+  //   那是提示，不是 bug：届时把它登记回来即可。**别靠注释解释，注释对 check 是不可见的。**
   'src/ui/download.js',
   'src/ui/selfcheck.js',
 ];

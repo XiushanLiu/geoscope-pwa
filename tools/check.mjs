@@ -15,6 +15,12 @@
  *      「宽度够不够」不再靠纸面估算（第 12 节的注释写明了它的覆盖面边界）。
  *   8) **无障碍字号三档校验**：钉住「默认档 --fs-* 计算值一个像素都不许变」这条硬底线，
  *      并机器核算最大档下英雄区行宽、固定高度文字盒、tabbar 是否还装得下（第 13 节）。
+ *   9) **架构章节号引用有效性**：`src/**` 注释里的 `§N` 必须在架构文档里**恰好命中 1 处**
+ *      —— 0 是断链、≥2 是歧义，二者是同一判定在不同输入下的结果（第 18 节）。
+ *   10) **废弃入口不得复活**：`listTrips` 这个标识符不得出现在 `src/**`（持有者自身除外），
+ *      防止「坏行程凭空消失」那个 bug 从后门回来（第 19 节）。
+ *   11) **体积数字单一来源**：OSRM 几何体积那组 KB 数字只允许出现在 `src/data/osrm.js`，
+ *      并反向钉住出处自己没有被删空（第 20 节）。
  *
  * 用法：node tools/check.mjs
  * 退出码：全部通过 0；存在失败 1。
@@ -2001,6 +2007,183 @@ async function main() {
     '  ℹ 本节仅校验静态样式声明；「320px 视口下 scrollWidth ≤ clientWidth」需真实布局引擎，\n' +
       '    本脚本无法验证 —— 真机防线是第 16 节的页头宽度预算 + 真机复测，不要以为本节绿了就万事大吉。\n'
   );
+
+  /* ---------- 18. 架构章节号引用有效性 ---------- */
+  //
+  // ★为什么要有这一节：`docs/roadtrip-architecture.md` 的 §0 前言把**章节号定为跨组契约**
+  //   （只追加、不重排，重排前要打招呼），而 `src/**` 的注释里已经在引用这些编号。
+  //   编号一漂移，注释就指向不存在或二义的位置 —— 注释永远编译得过，靠人眼发现不了。
+  //
+  // ★覆盖面边界（**故意**不覆盖的部分，写在这里，防止后人把本节误当成全保证）：
+  //   1. **只校验 `docs/roadtrip-architecture.md` 这一份**。`docs/stage1-architecture.md`
+  //      有**自己另一套** §N 编号（两边都有 §3.1 / §3.2 / §4.1），混在一个命名空间里数
+  //      会让这些编号立刻变成 2 处 —— 两套编号互不相干，本节不跨文档比对。
+  //   2. **只认「行首 `#{1,6}` + 数字 + 可选点 + 空格 + 非空标题」这一种形态**。
+  //      中文写法（「第 0 节」「第四节」）与 `**§4.3**` 这类加粗伪标题**不参与机器校验**
+  //      —— 双轨制：编号给机器，标题给人。
+  //   3. **代码围栏（```）里的 `# N.` 不算标题**：类图 / 时序图 / 依赖图都写在围栏里，
+  //      将来有人在围栏里举一个 `## 4.9 新增` 的例子，不能被当成真标题。
+  //      ⚠️ 今天实测剥不剥围栏都是 37 个标题 —— 这条分支**今天不可观测**，是保险费；
+  //      它的牙不靠今天证明，靠「在围栏里插一个假标题 → 去掉剥离逻辑则变红」那一步证伪。
+  //   4. **三级编号（§4.4.1）按字面全等匹配，不做父级展开**：引用 `§4.4.1` 只认标题
+  //      `4.4.1`，不会因为存在父级 `4.4` 就算命中 —— 展开会让「子级号写错」静默通过。
+  //   5. `§0 E13` / `§10 Q3` / `§4.4.1 第 8 条` 这类「编号 + 条目」引用**只取编号部分**。
+  {
+    const ARCH_DOC = 'docs/roadtrip-architecture.md';
+
+    /** 编号标题：`## 0. …` / `### 0.1 …` / `#### 4.3.1 …`（点号可选）。 */
+    const HEADING_RE = /^#{1,6}\s+(\d+(?:\.\d+)*)\.?\s+\S/;
+    /** `§N` 引用，只取编号部分（`§0 E13` → `0`）。 */
+    const SEC_REF_RE = /§\s*(\d+(?:\.\d+)*)/g;
+
+    /**
+     * 收集文档里的编号标题（跳过代码围栏）。
+     *
+     * @param {string} src 文档源码。
+     * @returns {Array<{n:string, line:number}>} 标题列表。
+     */
+    function collectHeadings(src) {
+      const out = [];
+      let inFence = false;
+      src.split(/\r?\n/).forEach((line, i) => {
+        if (/^\s*```/.test(line)) {
+          inFence = !inFence;
+          return;
+        }
+        if (inFence) return;
+        const m = line.match(HEADING_RE);
+        if (m) out.push({ n: m[1], line: i + 1 });
+      });
+      return out;
+    }
+
+    const headings = collectHeadings(read(ARCH_DOC));
+    const headingHits = new Map();
+    for (const h of headings) headingHits.set(h.n, (headingHits.get(h.n) || 0) + 1);
+
+    /** `src/**` 里的 `§N` 引用，每处一条，带 文件:行号。 */
+    const secRefs = [];
+    for (const rel of srcFiles) {
+      read(rel)
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          let m;
+          SEC_REF_RE.lastIndex = 0;
+          while ((m = SEC_REF_RE.exec(line)) !== null) secRefs.push({ rel, line: i + 1, n: m[1] });
+        });
+    }
+
+    section(
+      `18. 架构章节号引用有效性（${secRefs.length} 处引用 / ${new Set(secRefs.map((r) => r.n)).size} 个编号 → ${ARCH_DOC}）`
+    );
+
+    // 判定只有**一条**：命中数 === 1。0 是断链、≥2 是歧义 —— 二者是同一判定在不同输入下的
+    // 结果，不写成独立分支（免得留下今天永远执行不到的代码）。红灯的**诊断力**全靠失败文案：
+    // 「该补编号」还是「该消重号」必须让修的人一眼分清，否则断言照样红但没人知道往哪修。
+    for (const r of secRefs) {
+      const hits = headingHits.get(r.n) || 0;
+      check(
+        `${r.rel}:${r.line} 引用的 §${r.n} 在 ${ARCH_DOC} 里恰好命中 1 处`,
+        hits === 1,
+        `实际命中 ${hits} 处（0 = 断链：文档里没有这个编号，要么引用写错、要么章节被删或被重排 —— 章节号是「只追加、不重排」的跨组契约；≥2 = 编号重复：引用方无法判定指哪一个）`
+      );
+    }
+
+    // 文档自身不许有重号：上面那条只覆盖「被引用到的编号」，没被引用的地方冒出重号它管不着。
+    const dupNums = [...headingHits].filter(([, c]) => c > 1).map(([n, c]) => `${n}×${c}`);
+    check(
+      `${ARCH_DOC} 内无重复章节号（共 ${headings.length} 个编号标题；重复：${dupNums.join('、') || '无'}）`,
+      dupNums.length === 0,
+      '章节号是跨组契约，重号会让所有引用它的注释立刻变成二义'
+    );
+  }
+
+  /* ---------- 19. 废弃入口 listTrips 不得在 src/** 出现 ---------- */
+  //
+  // ★背景：`src/core/tripstore.js` 的 `listTrips()` 是**向后兼容的简版**：它丢掉
+  //   `listTripsWithIssues()` 带回的「坏行程为什么被跳过」的信息，界面上表现为
+  //   「用户的行程凭空消失」。新代码一律用 `listTripsWithIssues()`。
+  //
+  // ★覆盖面边界：
+  //   1. **用尾词边界 `\blistTrips\b`**：`listTripsWithIssues` 的 `listTrips` 后面紧跟
+  //      字母 `W`（是词字符），尾部 `\b` 不成立，**不会被误判** —— 这是本节最容易踩的坑，
+  //      也是本节存在的理由（光写 `/listTrips/` 会把正确用法全判成违规）。
+  //   2. 同时覆盖**调用** `listTrips()` 与**绑定**（`import { listTrips }` / 解构 / 传参）：
+  //      只禁调用不禁导入，等于允许「先引进来、下一行就调用」。
+  //   3. `src/core/tripstore.js` **自身豁免**：保留这个签名是架构 §4.2 类图的既定契约，
+  //      而且它的注释里必须能写出 `listTrips` 这五个字来解释为什么废弃。
+  //   4. `tests/**` **显式允许**：`tests/roadtrip-model.test.mjs` 里有一处**故意**用简版，
+  //      压的就是「向后兼容契约」本身（那处有注释说明理由）。本节只扫 `src/**`。
+  //   5. **不剥离 JS 注释**：`src/**` 里有人在注释里提到 `listTrips` 也会报红。
+  //      这是**故意**的 —— 宁可噪音可见，也不要漏掉真调用。
+  {
+    const OWNER = 'src/core/tripstore.js';
+    const BANNED_RE = /\blistTrips\b/g;
+    const bannedHits = [];
+    for (const rel of srcFiles) {
+      if (rel === OWNER) continue;
+      read(rel)
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          BANNED_RE.lastIndex = 0;
+          if (BANNED_RE.test(line)) bannedHits.push(`${rel}:${i + 1}`);
+        });
+    }
+    section(`19. 废弃入口 listTrips 不得出现在 src/**（${OWNER} 自身除外）`);
+    check(
+      `src/** 里除 ${OWNER} 外不出现 listTrips 标识符（命中 ${bannedHits.length} 处：${bannedHits.join('、') || '无'}）`,
+      bannedHits.length === 0,
+      '简版丢掉「坏行程为什么被跳过」的信息，界面上表现为用户的行程凭空消失；新代码一律用 listTripsWithIssues()'
+    );
+  }
+
+  /* ---------- 20. 体积数字单一来源 ---------- */
+  //
+  // ★背景：OSRM 几何体积那组数字（134 / 137 / 299 / 537 KB）曾经在三个模块里各抄一份，
+  //   抄散之后互相打架（134 / 137 / 137 —— 三个数指同一条路线）。现在约定：**代码里的
+  //   唯一出处是 `src/data/osrm.js` 的「体积口径」注释**，其它模块一律指向它，不许再抄。
+  //
+  // ★覆盖面边界：
+  //   1. **只匹配紧邻 `KB` 的数字**（中间允许空格）：`5987 点`、`135 224 字符` 这类不是
+  //      本节的对象；`1299 KB` / `5370 KB` 也不会被误判（`\b` 卡住两端）。
+  //   2. **只扫 `src/**`**。`docs/roadtrip-architecture.md` §0.1 的实测表是这些数字的
+  //      **出处**（架构师沙箱实测），`tests/**` 里那句 137 KB 是注释里的口径引用 ——
+  //      两者**都允许存在**，本节只管「代码里不许再抄一份」。
+  //   3. 只钉这 4 个数。`362 KB`（带 annotations）等其它体积数字不受约束 —— 它们今天
+  //      只在 osrm.js 里出现，将来若散出去本节管不着（已知缺口，不假装覆盖）。
+  {
+    const OWNER = 'src/data/osrm.js';
+    const VOL_NUMS = ['134', '137', '299', '537'];
+    const VOL_RE = new RegExp(`\\b(${VOL_NUMS.join('|')})\\s*KB\\b`, 'g');
+    const strays = [];
+    const present = new Set();
+    for (const rel of srcFiles) {
+      read(rel)
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          let m;
+          VOL_RE.lastIndex = 0;
+          while ((m = VOL_RE.exec(line)) !== null) {
+            if (rel === OWNER) present.add(m[1]);
+            else strays.push(`${rel}:${i + 1}（${m[0]}）`);
+          }
+        });
+    }
+    section(`20. 体积数字单一来源（${VOL_NUMS.join(' / ')} KB 只许出现在 ${OWNER}）`);
+    check(
+      `src/** 里除 ${OWNER} 外不出现这 4 个体积数字（命中 ${strays.length} 处：${strays.join('、') || '无'}）`,
+      strays.length === 0,
+      '抄散了就会互相矛盾（134 / 137 / 137 三处打架就是这么来的）；要引用就指向 osrm.js 的「体积口径」注释'
+    );
+    // 反向钉：唯一出处自己必须还持有全部 4 个数。否则「没人抄」会永远绿，而出处早被删空了
+    // —— 「不加也绿」的那类盲区必须自己补掉。
+    const goneNums = VOL_NUMS.filter((n) => !present.has(n));
+    check(
+      `${OWNER} 仍持有全部 4 个体积数字（缺失：${goneNums.join('、') || '无'}）`,
+      goneNums.length === 0,
+      '出处被删空时「不许抄」那条照样是绿的，这条补的就是那个盲区'
+    );
+  }
 
   /* ---------- 汇总 ---------- */
   const total = PASS + FAIL + ACCEPT;
