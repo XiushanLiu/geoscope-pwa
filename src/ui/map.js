@@ -51,8 +51,29 @@ import {
  * 350 / 256 → ceil = 2，+1 = 3；260 / 256 同理 —— 所以「3×3 起步」是按容器算出来的
  * 自然结果，不是拍脑袋写的常数。
  */
-const VIEW_W = 350;
-const VIEW_H = 260;
+export const VIEW_W = 350;
+export const VIEW_H = 260;
+
+/**
+ * 路线图的缩放**下界**（架构 §7 T05）。
+ *
+ * ★为什么另设一个下界，而不是直接用 `MIN_ZOOM = 10`：
+ *   1) **此刻屏要街道级** —— 「我在哪儿」这张卡讲的是脚下这条街，视野必须细到能认出路口，
+ *      所以它的下界是 `MIN_ZOOM = 10`（一屏约 48 km）。那里不该出现 z3。
+ *   2) **路线图要装下整段行程** —— 自驾一天常跑 150–350 km、整程数百 km，按街道级下界
+ *      全部装不下，「路线图」就会几乎永远不是一张能看完的图。所以这张卡另设下界 3。
+ *   3) **z3–z6 实测有真瓦片**（沙箱直取 Esri World_Street_Map，中心成都
+ *      [30.5728, 104.0665]，content-type 均为 image/jpeg）：
+ *        z3 → 200 / 27.7 KB　z4 → 200 / 25.8 KB　z5 → 200 / 34.6 KB　z6 → 200 / 32.1 KB
+ *        （对照 z10 → 200 / 2.4 KB）
+ *      即低层级不是「拿不到底图」，只是每块瓦片略大（25–35 KB，9 块约 300 KB），
+ *      ★不是空白也不是占位图 —— 所以放宽下界是有实测依据的，不是赌。
+ *
+ * ★不改 `tiles.js` 的 `MIN_ZOOM` 语义：那对常数表示「本仓底图的可用层级区间」，
+ *   `tiles.js` 内部与本节都在用。路线图的需求是**视图**层面的（同一份底图、不同的取景），
+ *   就该放在视图层 —— 于是这里新增一个常量，而不是把 `MIN_ZOOM` 改小。
+ */
+export const ROADMAP_MIN_ZOOM = 3;
 
 /**
  * 视图状态（模块级：样式与缩放是 UI 局部状态，跨重渲染存活）。
@@ -121,16 +142,23 @@ function _revokeBlobs() {
 /**
  * 设定视图状态（样式 / 缩放 / 坐标）。
  *
+ * ★`minZoom` 是**可选**的下界覆盖：不传就是 `MIN_ZOOM`，行为与改动前**逐字一致**
+ *   （零回归由构造保证，不是靠测试兜）。只有路线图（要装下整段行程）会传
+ *   `ROADMAP_MIN_ZOOM`，此刻屏一个字都不传。
+ *
  * @param {{styleId?:string, zoom?:number, coord?:{lat:number, lon:number}|null}} patch 增量。
+ * @param {number} [minZoom] 缩放下界；缺省 `MIN_ZOOM`。非法值按缺省处理（防御性：宁可
+ *   退回街道级，也不接受 `undefined` 之外的乱值把视图拖到 z0）。
  * @returns {{styleId:string, zoom:number, coord:{lat:number, lon:number}|null}} 合并后的视图。
  */
-export function setMapView(patch = {}) {
+export function setMapView(patch = {}, minZoom = MIN_ZOOM) {
   if (typeof patch.styleId === 'string' && TILE_STYLES[patch.styleId]) {
     _view.styleId = patch.styleId;
   }
+  const lo = Number.isFinite(Number(minZoom)) ? Math.round(Number(minZoom)) : MIN_ZOOM;
   const z = Number(patch.zoom);
   if (Number.isFinite(z)) {
-    _view.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z)));
+    _view.zoom = Math.min(MAX_ZOOM, Math.max(lo, Math.round(z)));
   }
   if (patch.coord && Number.isFinite(Number(patch.coord.lat)) && Number.isFinite(Number(patch.coord.lon))) {
     _view.coord = { lat: Number(patch.coord.lat), lon: Number(patch.coord.lon) };
@@ -465,19 +493,25 @@ function _creditRow() {
  *
  * @param {HTMLElement} root 根容器。
  * @param {{coord?:{lat:number, lon:number}|null, styleId?:string, zoom?:number,
- *          onStats?:(stats:Object)=>void}} [opts] 选项。
+ *          minZoom?:number, onStats?:(stats:Object)=>void}} [opts] 选项。
+ *   `minZoom` 仅路线图使用（见 `ROADMAP_MIN_ZOOM`）；★不传 = 此刻屏的既有行为，零回归。
  * @returns {HTMLElement} 卡片槽位节点。
  */
 export function renderMapCard(root, opts = {}) {
   if (!root) return null;
-  setMapView({
-    styleId: opts.styleId,
-    zoom: opts.zoom,
-    coord: opts.coord || null,
-  });
+  setMapView(
+    {
+      styleId: opts.styleId,
+      zoom: opts.zoom,
+      coord: opts.coord || null,
+    },
+    opts.minZoom
+  );
 
   const box = _slot(root, 'map');
-  const rerender = () => renderMapCard(root, { onStats: opts.onStats });
+  // ★minZoom 必须跟着重渲染一起传下去：chip / 缩放按钮触发的重渲染若丢了这个值，
+  //   底图会在下一次重画时被钳回 MIN_ZOOM —— fitBounds 算出来的低层级活不过一次点击。
+  const rerender = () => renderMapCard(root, { onStats: opts.onStats, minZoom: opts.minZoom });
 
   // 重渲染前先把上一批 Blob URL 收回（对应 img 早已解码完）
   _revokeBlobs();
