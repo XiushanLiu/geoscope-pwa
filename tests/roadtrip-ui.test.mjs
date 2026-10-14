@@ -14,15 +14,33 @@
  *      一块可能被截图 / 投屏的屏幕上；而保存失败若静默当成功，用户会以为自己填好了。
  *      这两条都是**隐私红线**，不能只靠 code review 记着。
  *
+ *   4) **T04b 主流程的四条硬要求**（候选不落盘 / N×M 配额数 / 缺 Key 不锁死其余 /
+ *      存盘失败可见）。这四条原先只活在一次性的临时探针里，等于没有 —— 这里把它们搬进
+ *      仓库，用**真夹具**（`fixtures/osrm-cd-xian.json`）跑完整条
+ *      「搜地点 → 求路 → 切段 → 搜候选 → 存盘」链路。只断言界面文本与开关 / 请求计数
+ *      的断言，是「不加也绿」的假绿；要红就得真的走一遍。
+ *
  * 环境：复用 tests/harness.mjs 的假 DOM + 假 localStorage + 可控 fetch（零第三方依赖）。
  */
 
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { createFakeDom, installNavigator, installStorage, installFetch, FakeStorage } from './harness.mjs';
 
+/**
+ * 行程键写盘开关（只在这一个用例里打开）。
+ *
+ * ★为什么用开关而不是另装一份 storage：cache.js 在**模块加载期**就决定走内存还是
+ *   localStorage，之后换不掉。用开关才能在同一份存储上既测「存成功」又测「存失败」。
+ */
+let blockTripWrites = false;
+
 // store.js / cache.js 在**模块加载期**就决定走内存还是 localStorage，必须先装全局。
-installStorage(new FakeStorage());
+const store = new FakeStorage({
+  failOn: (k) => blockTripWrites && String(k).indexOf('trip') !== -1,
+});
+installStorage(store);
 installNavigator({ online: true });
 const net = installFetch();
 
@@ -43,10 +61,24 @@ const dom = createFakeDom([
   { id: 'btn-key-clear' },
   { id: 'btn-key-check' },
   { id: 'key-result' },
+  // 规划主流程用到的控件：`_bindControls()` / `_onSave()` / `_onPlan()` 走
+  // `document.getElementById()`，命中的是**预置**的这批（假 DOM 的索引表只认预置项）。
+  { id: 'btn-plan' },
+  { id: 'btn-via-add' },
+  { id: 'btn-poi' },
+  { id: 'btn-only-stay' },
+  { id: 'btn-all-types' },
+  { id: 'btn-save' },
+  { id: 'in-trip-name' },
+  { id: 'in-start-date' },
+  { id: 'sel-daily' },
+  { id: 'in-manual-name' },
+  { id: 'sel-manual-type' },
+  { id: 'place-results' },
 ]);
 
 /** 必须在 import 被测模块之前装好全局（理由同上）。 */
-const { getAmapKey, hasAmapKey, clearAmapKey, KEY_MAX_LEN } = await import('../src/core/apikeys.js');
+const { getAmapKey, setAmapKey, hasAmapKey, clearAmapKey, KEY_MAX_LEN } = await import('../src/core/apikeys.js');
 const { init: initRoadtrip } = await import('../src/ui/roadtrip.js');
 const { init: initSettings } = await import('../src/ui/settings.js');
 const { t } = await import('../src/i18n/index.js');
@@ -116,7 +148,11 @@ beforeEach(() => {
   // 每个用例都从「没填 Key」开始：apikeys 是持久化的，不清会串味。
   if (hasAmapKey()) clearAmapKey();
   dom.byId['key-result'].textContent = '';
+  // ★连 handler 一起清：主流程用例会给 fetch 装一个「按 URL 分发」的处理器，
+  //   漏清会让 Key 卡的用例也拿到假路线 / 假候选。
+  net.clearHandler();
   net.reset();
+  blockTripWrites = false;
 });
 
 /* ------------------------------------------------------------------ */
@@ -289,4 +325,325 @@ test('本来就没填时点清除：如实说「不用清」，不许报成已�
     t('rt.keyClearFail'),
     `没 Key 时清除是空操作，提示必须是「${t('rt.keyClearFail')}」，实际：${resultText()}`
   );
+});
+
+/* ------------------------------------------------------------------ */
+/* 规划主流程（T04b 四条硬要求）—— 真夹具跑完整条链路                    */
+/* ------------------------------------------------------------------ */
+
+/** 等待微任务与 placesearch 的防抖定时器（350ms）。 */
+const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 把「已解析的 RouteInfo 夹具」还原成一份**原始 OSRM 响应**。
+ *
+ * ★为什么必须还原：夹具是 `parseRoute()` 的**产出**（`fixtures/README.md` 有出处），
+ *   直接喂给 `requestRoadSource()` 会被再解析一次，得到 `code !== 'Ok'` →
+ *   `rt.err.noRoute`。逐边 annotation 由 `cumulativeS` / `cumulativeM` 相邻两项反推，
+ *   反推后 `parseRoute()` 重算的累积曲线与原夹具**逐位相同**（前端补 0，长度 = 点数）。
+ *
+ * @returns {Object} 原始 OSRM 响应形状。
+ */
+function rawRouteResponse() {
+  const parsed = JSON.parse(
+    fs.readFileSync(new URL('./fixtures/osrm-cd-xian.json', import.meta.url), 'utf8')
+  );
+  const cumS = parsed.cumulativeS;
+  const cumM = parsed.cumulativeM || [];
+  const durs = [];
+  const dists = [];
+  for (let i = 0; i < cumS.length - 1; i += 1) {
+    durs.push(Number((cumS[i + 1] - cumS[i]).toFixed(6)));
+    dists.push(Number(((cumM[i + 1] || 0) - (cumM[i] || 0)).toFixed(6)));
+  }
+  return {
+    code: 'Ok',
+    routes: [
+      {
+        distance: parsed.distanceM,
+        duration: parsed.durationS,
+        geometry: { coordinates: parsed.geometry },
+        legs: [
+          {
+            distance: parsed.distanceM,
+            duration: parsed.durationS,
+            annotation: { duration: durs, distance: dists },
+          },
+        ],
+      },
+    ],
+    waypoints: parsed.waypoints.map((w) => ({
+      location: [w.snapped.lon, w.snapped.lat],
+      name: w.name || '',
+      distance: w.snapDistanceM,
+    })),
+  };
+}
+
+/** 给 fetch 装上「按 URL 分发」的处理器（地名 / 求路 / 候选三路）。 */
+function installRouteHandler() {
+  const routeJson = rawRouteResponse();
+  net.setHandler((u) => {
+    const s = String(u);
+    if (s.indexOf('/v1/search') !== -1) {
+      const kw = decodeURIComponent((s.match(/name=([^&]*)/) || [, ''])[1] || '');
+      const table = {
+        成都: { latitude: 30.5728, longitude: 104.0668, admin1: '四川' },
+        西安: { latitude: 34.3416, longitude: 108.9398, admin1: '陕西' },
+      };
+      return { status: 200, json: { results: [{ name: kw || '成都', ...(table[kw] || table['成都']) }] } };
+    }
+    if (s.indexOf('osrm') !== -1) return { status: 200, json: routeJson };
+    if (s.indexOf('amap') !== -1) {
+      return {
+        status: 200,
+        json: {
+          status: '1',
+          count: '2',
+          pois: [
+            {
+              id: 'B001',
+              name: '锦江宾馆',
+              location: '104.0668,30.6520',
+              type: '住宿服务;宾馆酒店',
+              address: '成都市锦江区',
+              biz_ext: { rating: '4.5', cost: '300' },
+            },
+            {
+              id: 'B002',
+              name: '无名小店',
+              location: '104.0700,30.6600',
+              type: '住宿服务',
+              address: null,
+              biz_ext: {},
+            },
+          ],
+        },
+      };
+    }
+    return { status: 200, json: { ok: true } };
+  });
+}
+
+/**
+ * 重画自驾页（= 一次全新的页面加载，但保留 `_state`）。
+ *
+ * @returns {void}
+ */
+function reloadRoadtrip() {
+  for (const id of Object.keys(dom.byId)) {
+    const n = dom.byId[id];
+    if (n && n.listeners) n.listeners.clear();
+  }
+  initRoadtrip();
+}
+
+/**
+ * 点**一次**预置节点上的 click 监听。
+ *
+ * ★为什么先断言「恰好 1 个监听」：假 DOM 的 `getElementById` 一直返回同一批预置节点，
+ *   每次重画都会再绑一遍。不清就点，一次点击会跑 N 遍处理器（harness 的 `fire()` 已
+ *   改成先快照，但**累加本身**仍会让「请求恰好 N×M 次」这类计数断言失真）。
+ *
+ * @param {string} id 预置节点 id。
+ * @returns {Promise<void>}
+ */
+async function clickOnce(id) {
+  const n = dom.byId[id];
+  const fns = n.listeners.get('click') || [];
+  assert.equal(fns.length, 1, `预置节点 #${id} 上应恰好 1 个 click 监听（先 reload 再点）`);
+  await n.fire('click');
+  await settle(30);
+}
+
+/** 走一遍地点搜索，把某个地点字段填上。 */
+async function pickPlace(inputId, keyword) {
+  const input = appNode(inputId);
+  assert.ok(input, `找不到输入框 #${inputId}`);
+  input.value = keyword;
+  await input.fire('input');
+  await settle(450);
+  const box = appNode('place-results');
+  const btns = (box ? box.descendants() : []).filter((n) => n.tagName === 'BUTTON');
+  assert.ok(btns.length > 0, `地点搜索「${keyword}」没出结果`);
+  await btns[0].fire('click');
+  await settle(30);
+}
+
+/** 主流程链路的进度（同一进程内只跑一次，后续用例直接复用已规划好的页面）。 */
+const flow = { picked: false, planned: false, searched: false };
+
+/** 填好出发地 / 目的地。 */
+async function ensurePoints() {
+  installRouteHandler();
+  reloadRoadtrip();
+  if (!flow.picked) {
+    await pickPlace('ps-origin', '成都');
+    await pickPlace('ps-destination', '西安');
+    flow.picked = true;
+  }
+}
+
+/** 填好地点并算出路线（切段结果留在 `_state` 里）。 */
+async function ensurePlanned() {
+  await ensurePoints();
+  if (!flow.planned) {
+    setAmapKey(GOOD_KEY);
+    reloadRoadtrip();
+    await clickOnce('btn-plan');
+    flow.planned = true;
+  }
+}
+
+test('★③ 缺 Key 只降级候选：求路 / 切段照常，绝不整页锁死', async () => {
+  await ensurePoints();
+  assert.equal(hasAmapKey(), false, '前置：本用例故意不填 Key');
+
+  reloadRoadtrip();
+  assert.equal(appNode('btn-plan').disabled, false, '缺 Key 时「算路线」仍可点');
+  assert.ok(appText().indexOf(t('rt.poiNoKey')) !== -1, '缺 Key 要有说明条');
+  assert.ok(appText().indexOf(t('rt.poiGoSettings')) !== -1, '缺 Key 要有去填 Key 的入口');
+  assert.equal(appNode('btn-poi').disabled, true, '缺 Key 时**只**禁用候选按钮');
+
+  net.reset();
+  reloadRoadtrip();
+  await clickOnce('btn-plan');
+  assert.ok(
+    net.calls.some((u) => String(u).indexOf('osrm') !== -1),
+    `缺 Key 不该拦求路，实际请求：${JSON.stringify(net.calls)}`
+  );
+  assert.ok(
+    appText().indexOf(t('rt.daysLabel', { n: 2 })) !== -1,
+    '成都→西安 / 每天 4h 应切成 2 天（结果卡要把天数写出来）'
+  );
+  // 注脚带 {pct} 占位，取占位符之前那段做前缀匹配（不把整句写死在用例里）
+  const driftPrefix = t('rt.driftNote', { pct: '@@' }).split('@@')[0];
+  assert.ok(appText().indexOf(driftPrefix) !== -1, '必须有「两个口径相差」注脚');
+  assert.ok(appText().indexOf(t('rt.freeflowNote')) !== -1, '必须有自由流注脚');
+});
+
+test('★② N×M 配额次数必须写在按下之前，且与实际请求数一致', async () => {
+  await ensurePlanned();
+  reloadRoadtrip();
+  assert.ok(
+    appText().indexOf(t('rt.poiQuota', { a: 1, t: 3, n: 3 })) !== -1,
+    `配额提示必须写明「1 个停留点 × 3 个类别 = 3 次」，实际页面：${appText()}`
+  );
+  assert.equal(appNode('btn-poi').disabled, false, '有 Key 之后候选按钮要可点');
+
+  net.reset();
+  await clickOnce('btn-poi');
+  flow.searched = true;
+  const amapCalls = net.calls.filter((u) => String(u).indexOf('amap') !== -1);
+  assert.equal(
+    amapCalls.length,
+    3,
+    `候选请求必须恰好 N×M = 3 次（串行、并发恒为 1），实际 ${amapCalls.length} 次`
+  );
+  assert.ok(appText().indexOf('锦江宾馆') !== -1, '候选要真的画出来');
+
+  // ★「未填」必须单独成组并**按字段**计数：房价 / 房型是高德没给的，不许拿默认值补
+  assert.ok(appText().indexOf(t('rt.groupUnknown', { n: 2 })) !== -1, '未填组必须可见并计数');
+  assert.ok(
+    appText().indexOf(t('rt.groupUnknownField', { field: t('rt.field.pricePerNight'), n: 2 })) !== -1,
+    '未填必须按字段细分成「未填：房价（2）」'
+  );
+  assert.ok(appText().indexOf(t('rt.unknownHint')) !== -1, '必须有「未填意味着什么」的说明');
+});
+
+test('★① 候选不落盘：存储里除了高德的 HTTP 缓存，不许出现候选内容', async () => {
+  await ensurePlanned();
+  if (!flow.searched) {
+    reloadRoadtrip();
+    await clickOnce('btn-poi');
+    flow.searched = true;
+  }
+  // ★唯一的例外：`amapPoi` 源明文登记「缓存 6 小时（省每月 5000 次配额）」，
+  //   它是可淘汰的缓存条目，不是用户数据。「不落盘」管的是**不写进行程** ——
+  //   写进行程就会随 tripstore 的容量淘汰被当用户数据处置（架构 §4.3）。
+  const dumped = [];
+  for (let i = 0; i < store.length; i += 1) {
+    const k = store.key(i);
+    if (String(k).indexOf('amapPoi') !== -1) continue;
+    const v = store.getItem(k);
+    if (v && String(v).indexOf('锦江宾馆') !== -1) dumped.push(k);
+  }
+  assert.deepEqual(dumped, [], `候选落在了存储里：${dumped.join(', ')}`);
+});
+
+test('★存盘成功：落盘内容不带候选、不带几何，只留标量', async () => {
+  await ensurePlanned();
+  reloadRoadtrip();
+  // ★写**预置**节点：`_onSave()` 走 `document.getElementById`（假 DOM 只认预置的那批）
+  dom.byId['in-trip-name'].value = '成都—西安';
+  await clickOnce('btn-save');
+  assert.ok(
+    appText().indexOf(t('rt.saveOk', { name: '成都—西安' })) !== -1,
+    `存盘成功要有成功提示，实际：${appText()}`
+  );
+
+  let payloads = 0;
+  for (let i = 0; i < store.length; i += 1) {
+    const k = store.key(i);
+    if (String(k).indexOf('trip') === -1) continue;
+    const raw = String(store.getItem(k) || '');
+    assert.ok(raw.indexOf('锦江宾馆') === -1, `行程 ${k} 里带了候选`);
+    let json = null;
+    try {
+      json = JSON.parse(raw);
+    } catch (err) {
+      json = null;
+    }
+    // cache.js 的条目是 `{v: 正文, t, ttl, stale}` 包装；索引键只有 id 列表
+    const body = json && typeof json.v === 'object' && json.v !== null ? json.v : json;
+    if (!body || typeof body !== 'object' || !('schema' in body)) continue;
+    payloads += 1;
+    assert.ok(body.route, `行程 ${k} 没有 route`);
+    assert.equal(body.route.geometry, null, `行程 ${k} 落了几何（几百 KB，会吃光预算）`);
+    assert.equal(body.route.cumulativeS, null, `行程 ${k} 落了逐边累积时长`);
+    assert.equal(body.route.cumulativeM, null, `行程 ${k} 落了逐边累积里程`);
+    assert.equal(body.name, '成都—西安', `行程 ${k} 没存下名字`);
+  }
+  assert.ok(payloads > 0, '没找到行程正文（只有索引键）');
+});
+
+test('★④ saveTrip() 返回 false 必须看得见：不许静默当成功', async () => {
+  await ensurePlanned();
+  // 把行程键的写入掐掉，逼 `saveTrip()` 走 `_writeIndex()/set()` 失败分支
+  blockTripWrites = true;
+  reloadRoadtrip();
+  dom.byId['in-trip-name'].value = '成都—西安';
+  await clickOnce('btn-save');
+  assert.ok(
+    appText().indexOf(t('rt.saveFail')) !== -1,
+    `存盘失败必须给出失败提示，实际：${appText()}`
+  );
+  assert.ok(
+    appText().indexOf(t('rt.saveOk', { name: '成都—西安' })) === -1,
+    '存失败不许同时报成功 —— 那等于告诉用户「存好了」'
+  );
+});
+
+test('★缺 Key 时手动添加照样能用：降级不是锁死', async () => {
+  // 本用例故意不调 ensurePlanned：它要守的正是「没有 Key 也能加打卡」
+  installRouteHandler();
+  reloadRoadtrip();
+  assert.equal(hasAmapKey(), false, '前置：本用例不填 Key');
+
+  const manual = appNode('in-manual-name');
+  assert.ok(manual, '缺 Key 时手填输入框必须还在');
+  const manualBtns = dom.byId.app
+    .descendants()
+    .filter((n) => n.tagName === 'BUTTON' && n.textContent === t('rt.poiManualAdd'));
+  assert.equal(manualBtns.length, 1, '手填按钮必须恰好一个');
+  // ★禁用优于报错：名字为空时按钮不可点，用户根本撞不上那次失败
+  assert.equal(manualBtns[0].disabled, true, '名字为空时手填按钮必须是禁用的');
+
+  manual.value = '路边一家店';
+  await manual.fire('input');
+  assert.equal(manualBtns[0].disabled, false, '填了名字就能加');
+  await manualBtns[0].fire('click');
+  await settle(30);
+  assert.ok(appText().indexOf('路边一家店') !== -1, '手填的打卡要真的进列表');
+  assert.ok(appText().indexOf(t('rt.checkedTitle', { n: 1 })) !== -1, '已采用计数应为 1');
 });
