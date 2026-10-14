@@ -455,18 +455,29 @@ class FakeNode {
   /**
    * 触发绑定在该节点上的事件（测试驱动点击）。
    *
+   * ★为什么必须**先快照再遍历**：`listeners.get(type)` 拿到的是**活数组**，而处理器里
+   *   的「重画」往往会往同一个数组里再绑一个监听（例如 `ui/roadtrip.js` 的
+   *   `_renderPage()` → `_bindControls()`）。直接 `for (const fn of list)` 会一边遍历
+   *   一边被追加，变成**死循环** —— 实测一次点击刷出上百次求路请求，而且表现为「卡住」
+   *   而不是「报错」，极难定位。这是测试台的形状（真浏览器每次重画都是新节点），
+   *   所以修在这里：快照不改变语义，只保证这一轮遍历不会被自己触发的绑定接上。
+   *
    * @param {string} type 事件类型。
    * @param {Object} [ev] 事件对象。
    * @returns {Promise<void>}
    */
   async fire(type, ev = {}) {
-    const list = this.listeners.get(String(type)) || [];
+    const list = (this.listeners.get(String(type)) || []).slice();
     for (const fn of list) await fn(ev);
   }
 
-  /** 模拟点击：同步触发 click 监听。 */
+  /**
+   * 模拟点击：同步触发 click 监听（同样先快照，理由见 `fire()`）。
+   *
+   * @returns {void}
+   */
   click() {
-    const list = this.listeners.get('click') || [];
+    const list = (this.listeners.get('click') || []).slice();
     list.forEach((fn) => fn({ target: this, preventDefault() {} }));
   }
 
