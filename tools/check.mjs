@@ -36,7 +36,7 @@ import { promisify } from 'node:util';
 // ★指纹算法**只准有一份**：与 `bump-shell.mjs` 共用同一个实现（本文件 import 它）。
 //   两处各写一份必然漂移 —— 那时候「指纹不一致」会变成一个永远红的假警报，
 //   而假警报的下场是所有人都学会忽略它，护栏等于被自己拆掉。
-import { shellFingerprint } from './bump-shell.mjs';
+import { shellFingerprint, normalizeEol } from './bump-shell.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -2323,6 +2323,22 @@ async function main() {
         : `★壳资产内容变了却没重新发布：sw.js 记录的指纹是 ${recorded || '(缺失)'}，实际算出来是 ${expected}。\n` +
           '      浏览器只看 sw.js 自身字节判断要不要更新 SW —— 不 bump 的话真机会一直用旧壳，且**不报错**。\n' +
           '      修法：跑 `node tools/bump-shell.mjs`，并把改写后的 sw.js 随本次发布一起提交。'
+    );
+
+    // ★CRLF 免疫：指纹若随换行漂移就是**假红**，而假红比没有护栏更糟（第二次开始就会被忽略）。
+    //   ★覆盖面边界（不假装自己有牙）：本条只钉 `normalizeEol()` 本身，钉不住「有人不再调用它」
+    //     —— 后者在 Windows 上会以假红的形式冒出来，反而会被人看见。磁盘级的双向验证
+    //     （styles/app.css CRLF→LF、src/ui/map.js LF→CRLF，指纹均不变）记录在本节对应的提交里。
+    const probeRel = 'styles/app.css';
+    const probeLf = normalizeEol(read(probeRel));
+    const probeCrlf = probeLf.replace(/\n/g, '\r\n');
+    check(
+      `指纹对换行形态免疫（${probeRel} 换成 CRLF 再规范化，逐字节一致）`,
+      normalizeEol(probeCrlf) === probeLf,
+      normalizeEol(probeCrlf) === probeLf
+        ? ''
+        : 'normalizeEol() 坏了 → 指纹随平台漂移 → 护栏假红 → 所有人学会忽略它',
+      ''
     );
   }
 
