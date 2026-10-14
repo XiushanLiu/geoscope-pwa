@@ -2,8 +2,10 @@
  * 自驾路线图（架构 §7 T05）
  *
  * 职责：把一条行程的**轮廓**画出来 —— 整段概览 / 按天切换两级视图，外加停留点与打卡的
- *   标记。★本模块**不碰 `ui/map.js` 的一行代码**（零回归面）：底图照旧复用
+ *   标记。★本模块**不改 `ui/map.js` 的既有行为**（零回归面）：底图照旧复用
  *   `renderMapCard()`，本模块只在它铺好的瓦片之上叠一层**路线覆盖层**。
+ *   （唯一一次动 map.js 是给它加**可选**的缩放下界参数：不传 = 逐字等价于从前，
+ *     只有本卡传 `ROADMAP_MIN_ZOOM` —— 零回归由构造保证。）
  *
  * ★四条不许回退的硬要求（改本文件前先读）：
  *   1) **fitBounds 用 `data/tiles.js` 的 `lonLatToTile()` 反算 zoom**，不自己写第二份
@@ -29,19 +31,22 @@
 
 import { t } from '../i18n/index.js';
 import { h } from './now.js';
-import { renderMapCard } from './map.js';
-import { lonLatToTile, MIN_ZOOM, MAX_ZOOM, TILE_SIZE } from '../data/tiles.js';
+import { renderMapCard, VIEW_W, VIEW_H, ROADMAP_MIN_ZOOM } from './map.js';
+// ★不 import MIN_ZOOM：本卡的层级下界是 `ROADMAP_MIN_ZOOM`（见 `fitBoundsZoom()`）。
+//   在这里留一个未使用的 MIN_ZOOM 是隐患 —— 下一位读者会以为街道级下界对本卡也生效。
+import { lonLatToTile, MAX_ZOOM, TILE_SIZE } from '../data/tiles.js';
 
-/**
- * 视口尺寸（像素）。
+/*
+ * ★视口尺寸直接从 `ui/map.js` import，不抄一份。
  *
- * ★为什么抄一份而不 import：`ui/map.js` 没有导出 VIEW_W / VIEW_H，而**改 map.js 是本
- *   期明令禁止的**（零回归面）。这两个数字必须与 map.js 的 `VIEW_W` / `VIEW_H` 一致，
- *   否则覆盖层与底图会错位 —— 所以在这里写明出处，并由路线图的单测用「中心点必须投影到
- *   视口正中」这条断言钉住（错位就会红）。
+ * 抄一份的代价是**静默错位**：底图按 map.js 的 VIEW_W 铺瓦片、路线按这里的副本画，
+ *   两个数只要哪天有一个被改而另一个没跟上，路线就整体偏移 —— 没有报错，只是画错地方。
+ *   所以这里 import 同一个数，并由单测「中心点必须投影到视口正中」钉住。
+ *
+ * ★缩放**下界**也同理取自 `map.js` 的 `ROADMAP_MIN_ZOOM`（在那里，理由与实测数据同在）。
+ *   本卡的 fitBounds 要能降到街道级以下（整程数百公里），但**不许**把此刻屏一起拉下去 ——
+ *   所以下界是「传进来的」而不是「全局改小的」，见 `fitBoundsZoom()` 的 `minZoom` 参数。
  */
-const VIEW_W = 350;
-const VIEW_H = 260;
 
 /**
  * fitBounds 的留边比例。
@@ -129,17 +134,25 @@ function _bboxOf(points) {
  * ★为什么用 `lonLatToTile()` 反算而不是写一份 `(360 / 2^z)` 的除法：底图是**按那份
  *   换算**铺的瓦片。自己再写一份，两者的墨卡托只要有一处常数不同（钳位 / 舍入），
  *   路线就会相对底图整体偏移，而且是**静默**的 —— 没有报错，只是画错地方。
- *   这里逐层试：从 `MAX_ZOOM` 往下找到第一个装得下的层级，装不下就退到 `MIN_ZOOM`
+ *   这里逐层试：从 `MAX_ZOOM` 往下找到第一个装得下的层级，装不下就退到下界
  *   并把 `covers` 置 false，由调用方明说「可能看不全」。
  *
+ * ★下界为什么是 `ROADMAP_MIN_ZOOM`（3）而不是 `tiles.js` 的 `MIN_ZOOM`（10）：一屏
+ *   350 px 在 z10 只看得到约 48 km，而自驾整程常是数百 km —— 按街道级下界，这张卡
+ *   几乎永远装不下全程，「路线图」就名不副实。低层级有真瓦片的实测见 `map.js`
+ *   的 `ROADMAP_MIN_ZOOM` 注释；★下界是**参数传进来**的，不是把全局下界改小 ——
+ *   此刻屏一个字都不传，行为与从前逐字一致。
+ *
  * @param {{minLat:number, maxLat:number, minLon:number, maxLon:number}|null} bbox 包围盒。
+ * @param {number} [minZoom] 层级下界；缺省 `ROADMAP_MIN_ZOOM`。
  * @returns {{z:number, center:{lat:number, lon:number}, covers:boolean, bbox:Object|null}}
  *   层级、中心、是否真的装得下。
  */
-export function fitBoundsZoom(bbox) {
+export function fitBoundsZoom(bbox, minZoom = ROADMAP_MIN_ZOOM) {
+  const lo = Number.isFinite(Number(minZoom)) ? Math.round(Number(minZoom)) : ROADMAP_MIN_ZOOM;
   const b = bbox && typeof bbox === 'object' ? bbox : null;
   if (!b || !Number.isFinite(Number(b.minLat))) {
-    return { z: MIN_ZOOM, center: { lat: 0, lon: 0 }, covers: false, bbox: null };
+    return { z: lo, center: { lat: 0, lon: 0 }, covers: false, bbox: null };
   }
 
   // 中心取**墨卡托空间**的中点。★为什么不是纬度算术平均：墨卡托在高纬度被拉伸，
@@ -154,7 +167,7 @@ export function fitBoundsZoom(bbox) {
   const limitW = VIEW_W * FIT_MARGIN;
   const limitH = VIEW_H * FIT_MARGIN;
 
-  for (let z = MAX_ZOOM; z >= MIN_ZOOM; z -= 1) {
+  for (let z = MAX_ZOOM; z >= lo; z -= 1) {
     const a = lonLatToTile(b.minLat, b.minLon, z);
     const c = lonLatToTile(b.maxLat, b.maxLon, z);
     // 用**瓦片号 + 瓦片内偏移**拼出连续坐标：只比整数瓦片号会低估跨度（最多差 1 块）
@@ -162,9 +175,10 @@ export function fitBoundsZoom(bbox) {
     const spanY = Math.abs(c.y + c.fy - (a.y + a.fy)) * TILE_SIZE;
     if (spanX <= limitW && spanY <= limitH) return { z, center, covers: true, bbox: b };
   }
-  // ★装不下也**如实返回**最小层级 + covers:false：硬抬层级会把路线裁掉，
+  // ★装不下也**如实返回**下界层级 + covers:false：硬抬层级会把路线裁掉，
   //   那比「看不全但说明了」糟 —— 后者用户看得懂，前者会被当成 bug。
-  return { z: MIN_ZOOM, center, covers: false, bbox: b };
+  //   （z3 一屏约 6800 km 仍装不下的极端跨度才会走到这里，界面须写明「可能看不全」。）
+  return { z: lo, center, covers: false, bbox: b };
 }
 
 /**
@@ -344,6 +358,7 @@ function _wireStyleChips(box, root, opts) {
  * @param {string} [opts.styleId] 底图样式。
  * @param {boolean} [opts.schematic] 是否示意直线（无几何时）。
  * @param {string} [opts.note] 状态行（几何来源 / 降级说明）。
+ * @param {number} [opts.minZoom] 层级下界；缺省 `ROADMAP_MIN_ZOOM`（只本卡用低层级）。
  * @param {(stats:Object)=>void} [opts.onStats] 瓦片统计回调。
  * @returns {Object|null} 槽位节点。
  */
@@ -358,11 +373,16 @@ export function renderRouteCard(root, opts = {}) {
   //   它只在没有几何时出现，且界面必须标注（见下面的 rt.mapSchematic）。
   const pts = rawPts.filter((p) => _isFiniteCoord(p && p.lat) && _isFiniteCoord(p && p.lon));
   const bbox = _bboxOf(pts.length > 0 ? pts : rawMarks);
-  const fit = fitBoundsZoom(bbox);
+  const minZoom = Number.isFinite(Number(o.minZoom)) ? Math.round(Number(o.minZoom)) : ROADMAP_MIN_ZOOM;
+  const fit = fitBoundsZoom(bbox, minZoom);
 
+  // ★minZoom 必须传给 renderMapCard：fitBounds 算得出来 z6，若底图仍按街道级下界钳回
+  //   z10，结果就是「路线按 z6 投影、瓦片按 z10 铺」—— 两者不一致，路线画在错误的位置
+  //   且**没有任何报错**。这是本轮唯一一处跨模块的隐式契约。
   const box = renderMapCard(root, {
     coord: fit.center,
     zoom: fit.z,
+    minZoom,
     styleId: o.styleId || 'street',
     onStats: o.onStats,
   });
