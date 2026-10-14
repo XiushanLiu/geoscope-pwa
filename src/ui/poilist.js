@@ -79,8 +79,10 @@ function _row(c, type, opts) {
   const adopted = !!(opts.adoptedIds && opts.adoptedIds[cand.id]);
 
   const meta = [
-    // 类别原串（高德 type 原文，如 '住宿服务;宾馆酒店'）—— 缺就是 '—'，不编
-    cand.type ? String(cand.type) : fmt.DASH,
+    // 类别原串（高德 type 原文，如 '住宿服务;宾馆酒店'）—— 缺就是 '—'，不编。
+    // ★优先取 `category`：候选条目上的 `type` 已被上层改写成 'stay' / 'sight' / 'food'
+    //   （`partitionByFilter()` 按它取筛选条件），高德原文存在 `category` 里。
+    (cand.category || cand.type) ? String(cand.category || cand.type) : fmt.DASH,
     // 评分：高德**真的返回了**才有值，否则 '—'（绝不用 4.0 兜底）
     `★ ${fmt.num(cand.rating, 1)}`,
     poiDistanceText(cand),

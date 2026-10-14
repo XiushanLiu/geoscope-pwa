@@ -123,23 +123,30 @@ beforeEach(() => {
 /* roadtrip.html 外壳                                                   */
 /* ------------------------------------------------------------------ */
 
-test('自驾页外壳：页头 / 返回入口 / 空态的文案一处都不能少', () => {
+test('自驾页：页头 / 规划 / 候选 / 存盘四块的文案一处都不能少', () => {
+  // ★T04b 之后本页不再是「空态外壳」：原来断言的 rt.empty / rt.emptyHint 已被
+  //   真实页面取代。四块各缺一块，用户就少一段「这里在干什么」的说明 ——
+  //   这就是这条用例改名后仍然存在的理由。
   initRoadtrip();
   const txt = appText();
-  for (const key of ['rt.title', 'rt.subtitle', 'rt.empty', 'rt.emptyHint']) {
+  for (const key of ['rt.title', 'rt.subtitle', 'rt.planTitle', 'rt.poiTitle', 'rt.saveTitle']) {
     assert.ok(
       txt.indexOf(t(key)) !== -1,
-      `外壳必须显示 ${key}（「${t(key)}」），实际页面文本：${txt}`
+      `页面必须显示 ${key}（「${t(key)}」），实际页面文本：${txt}`
     );
   }
 });
 
 test('返回「我的」必须是 <a href="settings.html">：没有 SPA 路由，离线要靠 SW 命中预缓存', () => {
   initRoadtrip();
-  const links = dom.byId.app.descendants().filter((n) => n.tagName === 'A');
-  assert.equal(links.length, 1, `外壳里应当只有一个链接（返回入口），实际 ${links.length} 个`);
-  assert.equal(links[0].getAttribute('href'), 'settings.html', '返回入口必须指向 settings.html');
-  assert.equal(links[0].textContent, t('rt.back'), '返回入口的文案必须走 t(\'rt.back\')');
+  // ★不再断言「整页只有一个链接」：T04b 之后候选区还会出现「去设置页填 Key」等链接。
+  //   该守的是**返回入口本身**的形状，不是页面里链接的总数。
+  const back = dom.byId.app
+    .descendants()
+    .filter((n) => n.tagName === 'A' && n.textContent === t('rt.back'));
+  assert.equal(back.length, 1, `必须恰好有一条文案为「${t('rt.back')}」的入口`);
+  assert.equal(back[0].getAttribute('href'), 'settings.html', '返回入口必须指向 settings.html');
+  assert.equal(back[0].tagName, 'A', '必须是 <a>，不能是按钮 + JS 跳转');
 });
 
 test('自驾页不带底部 tabbar：第五个 tab 会撑破 320px（roadtrip.js 文件头有实测）', () => {
@@ -160,13 +167,16 @@ test('document.title 必须是「App 名 · 页名」：切标签页 / 加书签
   );
 });
 
-test('★空态一次请求都不许发：「这一版不发任何请求」不能只是一句注释', () => {
+test('★init() 一次请求都不许发：求路 / 搜候选都必须等用户点了按钮', () => {
+  // ★T04b 之后本页会发请求（求路 / 候选），但**只能**发生在用户点了按钮之后。
+  //   init() 自己偷偷预热一次路线，用户会在不知情的情况下消耗流量与配额 ——
+  //   这条改名后守的正是这一条，比原来「空态不发」那条更难被绕过。
   initRoadtrip();
   renderSettings();
   assert.equal(
     net.count,
     0,
-    `空态不许发请求，实际发了 ${net.count} 次：${JSON.stringify(net.calls)}`
+    `init() 不许发请求，实际发了 ${net.count} 次：${JSON.stringify(net.calls)}`
   );
 });
 
