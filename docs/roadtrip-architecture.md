@@ -463,10 +463,20 @@ legs[1] = 181.6 km / 2.17 h        ← 也不足一天
 
 > `common.rating`：**仅当高德真的返回了评分**才有值（`source==='amap'` 且 `biz_ext.rating` 存在）。其它任何情况为 `null`，界面显示「未填」，**不允许**用 4.0 / 5.0 之类的默认值占位。
 
-### 4.6 POI 候选（**不落盘**）
+### 4.6 POI 候选（**不写进行程、不当用户数据**）
+
+> ★措辞订正（2026-10-15，T04b）：本节原标题是「**不落盘**」，字面会让人以为候选一次都不许
+> 进 localStorage。真实语义是**两件事分开**：
+>   1) **候选对象本身不写进行程（`Trip`）**。写进行程就会随 `tripstore` 的容量淘汰被当用户
+>      数据处置（§4.3），而它是可再生的参考信息 —— 那是拿可回收的东西挤占用户数据。
+>   2) **高德响应本身走 HTTP 缓存**：`src/data/roadsources.js` 的 `amapPoi` 明文登记
+>      `ttlMs: 21600000 / cacheable: true`（缓存 6 小时，省每月 5000 次配额）。它是
+>      `cache.js` 管理的**可淘汰缓存条目**，不是用户数据 —— 与本节不冲突。
+> 所以「不落盘」= 不进 tripstore；不要把 `amapPoi` 的缓存条目当成违规（T04b 的单测
+> 在扫描存储时显式放行 `amapPoi` 键，其余一律不许出现候选内容）。
 
 ```js
-/** @typedef {Object} PoiCandidate      // 运行时对象，从不进 localStorage
+/** @typedef {Object} PoiCandidate      // 运行时对象，不写进行程（响应本身可进 HTTP 缓存）
  *  id: 'B0FFH9XJ2L'                  // 高德 POI id（用户「采用」后写入 CheckIn.amapId）
  *  name: '如家酒店·汉中中心广场店'
  *  type: '住宿服务;宾馆酒店'            // 高德 type 原文
@@ -764,7 +774,7 @@ classDiagram
         +distanceM number
         +distanceKind string
     }
-    note for PoiCandidate "★从不落盘：只在内存与当次结果里活，避免配额与陈旧数据污染"
+    note for PoiCandidate "★不写进行程：只在内存与当次结果里活，避免配额与陈旧数据污染（响应本身走可淘汰的 HTTP 缓存）"
 
     class OsrmAdapter {
         +OSRM_HOST string
