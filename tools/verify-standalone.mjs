@@ -102,8 +102,26 @@ try {
 
   const src = await import(pathToFileURL(resolve(tmp, 'src/data/sources.js')).href);
   const api = src.apiSources();
-  ok('apiSources() = 5 路', Array.isArray(api) && api.length === 5, `实际 ${api && api.length}`);
-  ok('SOURCE_LIST = 6 条', src.SOURCE_LIST.length === 6, `实际 ${src.SOURCE_LIST.length}`);
+  // ★比成员，不比条数：条数断言拦不住「条数没变、成员被换掉」这类改动 ——
+  //   六条还是六条，但其中一路被顶替了，长度断言照样绿。改成比对 id 集合才能抓住。
+  //   自驾两路（osrmRoute / amapPoi）进的是 SOURCE_TABLE 而不是 SOURCE_LIST，
+  //   所以这两条断言盯的是「自检页那六路的集合没被动过」。
+  const EXPECT_LIST = ['weather', 'air', 'geocode', 'elevation', 'reverse', 'tile'];
+  const EXPECT_API = ['weather', 'air', 'geocode', 'elevation', 'reverse'];
+  const idsOf = (arr) => (Array.isArray(arr) ? arr.map((s) => s && s.id) : []);
+  const sameIds = (got, want) => got.length === want.length && want.every((id) => got.includes(id));
+  const listIds = idsOf(src.SOURCE_LIST);
+  const apiIds = idsOf(api);
+  ok(
+    'SOURCE_LIST 成员恰好是自检六路',
+    sameIds(listIds, EXPECT_LIST),
+    `实际 ${listIds.join(',') || '（空）'}`
+  );
+  ok(
+    'apiSources() 恰好是六路里除瓦片外的五路',
+    sameIds(apiIds, EXPECT_API),
+    `实际 ${apiIds.join(',') || '（空）'}`
+  );
 
   const tiles = await import(pathToFileURL(resolve(tmp, 'src/data/tiles.js')).href);
   const url = tiles.tileUrl('street', 12, 3372, 1552);
