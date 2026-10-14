@@ -1636,13 +1636,17 @@ async function main() {
    * 页头标题的 i18n key。
    *
    * ⚠️ 说清楚本节的覆盖面，别把它当成「所有页面的页头都守住了」：
-   *   - `.hd-place` 出现在 4 个页面：compass / compare / settings 用 `t('<page>.title')`，
-   *     **now 页用 dynamic placeName**（用户输入/GEO 反查出来的地名，长度无上界 ——
+   *   - `.hd-place` 出现在 5 个页面：compass / compare / settings / roadtrip 用
+   *     `t('<page>.title')`，**now 页用 dynamic placeName**（用户输入/GEO 反查出来的
+   *     地名，长度无上界 ——
    *     静态脚本没法给一个「通用预算」，它不进本模型，属于**已知覆盖缺口**）；
    *   - 静态标题里 `compass.title` 是**最宽**的一条（按本节字宽模型逐条算过：
    *     zh 6.460em vs compare 5.000 / settings 5.460 / tagline 5.460；
-   *     en 16.562em vs compare 7.666 / settings 7.180 / tagline 5.464），
-   *     守住它等价于守住其余三条静态标题。
+   *     en 16.562em vs compare 7.666 / settings 7.180 / tagline 5.464）。
+   *     roadtrip 不构成挑战 —— 它的 `<title>` 与 `.hd-place` 同为 `rt.title`，
+   *     zh『自驾』= 2 个全角字 = 2.000em，en『Road trip』= 8 个拉丁字母 + 1 空格
+   *     = 8 × 0.572 + 0.23 = 4.806em，都比 compass 窄一个量级；
+   *     守住 compass 等价于守住其余**四条**静态标题。
    */
   const HD_TITLE_KEY = 'compass.title';
 
