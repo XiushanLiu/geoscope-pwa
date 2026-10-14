@@ -160,6 +160,7 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
     'src/data/osrm.js', 'src/data/amap.js', 'src/data/roadsources.js',
     'src/ui/app.js', 'src/ui/now.js', 'src/ui/selfcheck.js', 'src/ui/compass.js', 'src/ui/map.js',
     'src/ui/settings.js', 'src/ui/download.js', 'src/ui/roadtrip.js', 'src/ui/poilist.js',
+    'src/ui/roadmap.js',
   ];
   for (const f of runtimeFiles) {
     assert.ok(fs.existsSync(path.resolve(ROOT, f)), `清单引用了不存在的文件 ${f}`);

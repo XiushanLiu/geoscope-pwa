@@ -895,6 +895,39 @@ export const EN = {
   'rt.tripSkipped': '{n} trips cannot be opened',
   'rt.tripItem': '{name} · {days} days',
 
+  // ---------- Road trip: route map (T05) ----------
+  'rt.mapTitle': 'Route map',
+  'rt.mapHint': 'The basemap and its credits are unchanged; the zoom level is derived from “just fit this trip”, not set by hand.',
+  'rt.mapWhole': 'Whole trip',
+  'rt.mapEmpty': 'Nothing to draw yet: plan a route first.',
+  'rt.mapGeo': 'Geometry source: {src}',
+  'rt.mapGeoSimplified': 'OSRM simplified geometry',
+  'rt.mapGeoNone': 'no geometry',
+  'rt.mapFetching': 'Fetching geometry…',
+  'rt.mapGeoFail': 'Could not get the geometry: {msg}',
+  'rt.mapSchematic': '★This is a **schematic straight line** (start to end), not the real path — without geometry it must never be drawn as a solid line.',
+  'rt.mapNoFit': 'This trip spans too much: it fell back to the minimum zoom and may not fit entirely.',
+  'rt.mapNoCoord': 'not located',
+
+  // ---------- Road trip: on-the-ground log (T05) ----------
+  'rt.recordTitle': 'Log',
+  'rt.recordHint': 'Adopted candidates and hand-written check-ins land here; entries without coordinates are listed, never plotted.',
+  'rt.recordEmpty': 'No check-ins yet',
+  'rt.recordItem': '{name}{addr}',
+  'rt.recordNoLocated': '{n} not located (not plotted)',
+
+  // ---------- Road trip: moving between devices (export / import, T05) ----------
+  'rt.moveTitle': 'Move to another device',
+  'rt.moveHint': 'Export to a standalone file (no geometry) and import it elsewhere. It contains the places you went — do not post it publicly.',
+  'rt.exportBtn': 'Export all trips',
+  'rt.exportOk': 'Exported {n}: {file}',
+  'rt.exportEmpty': 'No trips to export',
+  'rt.importBtn': 'Choose a trip file',
+  'rt.importPreview': 'Will import {n} ({d} skipped)',
+  'rt.importApply': 'Confirm import',
+  'rt.importOk': 'Imported {n}',
+  'rt.importFail': 'No trips could be read from this file: {msg}',
+
   // ---------- Road trip: trip import failure reasons ----------
   // core/roadtrip.js and core/tripstore.js return only reasonKey / reasonParams
   // (core may not import i18n); the UI translates them.

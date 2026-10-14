@@ -866,6 +866,39 @@ export const ZH = {
   'rt.tripSkipped': '有 {n} 条行程打不开',
   'rt.tripItem': '{name} · {days} 天',
 
+  // ---------- 自驾模块：路线图（T05） ----------
+  'rt.mapTitle': '路线图',
+  'rt.mapHint': '底图与署名照旧；缩放层级由「刚好装下这一程」反算，不手动调。',
+  'rt.mapWhole': '整段',
+  'rt.mapEmpty': '还没有路线可画：先规划一次。',
+  'rt.mapGeo': '几何来源：{src}',
+  'rt.mapGeoSimplified': 'OSRM 简化几何（simplified）',
+  'rt.mapGeoNone': '没有几何',
+  'rt.mapFetching': '正在取几何…',
+  'rt.mapGeoFail': '几何没取到：{msg}',
+  'rt.mapSchematic': '★这条是**示意直线**（起点到终点直连），不是真实路径 —— 没拿到几何时不许画成实线。',
+  'rt.mapNoFit': '这一程跨度太大，已降到最小层级，可能看不全。',
+  'rt.mapNoCoord': '未定位',
+
+  // ---------- 自驾模块：实录（T05） ----------
+  'rt.recordTitle': '实录',
+  'rt.recordHint': '采用过的候选与手填的打卡都在这里；没坐标的不上图，只写在列表里。',
+  'rt.recordEmpty': '还没有打卡记录',
+  'rt.recordItem': '{name}{addr}',
+  'rt.recordNoLocated': '{n} 条未定位（不上图）',
+
+  // ---------- 自驾模块：搬家（导出 / 导入，T05） ----------
+  'rt.moveTitle': '搬家',
+  'rt.moveHint': '导出成独立文件（不含几何），在另一台机器上导入。文件里有你去过的地方，别发到公开场合。',
+  'rt.exportBtn': '导出全部行程',
+  'rt.exportOk': '已导出 {n} 条：{file}',
+  'rt.exportEmpty': '没有可导出的行程',
+  'rt.importBtn': '选择行程文件',
+  'rt.importPreview': '将导入 {n} 条（{d} 条被跳过）',
+  'rt.importApply': '确认导入',
+  'rt.importOk': '已导入 {n} 条',
+  'rt.importFail': '这个文件读不出行程：{msg}',
+
   // ---------- 自驾模块：行程导入失败原因 ----------
   // core/roadtrip.js 与 core/tripstore.js 只回 reasonKey / reasonParams
   //（core 不许 import i18n），由 UI 层 tr() 上屏。
