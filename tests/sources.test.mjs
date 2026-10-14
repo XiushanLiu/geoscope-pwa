@@ -171,6 +171,10 @@ test('i18n：所有 t() 字面量 key 与模板 key 的枚举都必须存在于�
     //   ★注意 ['zh','en'] 这两个选项名**故意不翻译**（中文界面写着 English），
     //   所以这里查的是「两张表里都有这两条 key」，不是「英文表里写的是 English」。
     'settings.lang.': ['zh', 'en'],
+    // ★自驾候选三类：与 src/core/roadtrip.js 的 CHECKIN_TYPES 一一对应
+    //   （ui/poilist.js 与 ui/roadtrip.js 都用 `rt.type.${type}` 这类模板 key 取文案，
+    //    少一类就有一张卡显示成键名本身）。
+    'rt.type.': ['stay', 'sight', 'food'],
   };
 
   for (const rel of FILES.filter((f) => f.endsWith('.js'))) {
