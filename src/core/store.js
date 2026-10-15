@@ -12,6 +12,23 @@
 import { get, set, makeKey } from './cache.js';
 import { DEFAULT_PLACE_NAME } from './geo.js';
 
+/**
+ * **应用标识（文件格式用，不是品牌名）** —— 全称 'geoscope'。
+ *
+ * ★与品牌名 `APP_NAME`（i18n/index.js，现在是 'WayScope'）是**两回事，不许混用**：
+ *   · APP_ID   —— 写进导出文件、参与导入校验（`data.app !== APP_ID` 直接拒绝）。
+ *                 **品牌改名时绝不许改它**，改了用户已有的备份 / 行程文件全部导不进来。
+ *   · APP_NAME —— 界面上给人看的品牌名，改名时随品牌一起改。
+ *   · 文件命名（备份 `geoscope-backup-*`、CSV `geoscope-now-*`、自检
+ *     `geoscope-selfcheck-*`）一律派生自 APP_ID，因此改名不影响文件名。
+ *
+ * ★为什么住在这里而不是 backup.js：backup.js 不在单文件产物的模块闭包里
+ *   （build-standalone 的 ORDER 只收录 selfcheck 闭包），而 store.js **在**。
+ *   自检页要拿这个常量时，从 store 取不会给产物引入新依赖。
+ *   （backup.js 本来就 import store.js，store.js 不 import backup.js —— 无循环。）
+ */
+export const APP_ID = 'geoscope';
+
 /** 持久化键（store 视作一个伪 sourceId）。 */
 const KEY_PREFS = makeKey('store', 'prefs');
 const KEY_SNAPSHOT = makeKey('store', 'snapshot');
@@ -379,7 +396,7 @@ export function setDebug(on) {
 export function log(...args) {
   if (!isDebug()) return;
   try {
-    console.log('[GeoScope]', ...args);
+    console.log('[WayScope]', ...args);
   } catch (err) {
     /* 环境无 console 时静默 */
   }

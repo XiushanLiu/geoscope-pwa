@@ -1,4 +1,4 @@
-# 地候 GeoScope · 阶段一
+# 途候 WayScope · 阶段一
 
 自用地理气象速览 PWA。**零构建**：纯 HTML + CSS + 原生 ES Module，不引入任何第三方依赖、不装 npm 包、不用打包器、不用 CDN、不外链字体。
 

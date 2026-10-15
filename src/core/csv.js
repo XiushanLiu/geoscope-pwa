@@ -32,6 +32,7 @@
 import { stamp as exportFilenameStamp, pad2 } from './format.js';
 import { wmo, aqi, uv, windDir16, beaufort } from './wmo.js';
 import { isDaylight } from './sun.js';
+import { APP_ID } from './store.js';
 
 /** UTF-8 BOM：Excel（尤其中文 Windows 版）靠它认出 UTF-8，否则中文全是乱码。 */
 export const BOM = '﻿';
@@ -42,8 +43,13 @@ export const CRLF = '\r\n';
 /** CSV 的 MIME：charset 必须写进 type，否则部分浏览器按 Latin-1 存盘。 */
 export const CSV_MIME = 'text/csv;charset=utf-8';
 
-/** 导出文件名前缀（与 core/backup.js 的 'geoscope-backup-' 同族，便于在下载目录里排序相邻）。 */
-const FILE_PREFIX = 'geoscope-now';
+/**
+ * 导出文件名前缀（与备份的 `geoscope-backup-` 同族，便于在下载目录里排序相邻）。
+ *
+ * ★从 APP_ID 派生，不许硬写 'geoscope'：品牌改名时文件名不该跟着变
+ *   （用户下载目录里的历史文件仍要保持同一套前缀）。APP_ID 的释义见 core/store.js。
+ */
+const FILE_PREFIX = `${APP_ID}-now`;
 
 /** 列分隔符。 */
 const DELIM = ',';

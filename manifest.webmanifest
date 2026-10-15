@@ -1,6 +1,6 @@
 {
-  "name": "地候 GeoScope",
-  "short_name": "地候",
+  "name": "途候 WayScope",
+  "short_name": "途候",
   "description": "自用地理气象速览：此刻此地的一屏数据。无广告、无统计、无账号、无后端。",
   "start_url": "index.html",
   "scope": "./",

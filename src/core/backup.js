@@ -28,16 +28,15 @@
  * 由 UI 层 tr() 成句。键缺失时 t() 会把键名原样显示 —— 漏翻当场可见，不会被静默兜住。
  */
 
-import { getState, getLastSnapshot, replaceState, setLastSnapshot, isDebug } from './store.js';
+// APP_ID 住在 store.js（单一来源、且在单文件产物的闭包内），这里只是转出以便调用方就近取用。
+import { getState, getLastSnapshot, replaceState, setLastSnapshot, isDebug, APP_ID } from './store.js';
+export { APP_ID };
 // 文件名时间戳复用 core/format.js 的导出文件名时间戳（其导出名为 stamp：'YYYYMMDD-HHmm'，
 // 本地时区）。这里用别名是为了让调用处读起来就是「导出文件名时间戳」，避免重复实现一份。
 import { stamp as exportFilenameStamp } from './format.js';
 
 /** 备份格式版本号（整数；未来格式变更时 +1，并在 importBackup 里加分支）。 */
 export const SCHEMA_VERSION = 1;
-
-/** 应用标识：用于拒绝别的应用的备份文件。 */
-export const APP_ID = 'geoscope';
 
 /** 收藏条数上限：超出一律截断（防止一个畸形备份把内存态撑爆）。 */
 export const MAX_FAVORITES = 200;
@@ -189,7 +188,7 @@ export function inspectBackup(input) {
     return { ok: false, reasonKey: 'backup.badSchema', reasonParams: { schema: String(data.schema) } };
   }
 
-  /* ---------- 3. 是不是地候的备份 ---------- */
+  /* ---------- 3. 是不是途候的备份 ---------- */
   if (data.app !== APP_ID) {
     return { ok: false, reasonKey: 'backup.notGeoscope' };
   }

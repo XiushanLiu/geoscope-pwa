@@ -18,7 +18,7 @@
 /** 英文文案表：扁平 key → 字符串。 */
 export const EN = {
   // ---------- General ----------
-  'app.name': 'GeoScope',
+  'app.name': 'WayScope',
   'app.tagline': 'Here · Now',
   'app.loading': 'Loading…',
   'app.retry': 'Retry',
@@ -734,13 +734,13 @@ export const EN = {
   // Spots in the HTML shell with NO child element (meta description / iOS home-screen
   // name) plus the aria-labels a screen reader reads out. All of them are visible to
   // somebody — some just via the ears — so they go through i18n too.
-  'app.shortName': 'GeoScope',
-  'app.description': 'GeoScope — a personal weather and place glance: one screen of data, here and now.',
-  'desc.selfcheck': 'GeoScope — source self-check: sample each source and see which ones answer.',
-  'desc.compass': 'GeoScope — magnetic declination and true/magnetic bearing conversion, computed on device with WMM2025, offline.',
-  'desc.settings': 'GeoScope — backup export and import, theme switching; data stays on this device, no network.',
-  'desc.compare': 'GeoScope — compare places: the same readings for each saved place, side by side.',
-  'desc.roadtrip': 'GeoScope — road trip: route planning, trip log and the trip map.',
+  'app.shortName': 'WayScope',
+  'app.description': 'WayScope — a personal weather and place glance: one screen of data, here and now.',
+  'desc.selfcheck': 'WayScope — source self-check: sample each source and see which ones answer.',
+  'desc.compass': 'WayScope — magnetic declination and true/magnetic bearing conversion, computed on device with WMM2025, offline.',
+  'desc.settings': 'WayScope — backup export and import, theme switching; data stays on this device, no network.',
+  'desc.compare': 'WayScope — compare places: the same readings for each saved place, side by side.',
+  'desc.roadtrip': 'WayScope — road trip: route planning, trip log and the trip map.',
   'a11y.mainNav': 'Main navigation',
   'a11y.checkParams': 'Self-check parameters',
   // ---------- Interface language ----------
@@ -940,7 +940,7 @@ export const EN = {
   'trip.notObject': 'the trip body is not a JSON object',
   'trip.badSchema': 'unsupported trip file schema version (schema={schema})',
   'trip.newerSchema': 'this trip was created by a newer version (schema={schema}); please upgrade before opening it',
-  'trip.notRoadtrip': 'not a GeoScope road-trip file',
+  'trip.notRoadtrip': 'not a WayScope road-trip file',
   'trip.noTrips': 'the file has no trips array',
   'trip.planNoTrips': 'the import plan has no trips array (call inspectTripFile first)',
   'trip.notFound': 'this trip does not exist',
@@ -951,7 +951,7 @@ export const EN = {
   'backup.badJson': 'not valid JSON',
   'backup.notObject': 'the backup body is not a JSON object',
   'backup.badSchema': 'unsupported backup schema version (schema={schema})',
-  'backup.notGeoscope': 'not a GeoScope backup file',
+  'backup.notGeoscope': 'not a WayScope backup file',
   'backup.noPrefs': 'missing prefs',
   'backup.badDefaultPlace': 'defaultPlace coordinates are invalid (lat/lon must be finite numbers, latitude within ±90, longitude within ±180)',
   'backup.planNoDefaultPlace': 'the import plan has no valid defaultPlace (call inspectBackup first)',

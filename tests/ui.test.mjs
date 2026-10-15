@@ -485,7 +485,9 @@ test('自检页：导出 JSON 触发下载且文件名符合 geoscope-selfcheck-
   routeFixture();
   const report = await selfcheck.runSelfCheck({ samples: 1, networkType: 'unknown' });
   assert.ok(report && Array.isArray(report.results));
-  assert.equal(report.app, 'GeoScope');
+  // ★是 'geoscope'（文件格式标识）不是品牌名：与文件名前缀 geoscope-selfcheck-<stamp>.json
+  //   以及 backup.js 的 `app: APP_ID` 同一口径。品牌改名不该改变导出文件的格式。
+  assert.equal(report.app, 'geoscope');
   assert.equal(report.warmup, true, '报告必须声明含预热');
   assert.equal(report.networkType, 'unknown');
   assert.equal(report.samples, 1);

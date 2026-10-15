@@ -25,7 +25,7 @@ import { ZH } from './zh.js';
 import { EN } from './en.js';
 
 /** 应用元信息（导出 JSON 与页面标题共用）。 */
-export const APP_NAME = 'GeoScope';
+export const APP_NAME = 'WayScope';
 export const APP_VERSION = '1.0.0';
 
 /** 默认 locale：中文界面为主（用户拍板）。 */

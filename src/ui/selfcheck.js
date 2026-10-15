@@ -14,7 +14,7 @@
  * 隐私红线：自检只请求六路数据源，不向任何第三方发请求；force=true 仅本页使用。
  */
 
-import { t, APP_NAME, APP_VERSION } from '../i18n/index.js';
+import { t, APP_VERSION } from '../i18n/index.js';
 import { errorText } from './errtext.js';
 import { applyLocale } from './locale.js';
 import { request, makeError, isOnline, resetQueue } from '../core/http.js';
@@ -30,6 +30,8 @@ import {
   degradeMapMode,
   mapMode,
 } from '../data/tiles.js';
+// 注：APP_ID 是导出报告里 `app` 字段要用的**文件格式标识**（不是品牌名），见报告对象的注释。
+// ★别把注释写进花括号里 —— tools/check.mjs 的导入解析器会把注释当成导入名而报「未命中」。
 import {
   getNetworkType,
   setNetworkType as storeSetNetworkType,
@@ -37,6 +39,7 @@ import {
   getFontScale,
   getLocale,
   log,
+  APP_ID,
 } from '../core/store.js';
 import { stamp, latency as fmtLatency, bytes as fmtBytes } from '../core/format.js';
 import { h, applyI18n } from './now.js';
@@ -353,7 +356,11 @@ export async function runSelfCheck(opts = {}) {
   const ctx = _probeCtx();
 
   const report = {
-    app: APP_NAME,
+    // ★用 APP_ID（'geoscope'）而不是 APP_NAME（品牌名）：这个字段是**导出文件的格式标识**，
+    //   与文件名前缀 `geoscope-selfcheck-<stamp>.json`、以及 backup.js 的 `app: APP_ID`
+    //   是同一套口径。品牌改名（地候 GeoScope → 途候 WayScope）不该改变文件格式 ——
+    //   否则 `report.app` 会变成 'WayScope' 而文件名仍写着 geoscope，自己跟自己矛盾。
+    app: APP_ID,
     version: APP_VERSION,
     generatedAt: Date.now(),
     networkType,
