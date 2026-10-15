@@ -542,3 +542,89 @@ test('⑱ ★收尾触发时，tailMergedSec 是末段里「多出来」的那�
   assert.equal(r3.tailMergedIntoDay, null);
   assert.ok(Math.abs(r3.tailSec - 7643.7) < 0.01, `第 3 天开 ${r3.tailSec}s`);
 });
+
+/* ------------------------------------------------------------------ */
+/* ⑫ 必经点「必须经过 / 仅供参考」（需求 8.2，2026-10-16）              */
+/* ------------------------------------------------------------------ */
+
+test('⑫-1 ★「必须经过」无视吸附容差：离必经点很远的切点也要落到必经点', () => {
+  // 反证基线：dailyTargetSec=14400 时，切点离汉中 85 km（远超 VIA_SNAP_TOL_SEC 900 s）
+  // → 不传 via（=「没说」）时不吸附，anchorFrom='cumulative-4h'（既有行为）。
+  const loose = rt.splitStopovers(CD_HZ_XIAN, { dailyTargetSec: 14400 }, { nowMs: NOW });
+  assert.equal(loose.stopovers[0].anchorFrom, 'cumulative-4h', '没说 required 时必须沿用原有容差行为');
+
+  // 同一个夹具、把必经点显式设成「必须经过」→ **无视容差**，落到汉中
+  const must = rt.splitStopovers(
+    CD_HZ_XIAN,
+    { dailyTargetSec: 14400, via: [{ required: true }] },
+    { nowMs: NOW }
+  );
+  assert.equal(must.stopovers[0].anchorFrom, 'via', '「必须经过」必须无视容差，落到必经点');
+  assert.equal(must.stopovers[0].coord.lat, CD_HZ_XIAN.waypoints[1].snapped.lat, '坐标就是那个必经点');
+});
+
+test('⑫-2 ★「仅供参考」与「没说」行为一致：都只在容差内吸附', () => {
+  const opt = rt.splitStopovers(CD_HZ_XIAN, { dailyTargetSec: 14400, via: [{ required: false }] }, { nowMs: NOW });
+  const unsaid = rt.splitStopovers(CD_HZ_XIAN, { dailyTargetSec: 14400 }, { nowMs: NOW });
+  assert.equal(opt.stopovers[0].anchorFrom, 'cumulative-4h', '「仅供参考」超容差不吸附');
+  assert.equal(
+    opt.stopovers[0].anchorFrom,
+    unsaid.stopovers[0].anchorFrom,
+    '「仅供参考」与「没说」必须同行为 —— 「没说」不能被放大成「必须」'
+  );
+});
+
+test('⑫-3 ★缺省不许放大语义：plan.via 缺失 / 元素没 required 字段，一律沿用原行为', () => {
+  // 这条是 2026-10-16 真事故的回归锁：当时把「没说」归并进「必须经过」，
+  // 于是老行程的分天被静默改写（必经点全部强制停留），两条既有单测当场见红。
+  const noVia = rt.splitStopovers(CD_HZ_XIAN, { dailyTargetSec: 14400 }, { nowMs: NOW });
+  const emptyField = rt.splitStopovers(CD_HZ_XIAN, { dailyTargetSec: 14400, via: [{}] }, { nowMs: NOW });
+  const junkVia = rt.splitStopovers(CD_HZ_XIAN, { dailyTargetSec: 14400, via: [null, 'x'] }, { nowMs: NOW });
+  for (const [name, r] of [['没传 via', noVia], ['via 元素空对象', emptyField], ['via 元素非法', junkVia]]) {
+    assert.equal(r.stopovers[0].anchorFrom, 'cumulative-4h', `${name} 时必须沿用原有容差行为`);
+  }
+  assert.equal(noVia.stopovers.length, emptyField.stopovers.length, '天数也不许变');
+});
+
+test('⑫-4 newPlaceRef：required 默认 true，只有显式 false 才是「仅供参考」', () => {
+  assert.equal(rt.newPlaceRef({}).required, true, '默认是「必须经过」—— 加必经点就是要停');
+  assert.equal(rt.newPlaceRef({ required: false }).required, false, '显式 false 才是仅供参考');
+  assert.equal(rt.newPlaceRef({ required: true }).required, true);
+  // ★不许被 Number(null)===0 那类陷阱带偏：非布尔一律按默认，不静默变 false
+  assert.equal(rt.newPlaceRef({ required: 0 }).required, true, '只认真正的布尔，其余按默认');
+  assert.equal(rt.newPlaceRef({ required: 'false' }).required, true, '字符串 false 不是布尔 false');
+  assert.equal(rt.newPlaceRef({ required: null }).required, true);
+});
+
+test('⑫-5 ★「必须经过」的必经点不会被「余段不足 minGapSec」悄悄吞掉', () => {
+  // ★构造要真的走到那条分支（第一版测试没做到，变异验证才暴露出来）：
+  //   `minGapSec` 设成远超总时长 → 按第 3 条，任何一刀都「余段不足」而作废。
+  //   汉中在路线中段，光靠它触发不了余段不足，必须把 minGapSec 拉大。
+  const HUGE_GAP = 999999;
+
+  // 反证基线：「没说 required」时，余段不足 → 一刀都不切
+  const none = rt.splitStopovers(CD_HZ_XIAN, { dailyTargetSec: 14400 }, { nowMs: NOW, minGapSec: HUGE_GAP });
+  assert.equal(none.stopovers.length, 0, '余段不足时按第 3 条不应切出任何停留点');
+
+  // 「仅供参考」同样可以让它作废 —— 建议不是承诺
+  const opt = rt.splitStopovers(
+    CD_HZ_XIAN,
+    { dailyTargetSec: 14400, via: [{ required: false }] },
+    { nowMs: NOW, minGapSec: HUGE_GAP }
+  );
+  assert.equal(opt.stopovers.length, 0, '「仅供参考」不承诺停，余段不足时可以整段作废');
+
+  // ★「必须经过」：第 3 条必须为它让路，否则这个点会**静默消失**（界面不报错，
+  //   只是没人告诉你「你说必须停的那个点其实没停」）—— 那是假的「必须经过」。
+  const must = rt.splitStopovers(
+    CD_HZ_XIAN,
+    { dailyTargetSec: 14400, via: [{ required: true }] },
+    { nowMs: NOW, minGapSec: HUGE_GAP }
+  );
+  assert.ok(must.ok, '切段必须成功');
+  const hasVia = must.stopovers.some((s) => s.anchorFrom === 'via');
+  assert.ok(
+    hasVia,
+    `设为「必须经过」的必经点必须出现在停留点里，实际：${JSON.stringify(must.stopovers.map((s) => s.anchorFrom))}`
+  );
+});

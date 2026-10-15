@@ -189,7 +189,21 @@ function _strOrNull(v) {
 /**
  * 构造一个 PlaceRef（出发地 / 目的地 / 必经点）。
  *
- * @param {{lat?:number, lon?:number, name?:string, source?:string, amapId?:string|null}} [patch] 补丁。
+ * ★`required` 只对**必经点**有意义（出发地 / 目的地永远是路线两端，不存在「可不可以跳过」）：
+ *   - `true`（默认）**必须经过**：切段时它**必定**成为停留点，不受吸附容差限制；
+ *   - `false` **仅供参考**：只是用它把路线「拽」成想要的大致走向，**允许被跳过** ——
+ *     只在同一天的驾驶时长容差内才吸附，过了就当作没这个点。
+ *
+ *   用户原话（2026-10-16 需求 8.2）：「必经点可以是必须经过的地点，也可以不是
+ *   （取决于景点、美食等情况；此时，必经点的作用，只是便于大致地规划路线）」。
+ *   所以这不是「要不要走这条路」的开关 —— 两种模式下 OSRM 都会经过它 ——
+ *   而是「它算不算一个停留点」的开关。
+ *
+ *   ⚠️ 设成「必须经过」可能让当天驾驶时长超出目标（`dailyTargetSec`）：目标只是
+ *   分天的**参考门槛**，不是硬约束。超了就如实显示，不许为了让时长好看而偷偷跳过。
+ *
+ * @param {{lat?:number, lon?:number, name?:string, source?:string, amapId?:string|null,
+ *          required?:boolean}} [patch] 补丁。
  * @returns {Object} PlaceRef。
  */
 export function newPlaceRef(patch = {}) {
@@ -200,6 +214,9 @@ export function newPlaceRef(patch = {}) {
     name: _str(patch.name, 60),
     source,
     amapId: _strOrNull(patch.amapId),
+    // 只认真正的布尔；其余（含 undefined / 旧数据没有这个字段）一律按「必须经过」——
+    // 老行程里加过的必经点，语义本来就是「必经」，不该因为新增字段就变成可跳过。
+    required: patch && patch.required === false ? false : true,
   };
 }
 
@@ -1177,9 +1194,16 @@ function _legEndIndices(route, points) {
  *      长度 = 几何点数），本函数自己不再重算一遍 —— 两处各算一次必然会漂；
  *   2. 锚点 = 第一个 `cumulativeS[k] >= t + dailyTargetSec` 的点，取 `geometry[k]`；
  *   3. 收尾：切完若 `totalSecAnn - cumS[k] < minGapSec`，这一刀作废，余量并入最后一天，
- *      秒数写进 `tailMergedSec` / `tailMergedIntoDay`（UI 据此写「末段 X 分钟并入第 N 天」）；
- *   4. 必经点优先：k 之后 `VIA_SNAP_TOL_SEC` 秒内存在 leg 末端时，锚点吸附到那个必经点，
- *      `anchorFrom:'via'`，`t` 推进到该 leg 结束；
+ *      秒数写进 `tailMergedSec` / `tailMergedIntoDay`（UI 据此写「末段 X 分钟并入第 N 天」）。
+ *      ★例外：k 之后还有**待落脚的「必须经过」必经点**时不作废，继续切 —— 否则一个
+ *      离终点很近的必经点会因为余段短被整个跳过，「必须经过」就成了假的；
+ *   4. 必经点优先：k 之后存在 leg 末端时，锚点吸附到那个必经点，`anchorFrom:'via'`，
+ *      `t` 推进到该 leg 结束。★两类必经点走**两条判据**（需求 8.2，2026-10-16）：
+ *      - `required:true`（**必须经过**，默认）：**无视** `VIA_SNAP_TOL_SEC` 容差，
+ *        k 之后第一个就是它 —— 这天可能开超 `dailyTargetSec`，目标只是参考门槛不是硬约束，
+ *        超了如实显示，不许为了让时长好看而偷偷跳过；
+ *      - `required:false`（**仅供参考**）：沿用容差，落在 `VIA_SNAP_TOL_SEC` 内才吸附，
+ *        过了就当没这个点（它的作用只是把路线拽成大致想要的走向）。
  *   5. 去重：新锚点与任一必经点直线距离 < `STOPOVER_DEDUP_M` 则丢弃这一刀。
  *      ★这里的必要澄清（第 4 与第 5 条字面会撞车）：吸附到必经点的那一刀**不能**被
  *      第 5 条判掉 —— 它的距离是 0，判掉就等于第 4 条永不生效。所以第 5 条只对
@@ -1264,6 +1288,22 @@ export function splitStopovers(route, plan = {}, opts = {}) {
   /* ---- 必经点（第 4 / 5 条要用） ---- */
   const viaIdx = _legEndIndices(route, points);
   const viaCoords = viaIdx.map((i) => ({ lat: _num(points[i][1]), lon: _num(points[i][0]) }));
+  // ★每个必经点「必须 / 建议」的标记，与 `viaIdx` **按位置一一对应**（第 i 个 leg 末端
+  //   就是第 i 个必经点）。
+  //   ★★三种取值，**「没说」必须和「必须」分开**（2026-10-16 踩过）：
+  //     - `true`  = 必须经过 → 无视容差，必定成为停留点；
+  //     - `false` = 仅供参考 → 只在容差内才吸附；
+  //     - `null`  = **没说**（plan 没带 via / 旧数据没这个字段 / 索引越界）→ 沿用
+  //       **原有行为**（容差内才吸附）。
+  //     ⚠️ 把 `null` 归并进 `true` 是一次真事故：老单测不传 via，于是所有必经点都变成
+  //     「无视容差强制停留」，既有分天行为被静默改写（两条单测当场见红）。
+  //     「没说」不等于「必须」—— 缺省必须保守，不能放大语义。
+  const viaInput = Array.isArray(p.via) ? p.via : [];
+  const viaRequired = viaIdx.map((_, i) => {
+    const v = viaInput[i];
+    if (!v || typeof v !== 'object') return null;
+    return v.required === true ? true : v.required === false ? false : null;
+  });
 
   /* ---- 逐刀 ---- */
   const cuts = [];
@@ -1286,19 +1326,35 @@ export function splitStopovers(route, plan = {}, opts = {}) {
     }
     if (k < 0) break;
 
+    // ★「待落脚的必须点」：还在 k 之后、且没被任何一刀占用过的**必须经过**的必经点。
+    //   第 3 条要为它让路 —— 否则一个离终点很近的必经点会因为「余段不足 minGapSec」
+    //   被整个跳过，「必须经过」就成了假的（界面不报错，只是那个点悄悄消失）。
+    const pendingRequired = viaIdx.some(
+      (vi, i) => vi >= k && viaRequired[i] === true && !cuts.some((c) => c.index === vi)
+    );
+
     const remaining = (totalSecAnn === null ? 0 : totalSecAnn) - cumS[k];
     // 第 3 条：余段不足 minGapSec → 不再切这一刀，余量并入「这一天」（= 已切刀数 + 1）
-    if (remaining < minGapSec) {
+    if (remaining < minGapSec && !pendingRequired) {
       tailMergedSec = remaining > 0 ? remaining : 0;
       tailMergedIntoDay = cuts.length + 1;
       break;
     }
 
-    // 第 4 条：k 之后一个容差内存在必经点 → 吸附到它
+    // 第 4 条：k 之后存在必经点 → 吸附到它。
+    //   ★两类必经点走**两条判据**（用户 2026-10-16 需求 8.2）：
+    //     - 「必须经过」：无视容差，k 之后第一个就是它 —— 用户点名要停的地方，
+    //       哪怕这一天会开超 `dailyTargetSec` 也要停。目标时长只是分天的**参考门槛**，
+    //       不是硬约束，超了就如实显示，不许为了让时长好看而偷偷跳过。
+    //     - 「仅供参考」：沿用 `viaSnapTolSec` 容差，落在容差内才吸附，
+    //       过了就当没这个点（它的作用只是把路线拽成大致想要的走向）。
     let useIndex = k;
     let anchorFrom = 'cumulative-4h';
-    for (const vi of viaIdx) {
-      if (vi >= k && cumS[vi] - cumS[k] <= viaSnapTolSec) {
+    for (let i = 0; i < viaIdx.length; i += 1) {
+      const vi = viaIdx[i];
+      if (vi < k) continue;
+      // `true` 无视容差；`false` 与 `null`（没说）都走容差 —— 缺省保守，不放大语义
+      if (viaRequired[i] === true || cumS[vi] - cumS[k] <= viaSnapTolSec) {
         useIndex = vi;
         anchorFrom = 'via';
         break;

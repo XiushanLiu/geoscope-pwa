@@ -902,12 +902,41 @@ function _renderPlanCard() {
   ]);
 
   // 必经点（可选）
-  const viaBox = h('div', { class: 'field' }, [h('p', { class: 'card-note', text: t('rt.viaTitle') })]);
+  const viaBox = h('div', { class: 'field' }, [
+    h('p', { class: 'card-note', text: t('rt.viaTitle') }),
+    // ★两个选项的区别不写出来，用户只会以为是同一件事的两种说法
+    h('p', { class: 'card-note', text: t('rt.viaHint') }),
+  ]);
   _state.plan.via.forEach((v, i) => {
     // 每行带序号：三个「必经点（可选）」摞在一起，用户分不清哪个是哪个
     const row = h('div', { class: 'field field--row' }, [
       _placeRow('rt.viaItem', v, `via:${i}`, { n: i + 1 }),
     ]);
+    // 「必须经过 / 仅供参考」开关（需求 8.2）：
+    //   两种模式下 OSRM 都会经过这个点，区别只在它**算不算一个停留点**。
+    //   - 必须经过：切段时必定成为停留点，不受吸附容差限制（这天可能开超目标时长，如实显示）；
+    //   - 仅供参考：只在当天时长容差内才吸附，过了就当没这个点 —— 用来把路线拽成大致走向。
+    const reqSel = h('select', { class: 'btn', id: `sel-via-req-${i}` });
+    for (const req of [true, false]) {
+      const opt = h('option', {
+        value: req ? '1' : '0',
+        text: t(req ? 'rt.viaRequired' : 'rt.viaOptional'),
+      });
+      // 老数据没有 required 字段 → 按「必须经过」（与 core 的 newPlaceRef 同口径）
+      if ((v.required !== false) === req) opt.setAttribute('selected', '');
+      reqSel.appendChild(opt);
+    }
+    reqSel.addEventListener('change', () => {
+      _state.plan.via[i].required = reqSel.value !== '0';
+      // 切段结果依赖这个开关 → 旧的必须作废；候选按停留点 id 存，停留点变了也就跟着失效。
+      // route（求路结果）不受影响，所以只重切、不重新求路 —— 不发请求。
+      _state.candidates = {};
+      _state.routeError = '';
+      _resplit();
+      _renderPage();
+    });
+    row.appendChild(reqSel);
+
     const rm = h('button', { class: 'btn', type: 'button', text: t('rt.viaRemove') });
     rm.addEventListener('click', () => {
       _state.plan.via.splice(i, 1);
@@ -1460,7 +1489,30 @@ async function _onPlan() {
   }
 
   _state.route = res.data;
-  const sp = splitStopovers(res.data, { dailyTargetSec: _state.plan.dailyTargetSec });
+  _resplit(res.data);
+  _renderPage();
+}
+
+/**
+ * 用当前 plan 重切一段（**不发网络请求**，纯本地算）。
+ *
+ * ★`via` 必须一起传进去：`splitStopovers()` 要读每个必经点的 `required`
+ *   （必须 / 建议）才能决定它算不算停留点。只传 `dailyTargetSec` 的话，
+ *   切段拿不到这条信息，界面上「设为建议」就会毫无反应 —— 静默失效，不报错。
+ *
+ * @param {Object} route RouteInfo；不传则沿用 `_state.route`。
+ * @returns {void}
+ */
+function _resplit(route) {
+  const r = route || _state.route;
+  if (!r) {
+    _state.split = null;
+    return;
+  }
+  const sp = splitStopovers(r, {
+    dailyTargetSec: _state.plan.dailyTargetSec,
+    via: _state.plan.via,
+  });
   if (!sp.ok) {
     // 切段失败：`reasonKey` 是 core 给的键，这里翻成人话（不自己编）
     _state.routeError = reasonText(sp);
@@ -1469,7 +1521,6 @@ async function _onPlan() {
   } else {
     _state.split = sp;
   }
-  _renderPage();
 }
 
 /* ------------------------------------------------------------------ */
