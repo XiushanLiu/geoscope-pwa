@@ -51,6 +51,7 @@ import {
   newPlaceRef,
   splitStopovers,
   partitionByFilter,
+  asFilterableCandidate,
   adoptCandidate,
   exportTrips,
   inspectTripFile,
@@ -1170,27 +1171,11 @@ function _renderPoiCard() {
     }
     // 一次都没搜过就先不画空列表 —— 画三张「没搜到」是噪音，不是信息
     if (items.length === 0 && !hasAnyBucket) continue;
-    // ★喂给 `partitionByFilter()` 的必须是**带 type 的条目**：它按 `item.type` 取对应
-    //   的筛选条件。高德候选本身没有这个字段（它的 `type` 是「住宿服务;宾馆酒店」这类
-    //   原文），直接传进去会让 `type === null` 走到「没有筛选条件 = 原样通过」分支 ——
-    //   界面表现为**全部落进「达标」、永远没有「未填」**，那正是把「看不清」伪装成
-    //   「都挺好」，比报错还糟。所以这里补上 type，并把高德原文挪到 `category`
-    //   （与 CheckIn 同字段），列表卡照 category 显示。
-    //   ★房价 / 房型 / 等级这些**参与筛选的字段一律不补**：候选里没有就是没有，
-    //   于是它们老老实实进 unknown 组并被计数。
-    //   ★`common.rating` 是唯一的例外，而且它与「不许补数据」不冲突：评分是高德
-    //     **真的返回了**的值（同一行列表上「★ 4.5」就是这个数），不是推算值；
-    //     `partitionByFilter()` 的评分分支读的是 `item.common.rating`（CheckIn 的形状），
-    //     而 `parsePoi()` 把评分放在**顶层** —— 不补这一处，同一块屏幕上会同时出现
-    //     「★ 4.5」和「未填：评分」：同一个数既已知又未知，是自相矛盾的显示，
-    //     而用户要的「4.6 分以上」会**永远匹配不上任何一条**（全落「未填」）。
-    //     菜名 / 标签（美食关键词那条）依然**不补**：高德免费接口确实给不了。
-    const filterable = items.map((c) => ({
-      ...c,
-      type,
-      category: c && c.type,
-      common: { rating: c && c.rating, tags: [] },
-    }));
+    // ★喂给 `partitionByFilter()` 的必须是**带 type 的条目**：它按 `item.type` 取对应的
+    //   筛选条件，而高德候选没有这个语义（`type` 是「住宿服务;宾馆酒店」这类原文）。
+    //   适配全部交给 core 的 `asFilterableCandidate()` —— **唯一一份形状契约**，
+    //   补什么、绝不补什么都写在那里。这里不许自己写行内 map：写散了就是静默错位。
+    const filterable = items.map((c) => asFilterableCandidate(c, type));
     const groups = partitionByFilter(filterable, _filters());
     card.appendChild(
       renderPoiGroup({

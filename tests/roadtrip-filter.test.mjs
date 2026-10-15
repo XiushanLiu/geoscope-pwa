@@ -65,7 +65,7 @@ const dom = createFakeDom([
 
 /** 必须在 import 被测模块之前装好全局（cache.js 在加载期就决定走内存还是 localStorage）。 */
 const { setAmapKey, hasAmapKey } = await import('../src/core/apikeys.js');
-const { DEFAULT_FILTERS } = await import('../src/core/roadtrip.js');
+const { DEFAULT_FILTERS, partitionByFilter, asFilterableCandidate } = await import('../src/core/roadtrip.js');
 const { init: initRoadtrip } = await import('../src/ui/roadtrip.js');
 const { t } = await import('../src/i18n/index.js');
 
@@ -578,4 +578,58 @@ test('★条件关到底不许出现 0 个房型：那等于「勾着却不起�
     ['king', 'standard'],
     '还原后应回到默认房型'
   );
+});
+
+/* ------------------------------------------------------------------ */
+/* asFilterableCandidate：候选 → 可筛选条目的**唯一**形状契约            */
+/* ------------------------------------------------------------------ */
+
+test('★asFilterableCandidate：补 type 与 category，且高德原文让位给类别', () => {
+  const out = asFilterableCandidate({ id: 'p1', name: '如家', type: '住宿服务;宾馆酒店', rating: 4.5 }, 'stay');
+  assert.equal(out.type, 'stay', '必须补上语义 type，否则 partitionByFilter 取不到筛选条件');
+  assert.equal(out.category, '住宿服务;宾馆酒店', '高德原文必须挪到 category（列表卡照它显示）');
+  assert.equal(out.name, '如家', '其余字段原样保留，不许丢');
+});
+
+test('★asFilterableCandidate：评分必须落到 common.rating —— 否则「4.6 分以上」永远匹配不上', () => {
+  // 为什么必须补：`_evaluate()` 读 `item.common.rating`（CheckIn 形状），
+  // 而 `parsePoi()` 把评分放在**顶层**。不补 → 同一块屏幕上「★ 4.5」与「未填：评分」并存。
+  const withRating = asFilterableCandidate({ rating: 4.5 }, 'sight');
+  assert.equal(withRating.common.rating, 4.5, '评分必须落到 common.rating');
+
+  // 补了之后，景点「4.6 分以上」这条用户明确要的条件才真的能分出 pass / fail
+  const filters = { sight: { enabled: { rating: true }, minRating: 4.6 } };
+  const groups = partitionByFilter(
+    [asFilterableCandidate({ name: 'A', rating: 4.8 }, 'sight'), asFilterableCandidate({ name: 'B', rating: 4.2 }, 'sight')],
+    filters
+  );
+  assert.equal(groups.pass.length, 1, '4.8 分必须进「符合」');
+  assert.equal(groups.fail.length, 1, '4.2 分必须进「不达标」');
+  assert.equal(groups.unknown.length, 0, '评分已知就不许再算成未填');
+});
+
+test('★asFilterableCandidate：没有评分的候选仍然进「未填」，不许用默认值占位', () => {
+  const groups = partitionByFilter(
+    [asFilterableCandidate({ name: '无名店' }, 'sight')],
+    { sight: { enabled: { rating: true }, minRating: 4.6 } }
+  );
+  assert.equal(groups.unknown.length, 1, '高德没给评分 = 未填，不许拿默认分冒充');
+  assert.equal(groups.unknownCounts.sight.rating, 1, '未填必须被计数');
+});
+
+test('★asFilterableCandidate：房价 / 房型 / 等级一律不补 —— 高德免费接口给不了就是给不了', () => {
+  const out = asFilterableCandidate({ name: '某酒店', rating: 4.5 }, 'stay');
+  assert.equal(out.stay, undefined, '不许凭空造出 stay 子结构（房价 / 房型都在里面）');
+  assert.equal(out.sight, undefined, '不许造 sight 子结构（景区等级在里面）');
+  // 反过来验证：正因为没补，开着房价上限时它老实进 unknown 并被计数
+  const groups = partitionByFilter([out], { stay: { enabled: { price: true }, maxPriceCny: 150 } });
+  assert.equal(groups.unknown.length, 1, '没有房价就必须进未填，不许假装达标');
+  // 字段名是 pricePerNight（_evaluate 里 put() 用的键），enabled 的开关键才叫 price
+  assert.equal(groups.unknownCounts.stay.pricePerNight, 1, '未填：房价 必须计数');
+});
+
+test('asFilterableCandidate：非法 type 归一成 null，非法候选不抛错', () => {
+  assert.equal(asFilterableCandidate({ rating: 4 }, '不存在的类别').type, null, '非法类别归一为 null');
+  assert.equal(asFilterableCandidate(null, 'stay').type, 'stay', '候选为 null 时不许抛错');
+  assert.doesNotThrow(() => asFilterableCandidate(undefined, 'food'));
 });

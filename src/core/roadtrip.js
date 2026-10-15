@@ -433,6 +433,48 @@ export function adoptCandidate(candidate, type, patch = {}) {
   });
 }
 
+
+/**
+ * 把高德候选**适配**成 `partitionByFilter()` 吃得下的条目（**不落盘**，纯视图形状）。
+ *
+ * ★全仓**唯一一份**「候选 → 可筛选条目」的形状契约。`src/ui/roadtrip.js` 想筛候选
+ *   必须调它，**不许自己写 `{...cand, type}` 那种行内 map** —— 写散了就会出现
+ *   「这边补了、那边没补」的**静默错位**：界面不报错，只是某个条件永远匹配不上。
+ *   （2026-10-16 真的撞过一次：同一份适配被写在两处，一处补了评分一处没补。）
+ *
+ * ★补的是**形状**（同一份数据换个位置），**不是数值**（不许凭空造数）：
+ *   - `type`：`partitionByFilter()` 按它取对应的筛选条件。高德候选的 `type` 是
+ *     「住宿服务;宾馆酒店」这类**原文**，必须先让位给类别，否则 `type === null` 会走到
+ *     「没有筛选条件 = 原样通过」分支 —— 界面表现为**全部落进「达标」、永远没有「未填」**，
+ *     那正是把「看不清」伪装成「都挺好」，比报错还糟。非法类别归一成 null（同样是原样通过）。
+ *   - `category`：高德原文挪到这里（与 CheckIn 同字段，列表卡照它显示）。
+ *   - `common.rating`：`_evaluate()` 的评分分支读 `item.common.rating`（CheckIn 形状），
+ *     而 `parsePoi()` 把评分放在**顶层**，两边对不上。不补这一处，同一块屏幕上会同时出现
+ *     「★ 4.5」和「未填：评分」（同一个数既已知又未知），而用户要的「4.6 分以上」会
+ *     **永远匹配不上任何一条**。评分是高德**真返回**的实测值（`parsePoi` 的 `biz.rating`），
+ *     不是均价 / 默认值 / 推算值 —— 所以这不违反「不许补数据」。
+ *     ★`adoptCandidate()` 里那一行 `common: { rating: _num(c.rating), ... }` 搬的是
+ *     同一个数、同一个形状：本函数只是把这次搬家**提前**到筛选之前，两边同源。
+ *
+ * ★**绝不补**：房价 / 房型 / 景区等级 / 菜名 / 标签。高德免费接口确实给不了，
+ *   没有就是没有 —— 它们必须老老实实进 `unknown` 组并被计数，那是诚实的信息，
+ *   不是要消灭的噪音。因此本函数**不会**造出 `stay` / `sight` / `food` 子结构。
+ *
+ * @param {Object} cand PoiCandidate（src/data/amap.js 产出，从不落盘）。
+ * @param {'stay'|'sight'|'food'} type 类型（候选自身没有这个语义，必须由调用方给）。
+ * @returns {Object} 可喂给 `partitionByFilter()` 的条目（不改动入参）。
+ */
+export function asFilterableCandidate(cand, type) {
+  const c = cand && typeof cand === 'object' && !Array.isArray(cand) ? cand : {};
+  return {
+    ...c,
+    type: CHECKIN_TYPES.indexOf(type) === -1 ? null : type,
+    category: c.type === undefined ? null : c.type,
+    // 与 adoptCandidate() 同源：rating 走 _num()（非数 → null），note / tags 留空壳
+    common: { rating: _num(c.rating), note: '', tags: [] },
+  };
+}
+
 /**
  * 归一一个 Stopover。
  *
@@ -735,13 +777,20 @@ function _evaluate(type, item, f) {
  * ★入参契约（**踩过一次坑，改这里之前先读**）：`list` 必须是 **CheckIn 形状** ——
  *   它按 `item.type`（只能是 'stay' / 'sight' / 'food'）取对应的筛选条件，并按
  *   `item[type]`（即 `item.stay` / `item.sight` / `item.food`）读参与筛选的字段。
- *   ★`data/amap.js::parsePoi()` 产出的 **PoiCandidate 不是这个形状**：它没有 `type`
- *   （它的 `type` 是高德原文，如「住宿服务;宾馆酒店」），也没有那三个子结构。直接把候选
- *   喂进来，`type` 会判成 null，于是走到「没有对应的筛选条件 = 原样通过」分支 ——
- *   界面表现为**全部落进「达标」、「未填」组恒为空**，即把「看不清」伪装成「都挺好」，
- *   比报错还糟（T04b 实测）。调用方（UI）必须先把候选补成
- *   `{...cand, type, category: cand.type}` 再喂进来，且**只补 type** ——
- *   房价 / 房型 / 等级这些参与筛选的字段一律不许补，补了就是把推算值冒充实测值。
+ *
+ *   ★`data/amap.js::parsePoi()` 产出的 **PoiCandidate 不是这个形状**：它没有语义上的
+ *   `type`（它的 `type` 是高德原文，如「住宿服务;宾馆酒店」），也没有那三个子结构。
+ *   直接把候选喂进来，`type` 会判成 null，于是走到「没有对应的筛选条件 = 原样通过」
+ *   分支 —— 界面表现为**全部落进「达标」、「未填」组恒为空**，即把「看不清」伪装成
+ *   「都挺好」，比报错还糟（T04b 实测）。
+ *
+ *   ★要筛候选，**必须用 `asFilterableCandidate(cand, type)` 适配**（唯一一份形状契约，
+ *   就在本文件）。界线在那边的文档里写死了：补 `type` / `category` / `common.rating`
+ *   这类**形状**字段，绝不补房价 / 房型 / 等级 / 菜名 —— 补了就是把推算值冒充实测值。
+ *
+ *   ⚠️ 2026-10-16 修正：本段曾写「只补 type」，当时 `common.rating` 还没补，
+ *   于是「景点 4.6 分以上」永远匹配不上任何一条（评分恒为未填）。文档与实现不一致
+ *   比实现本身出错更糟 —— 下一个人照文档写就会踩回去。
  *
  * @param {Array<Object>} list CheckIn 列表（按各自的 type 取对应的筛选条件）。
  * @param {{stay?:Object, sight?:Object, food?:Object}} [filters] 三类筛选条件（PlanInput.filters 的形状）。
