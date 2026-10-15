@@ -144,6 +144,15 @@ const _state = {
   saveMsg: '',
   /** @type {string|null} 当前正在为哪个字段搜地点：'origin' | 'destination' | 'via:0'。 */
   searchTarget: null,
+  /**
+   * 地点搜索框里**还没选中**的输入草稿（键同 `searchTarget`）。
+   *
+   * ★为什么必须有它：`_renderPage()` 是**整槽重建**，输入框每次都是新节点。不带 value
+   *   就等于把用户打了一半的字扔掉 —— 真机实测「点『算路线并分天』后地点全空」，
+   *   根因正在这里：`_onPlan()` 先设 `busy='routing'` 再重画，输入框当场被重建。
+   *   与 `manualName` 同一个理由，照它补，不要另发明一套。
+   */
+  drafts: {},
   /** @type {{list:Array<Object>, skipped:Array<Object>}} */
   trips: { list: [], skipped: [] },
   /** @type {'whole'|number} 路线图当前视图：'whole' 或第 N 天（1 起）。 */
@@ -210,9 +219,22 @@ function _dist(m) {
  */
 function _points() {
   const out = [];
+  /**
+   * 只接受**真的有坐标**的点。
+   *
+   * ★为什么不许写 `Number.isFinite(Number(p.lat))`：`Number(null)` 是 **0**，而
+   *   `Number.isFinite(0)` 为真 —— 于是「点了『添加一个必经点』但还没选地点」留下的
+   *   空槽位（`newPlaceRef()` 产出的 `{lat:null, lon:null}`）会被当成 **(0,0)** 放行，
+   *   最后拼出 `0.000000,0.000000` 的 URL。实测 OSRM 对它是 **HTTP 400 InvalidUrl** ——
+   *   这正是真机报障「数据源返回 HTTP 400」的根因。
+   *   空槽位不是坐标：不许进点序列，也不许让「点数够不够」这个数跟着谎报。
+   */
   const push = (p) => {
-    const ok = p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon));
-    if (ok) out.push({ lat: Number(p.lat), lon: Number(p.lon), name: String(p.name || '') });
+    if (!p) return;
+    const lat = p.lat === null || p.lat === undefined ? NaN : Number(p.lat);
+    const lon = p.lon === null || p.lon === undefined ? NaN : Number(p.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    out.push({ lat, lon, name: String(p.name || '') });
   };
   push(_state.plan.origin);
   for (const v of _state.plan.via) push(v);
@@ -279,6 +301,9 @@ function _applyPicked(place) {
     const i = Number(target.slice(4));
     if (Number.isInteger(i) && i >= 0 && i < _state.plan.via.length) _state.plan.via[i] = ref;
   }
+  // ★选中了就把搜索词清掉：留着它，重画后输入框里会停着一串旧搜索词，
+  //   看起来像「已选」其实是残留（真正的已选值显示在这一行上方）。
+  delete _state.drafts[target];
   // 旧的切段属于**旧的点序列**，留着就是假数据 —— 换点即作废。
   _state.route = null;
   _state.split = null;
@@ -288,6 +313,34 @@ function _applyPicked(place) {
   _state.searchTarget = null;
   _ps.close();
   _renderPage();
+}
+
+/**
+ * 把结果面板停到「正在搜的那一行」正下方。
+ *
+ * ★为什么必须挪：面板原本 append 在规划卡**最底部**（「算路线并分天」按钮之后）。
+ *   真机实测：用户打字时结果渲染在**屏幕外**，看不见就等于没有结果 → 用户以为搜不到、
+ *   于是从来没选中过任何地点 → 点算路线报「至少需要 2 个坐标点（现在 0 个）」。
+ *   面板位置错了，「搜索地点」这条交互整体就是断的。
+ *
+ * 为什么不是「每个输入框一个面板」：那要 8 个面板 + 8 份状态，而用户一次只搜一处。
+ * 挪动一个共享节点，与「共用一个搜索控制器」是同一个设计。
+ *
+ * @param {Object} box 结果面板节点。
+ * @returns {void}
+ */
+function _parkResults(box) {
+  const target = _state.searchTarget;
+  if (!target) return;
+  const row = _els.rows[target];
+  const parent = row && row.parentNode;
+  if (!parent) return;
+  // 已经就位就别再动 —— 这个函数每次渲染都会被调用，而「面板已经贴在这一行后面」
+  // 是常态（同一行连着搜几次）。少一次无谓的 DOM 操作，意图也更直白。
+  if (row.nextSibling === box) return;
+  // insertBefore(box, row.nextSibling) = 「插到这一行后面」；row 是最后一个子节点时
+  // nextSibling 为 null，insertBefore 会正确地 append 到末尾。
+  parent.insertBefore(box, row.nextSibling);
 }
 
 /**
@@ -302,6 +355,7 @@ function _renderPlaceResults() {
   const box = _els.placeResults;
   if (!box) return;
   box.textContent = '';
+  _parkResults(box);
 
   if (!_state.searchTarget || !_ps.isOpen) return;
 
@@ -348,6 +402,8 @@ function _placeRow(labelKey, ref, target, params) {
     placeholder: t('rt.pickPh'),
     autocomplete: 'off',
     spellcheck: 'false',
+    // ★回填草稿：重画会把这个节点整个换掉，不带 value 就等于清空用户输入
+    value: _state.drafts[target] || '',
   });
   input.addEventListener('focus', () => {
     _state.searchTarget = target;
@@ -356,12 +412,14 @@ function _placeRow(labelKey, ref, target, params) {
   });
   input.addEventListener('input', () => {
     _state.searchTarget = target;
+    // ★只记 searchTarget 不记值，重画后框里就是空的 —— 真机实测踩到这个
+    _state.drafts[target] = input.value;
     _ps.open();
     _ps.input(input.value);
   });
 
   const has = ref && Number.isFinite(Number(ref.lat)) && Number.isFinite(Number(ref.lon));
-  return h('div', { class: 'field' }, [
+  const row = h('div', { class: 'field', 'data-row-target': target }, [
     h('p', { class: 'card-note', text: t(labelKey, params) }),
     // 当前值：没选就写 '—'，绝不显示一个空行 —— 空行分不清「没填」和「填了空的」
     h('p', {
@@ -370,6 +428,10 @@ function _placeRow(labelKey, ref, target, params) {
     }),
     input,
   ]);
+  // ★登记行节点：结果面板要贴到「正在搜的那一行」下面（见 _parkResults）
+  if (!_els.rows) _els.rows = {};
+  _els.rows[target] = row;
+  return row;
 }
 
 /* ------------------------------------------------------------------ */
@@ -407,6 +469,11 @@ function _renderPlanCard() {
     const rm = h('button', { class: 'btn', type: 'button', text: t('rt.viaRemove') });
     rm.addEventListener('click', () => {
       _state.plan.via.splice(i, 1);
+      // ★splice 之后后面的必经点索引整体前移，逐个迁移草稿极易错位；
+      //   直接清掉所有 via 草稿 —— 丢掉的只是「还没选中的搜索词」，不是用户数据。
+      Object.keys(_state.drafts).forEach((k) => {
+        if (k.indexOf('via:') === 0) delete _state.drafts[k];
+      });
       // 点序列变了 → 旧切段作废（它属于旧的点序列）
       _state.route = null;
       _state.split = null;
@@ -1267,6 +1334,9 @@ function _renderPage() {
   if (!app) return;
   app.textContent = '';
   _els.placeResults = null;
+  // ★行节点登记表同样要清：旧节点已随 textContent='' 脱离文档，
+  //   留着引用会让 _parkResults 把面板插进一个不在页面里的节点。
+  _els.rows = {};
 
   app.appendChild(
     h('div', { class: 'hd' }, [

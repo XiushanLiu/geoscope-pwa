@@ -668,3 +668,86 @@ test('★缺 Key 时手动添加照样能用：降级不是锁死', async () => 
   assert.ok(appText().indexOf('路边一家店') !== -1, '手填的打卡要真的进列表');
   assert.ok(appText().indexOf(t('rt.checkedTitle', { n: 1 })) !== -1, '已采用计数应为 1');
 });
+
+/* ------------------------------------------------------------------ */
+/* 真机报障（2026-10-15）：地点输入与结果面板位置                        */
+/* ------------------------------------------------------------------ */
+
+test('★重画后输入框草稿不丢：打了一半的字必须还在（真机「点算路线后地点全空」）', async () => {
+  installRouteHandler();
+  reloadRoadtrip();
+
+  const input = appNode('ps-origin');
+  assert.ok(input, '前置：出发地输入框存在');
+  input.value = '成';
+  await input.fire('input');
+  await settle(450);
+
+  // 触发一次整页重画：没选地点就点「算路线并分天」，走 needMorePoints 分支
+  await clickOnce('btn-plan');
+
+  const after = appNode('ps-origin');
+  assert.equal(
+    after.value,
+    '成',
+    '重画后输入框里的字被清空了 —— 真机现象「点算路线后出发地/目的地全空」'
+  );
+});
+
+test('★选中地点后搜索词必须清掉：留着会像「已选」，其实是残留', async () => {
+  installRouteHandler();
+  reloadRoadtrip();
+
+  await pickPlace('ps-origin', '成都');
+
+  const input = appNode('ps-origin');
+  assert.equal(input.value, '', '选中后输入框里还停着旧搜索词');
+  assert.ok(appText().indexOf('成都') !== -1, '已选地点必须显示在行上（name 或坐标）');
+});
+
+test('★搜索结果必须贴在输入框那一行下面，不许落在页尾（真机看不到就等于没结果）', async () => {
+  installRouteHandler();
+  reloadRoadtrip();
+
+  const input = appNode('ps-origin');
+  input.value = '成都';
+  await input.fire('input');
+  await settle(450);
+
+  const box = appNode('place-results');
+  assert.ok(box, '结果面板必须存在');
+  assert.ok(box.textContent.length > 0, '结果面板里必须有内容');
+
+  // 输入框所在的「行」就是它的父节点；结果面板必须紧跟在那一行之后。
+  // 这条钉的是真机根因：面板原先 append 在规划卡最底部（按钮之后），
+  // 用户打字时结果渲染在屏幕外 —— 看不见就等于没有结果。
+  const row = input.parentNode;
+  assert.equal(row.nextSibling, box, '结果面板没有贴在当前输入框下面');
+});
+
+test('★空必经点槽位不许变成 (0,0) 进 URL：这是真机 HTTP 400 的根因', async () => {
+  // 真机报障「数据源返回 HTTP 400」。实测 OSRM：URL 含 `0.000000,0.000000` → 400 InvalidUrl。
+  // 而「点了『添加一个必经点』但还没选地点」的空槽位，其 PlaceRef 是 {lat:null, lon:null} ——
+  // `Number(null)` 是 0，所以只要拿 `Number.isFinite(Number(p.lat))` 判坐标，空槽位就会
+  // 被当成合法点 (0,0) 放行。这条用例把这个坑钉死。
+  installRouteHandler();
+  reloadRoadtrip();
+
+  await pickPlace('ps-origin', '成都');
+  reloadRoadtrip();
+  await pickPlace('ps-destination', '北京');
+  reloadRoadtrip();
+  await clickOnce('btn-via-add'); // 加空槽位：不选地点
+  reloadRoadtrip();
+  await clickOnce('btn-plan');
+
+  const osrm = net.calls.filter((u) => String(u).indexOf('osrm') !== -1);
+  assert.ok(osrm.length > 0, `前置：应当真的发出了一次求路，实际：${JSON.stringify(net.calls)}`);
+  for (const u of osrm) {
+    assert.equal(
+      String(u).indexOf('0.000000,0.000000'),
+      -1,
+      `★URL 里出现了零坐标：${u} —— 实测 OSRM 对它是 HTTP 400 InvalidUrl`
+    );
+  }
+});

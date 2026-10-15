@@ -413,7 +413,19 @@ class FakeNode {
   }
 
   setAttribute(k, v) {
-    this.attrs.set(String(k), String(v));
+    const key = String(k);
+    this.attrs.set(key, String(v));
+    // ★与真实 DOM 对齐：`value` 是「属性 ↔ 属性值」联动的键之一 —— 新建一个表单控件后
+    //   `setAttribute('value', x)`，浏览器里 `input.value` 就是 x（`h()` 给输入框设初值
+    //   走的正是这条路）。替身原来只写 attrs，于是「重画后回填草稿」这类修复在测试里
+    //   **永远看不到效果**：不是业务没修好，是替身不真。
+    //   ★同一个坑在 `disabled` 上踩过一次（那个已改成以属性为准的访问器）。
+    if (key === 'value') {
+      const tag = String(this.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'OPTION') {
+        this.value = String(v);
+      }
+    }
   }
 
   getAttribute(k) {
@@ -444,6 +456,50 @@ class FakeNode {
   removeChild(node) {
     this.children = this.children.filter((c) => c !== node);
     return node;
+  }
+
+  /**
+   * 在 `ref` 之前插入节点（与真实 DOM 一致：`ref` 为 null 时追加到末尾）。
+   *
+   * ★为什么必须补这个方法：`ui/roadtrip.js` 的 `_parkResults()` 用
+   *   `parent.insertBefore(box, row.nextSibling)` 把搜索结果面板挪到当前输入框下面，
+   *   而 `row.nextSibling` 在「该行是最后一个子节点」时正是 **null** —— 只有替身也实现
+   *   「null ⇒ append」才与真实浏览器等价。缺了它的表现是 `parent.insertBefore is not
+   *   a function`，而且是在 `_renderPlaceResults()` 中途抛，**结果面板直接不再渲染** ——
+   *   测试里表现为「搜不出结果」，很容易被误判成业务 bug。
+   *
+   * @param {Object} node 要插入的节点。
+   * @param {Object|null} ref 参照节点；null / 找不到时插到末尾。
+   * @returns {Object} 插入的节点。
+   */
+  insertBefore(node, ref) {
+    if (!node) return node;
+    // 与真实 DOM 一致：`insertBefore(node, node)` 是 **no-op**（把节点插到它自己前面 =
+    // 位置不变）。缺这一条时重复调用会把节点误推到数组末尾 —— 而那个差异只在
+    // 「同一个面板被反复 park」时才暴露，很容易被误当成业务 bug 去查。
+    if (node === ref) return node;
+    if (node.parentNode && node.parentNode !== this) node.parentNode.removeChild(node);
+    node.parentNode = this;
+    // 先把已经在册的 node 摘出来，再算 ref 的位置 —— 否则索引会错位
+    const cur = this.children.indexOf(node);
+    if (cur !== -1) this.children.splice(cur, 1);
+    if (!ref) {
+      this.children.push(node);
+      return node;
+    }
+    const at = this.children.indexOf(ref);
+    if (at === -1) this.children.push(node);
+    else this.children.splice(at, 0, node);
+    return node;
+  }
+
+  /** 下一个兄弟节点（无父节点或已是最后一个时返回 null，与真实 DOM 一致）。 */
+  get nextSibling() {
+    const p = this.parentNode;
+    if (!p) return null;
+    const i = p.children.indexOf(this);
+    if (i === -1) return null;
+    return p.children[i + 1] || null;
   }
 
   addEventListener(type, fn) {

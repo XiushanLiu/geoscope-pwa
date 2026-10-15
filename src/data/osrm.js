@@ -131,8 +131,32 @@ export function pointsHash(points) {
  *          —— OSRM 对单点返回 HTTP 400，与其等一个必然失败的请求，不如当场失败。
  */
 export function buildRouteRequest(ctx = {}) {
-  const points = Array.isArray(ctx.points) ? ctx.points.filter((p) => p && _num(p.lat) !== null && _num(p.lon) !== null) : [];
+  const raw = Array.isArray(ctx.points) ? ctx.points : [];
+  // ★坐标可用性：有限 + 在球面范围内 + 不是 (0,0)。
+  //   实测（curl 直打 OSRM 公共实例，2026-10-15）：
+  //   - 坐标里含 `0.000000,0.000000` → HTTP 400 `InvalidUrl`
+  //   - 纬度越界（如 lat=121，经纬度取反的典型症状）→ HTTP 400 `InvalidValue`
+  //   对照组：正常两点 / 四点（含必经点）/ `overview=full` / 起终点相同 → 全部 200。
+  //   而 (0,0) 在真实行程里等同于「没有坐标」—— 放过去就是发一个必然 400 的请求。
+  const usable = (p) => {
+    const lat = p ? _num(p.lat) : null;
+    const lon = p ? _num(p.lon) : null;
+    if (lat === null || lon === null) return false;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
+    return !(lat === 0 && lon === 0);
+  };
+  const points = raw.filter(usable);
+  // ★只要**存在**坏点就报错，而不是「坏点凑不够两个才报」：
+  //   用户明确填了 4 个点（出发地 + 2 必经点 + 目的地），其中 2 个坐标坏了 ——
+  //   静默丢掉坏的、用剩下 2 个算出路线，用户会以为必经点生效了。那是骗人。
+  //   报出来他才知道「哪个环节的点没选上」。
+  const bad = raw.filter((p) => p && !usable(p)).length;
+  if (bad > 0) {
+    throw makeErrorWithKey('BAD_COORD', 'osrmRoute', 'rt.err.badCoord', { params: { n: bad } });
+  }
   if (points.length < 2) {
+    // ★与 badCoord 分开：这里是「确实没填够点」，那条是「填了但坐标不可用」。
+    //   两者混报会让用户完全没法自查。
     throw makeErrorWithKey('EMPTY', 'osrmRoute', 'rt.err.needMorePoints', {
       params: { n: points.length },
     });

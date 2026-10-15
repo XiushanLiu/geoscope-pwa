@@ -757,6 +757,10 @@ export const ZH = {
   'rt.err.zeroDistance': '算出的路线距离为 0：坐标可能落在没有道路的地方',
   'rt.err.noGeometry': 'OSRM 未返回路线几何',
   'rt.err.needMorePoints': '至少需要 2 个坐标点才能算路线（现在 {n} 个）',
+  // ★与 needMorePoints 的区别：点数够，但坐标本身不可用（越界或 (0,0)）。
+  //   实测这两类坐标会让 OSRM 直接回 HTTP 400，所以必须在发请求前拦住，
+  //   并且说清是「坐标坏了」而不是「你没填够」—— 后者是骗人的。
+  'rt.err.badCoord': '有 {n} 个点的坐标不可用（越界或为零），请重新从搜索结果里选地点',
   'rt.err.badAnchor': '候选搜索的中心坐标非法',
   // 下面两个是切段（`core/roadtrip.js::splitStopovers`）的失败桶：
   // 它拿不到 OSRM 错误码，只能说「这份路线数据缺了什么」，与上面几条同族。

@@ -783,6 +783,10 @@ export const EN = {
   'rt.err.zeroDistance': 'the calculated route distance is 0: the coordinates may be somewhere without roads',
   'rt.err.noGeometry': 'OSRM returned no route geometry',
   'rt.err.needMorePoints': 'at least 2 coordinates are needed to calculate a route (got {n})',
+  // Distinct from needMorePoints: enough points, but the coordinates themselves are
+  // unusable (out of range or (0,0)). OSRM answers HTTP 400 for those, so we block
+  // before sending and say the coordinates are bad rather than that you did not fill enough.
+  'rt.err.badCoord': '{n} point(s) have unusable coordinates (out of range or zero) — pick them again from the search results',
   'rt.err.badAnchor': 'the candidate search centre coordinates are invalid',
   // Failure buckets of the day-splitter (`core/roadtrip.js::splitStopovers`).
   // It has no OSRM error code to report, so it can only say what the route data is missing.
