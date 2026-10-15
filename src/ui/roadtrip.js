@@ -53,6 +53,11 @@ import {
   partitionByFilter,
   asFilterableCandidate,
   adoptCandidate,
+  findDeviation,
+  isRealGps,
+  DEVIATION_STATE,
+  DEVIATION_PRESETS_M,
+  DEFAULT_DEVIATION_REPLAN_M,
   exportTrips,
   inspectTripFile,
   applyTripFile,
@@ -78,6 +83,10 @@ import { createPlaceSearch, SEARCH_STATUS } from './placesearch.js';
 import { renderPoiGroup } from './poilist.js';
 // 错误文案：core 只给键，这里是唯一把键翻成人话的地方
 import { errorText, reasonText } from './errtext.js';
+// 偏离检查要拿当前位置。★`getCurrentPosition()` 定位失败时会**回退到默认地点**
+// （`DEFAULT_PLACE`，`source:'default'`）—— 偏离判定**只认 `source === 'gps'`**，
+// 否则会拿一个假坐标算出「偏离 N 公里」，那是把默认值冒充实测值。
+import { getCurrentPosition } from '../core/geo.js';
 import * as fmt from '../core/format.js';
 import { AMAP_TYPES, AMAP_DEFAULT_RADIUS } from '../data/amap.js';
 
@@ -93,6 +102,14 @@ const POI_RADIUS_M = AMAP_DEFAULT_RADIUS;
 
 /** 三类候选（顺序即界面顺序）。 */
 const POI_TYPES = ['stay', 'sight', 'food'];
+
+/**
+ * 定位超时（毫秒）：与此刻屏一致（超时即放弃，不阻塞界面）。
+ *
+ * ⚠️ 超时 / 拒绝时 `getCurrentPosition()` 会**回退到默认地点**并标 `source:'default'` ——
+ *    偏离判定**必须**只认 `source === 'gps'`（见 `_appendDeviationCheck()` 的注释）。
+ */
+const GEO_TIMEOUT_MS = 8000;
 
 /**
  * 房价上限档位（元）。
@@ -174,9 +191,15 @@ const _state = {
     //     「PlanInput.filters 的初值」），`migrateTrip()` 也会给老行程补上它。另起一处
     //     等于让「什么会随行程存下来」有两个决策点，迟早会有一处被绕开。
     filters: _cloneFilters(DEFAULT_FILTERS),
+    // 偏离重规划阈值（米），默认 50 km，界面上可改。与 filters 同理放在 plan 里随行程走。
+    deviationReplanM: DEFAULT_DEVIATION_REPLAN_M,
   },
-  /** @type {''|'routing'|'poi'} 正在跑的异步动作。 */
+  /** @type {''|'routing'|'poi'|'locating'} 正在跑的异步动作。 */
   busy: '',
+  /** @type {{lat:number,lon:number}|null} 偏离检查拿到的当前位置（前台一次性）。 */
+  deviAt: null,
+  /** @type {string} 偏离检查 / 重规划的提示（已翻译）。 */
+  deviMsg: '',
   /** @type {Object|null} RouteInfo（内存）。 */
   route: null,
   /** @type {Object|null} SplitResult。 */
@@ -976,6 +999,23 @@ function _renderPlanCard() {
   }
   card.appendChild(h('div', { class: 'field' }, [h('p', { class: 'card-note', text: t('rt.dailyTarget') }), sel]));
 
+  // 偏离重规划阈值（默认 50 km，可改）：当前位置离最近的规划停留点超过它就提示重规划。
+  // ★做成可选档位而不是写死一个数字：城市周边游 20 km 就该警觉，西北长线 200 km 才算跑偏。
+  const devSel = h('select', { class: 'btn', id: 'sel-deviation' });
+  for (const m of DEVIATION_PRESETS_M) {
+    const opt = h('option', { value: String(m), text: t('rt.deviationOpt', { km: String(m / 1000) }) });
+    if (m === _state.plan.deviationReplanM) opt.setAttribute('selected', '');
+    devSel.appendChild(opt);
+  }
+  devSel.addEventListener('change', () => {
+    const v = Number(devSel.value);
+    _state.plan.deviationReplanM = Number.isFinite(v) && v > 0 ? v : DEFAULT_DEVIATION_REPLAN_M;
+    // 阈值变了 → 上一次的判定结论作废（它是按旧阈值算的），但**当前位置不重取**
+    _state.deviMsg = '';
+    _renderPage();
+  });
+  card.appendChild(h('div', { class: 'field' }, [h('p', { class: 'card-note', text: t('rt.deviationTitle') }), devSel]));
+
   card.appendChild(h('div', { class: 'field field--row' }, [btn]));
 
   // ★搜索结果的专属容器：只画这里，不动上面的输入框（保住焦点与已输入内容）
@@ -1710,7 +1750,106 @@ function _renderRecordCard() {
   if (noCoord > 0) {
     card.appendChild(h('p', { class: 'card-note', text: t('rt.recordNoLocated', { n: noCoord }) }));
   }
+  _appendDeviationCheck(card);
   return card;
+}
+
+/**
+ * 在实录卡尾部挂「偏离检查」（需求 8.4）。
+ *
+ * ★**必须用户点按钮才定位**，不做自动轮询：
+ *   1) iOS 没有后台定位，锁屏 / 切走期间拿不到位置 —— 自动追踪在 iOS 上根本不成立，
+ *      做成「实时」就是假的；
+ *   2) 浏览器要求定位权限由用户手势触发；
+ *   3) 每次定位都要用户授权与耗电，自用 App 也没必要在后台一直跑。
+ *   ⇒ 所以这里是「点一下，判一次」，并把这个限制**写在界面上**。
+ *
+ * @param {Object} card 实录卡节点。
+ * @returns {void}
+ */
+function _appendDeviationCheck(card) {
+  const stopovers = _state.split && Array.isArray(_state.split.stopovers) ? _state.split.stopovers : [];
+  const thr = _state.plan.deviationReplanM;
+
+  card.appendChild(h('p', { class: 'card-note', text: t('rt.deviationHint') }));
+
+  const btn = h('button', {
+    class: 'btn',
+    type: 'button',
+    // 没有规划出的停留点时没法判 —— 禁用比点完报错好（共享约定：禁用是不让错误发生）
+    disabled: stopovers.length === 0 || _state.busy !== '',
+    text: _state.busy === 'locating' ? t('rt.deviationChecking') : t('rt.deviationBtn'),
+  });
+  btn.addEventListener('click', async () => {
+    _state.busy = 'locating';
+    _state.deviMsg = '';
+    _renderPage();
+    try {
+      const pos = await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS });
+      // ★只认真实 GPS：定位失败会回退默认地点（source:'default'），拿它算距离会得出一个
+      //   看起来很有道理的假偏离。判定收在 core 的 `isRealGps()` —— 不许在这里自己写
+      //   `pos.source === 'gps'`，写散了漏一处就是静默造假。
+      if (!isRealGps(pos)) {
+        _state.deviAt = null;
+        _state.deviMsg = t('rt.deviationNoGps');
+      } else {
+        _state.deviAt = { lat: pos.lat, lon: pos.lon };
+        _state.deviMsg = '';
+      }
+    } catch (err) {
+      _state.deviAt = null;
+      _state.deviMsg = t('rt.deviationNoGps');
+      log('deviation locate failed', err && err.message);
+    }
+    _state.busy = '';
+    _renderPage();
+  });
+  card.appendChild(h('div', { class: 'field field--row' }, [btn]));
+
+  if (_state.deviMsg) {
+    card.appendChild(h('p', { class: 'card-note', text: _state.deviMsg }));
+    return;
+  }
+  if (!_state.deviAt) return;
+
+  const d = findDeviation(_state.deviAt, stopovers, thr);
+  if (d.state === DEVIATION_STATE.UNKNOWN) {
+    card.appendChild(h('p', { class: 'card-note', text: t('rt.deviationUnknown') }));
+    return;
+  }
+
+  // ★显示的是**直线**距离到最近的规划停留点，不是「沿路还要开多远」—— 文案必须说清
+  card.appendChild(
+    h('p', {
+      class: 'card-note',
+      text: t('rt.deviationResult', {
+        km: fmt.num(d.nearestKm, 1),
+        thr: fmt.num(thr / 1000, 0),
+      }),
+    })
+  );
+
+  if (d.state !== DEVIATION_STATE.OVER) {
+    card.appendChild(h('p', { class: 'card-note', text: t('rt.deviationOk') }));
+    return;
+  }
+
+  card.appendChild(h('p', { class: 'card-note', text: t('rt.deviationOver') }));
+  const replan = h('button', { class: 'btn btn--primary', type: 'button', text: t('rt.deviationReplan') });
+  replan.addEventListener('click', () => {
+    // 重规划 = 以**当前位置**为新出发地、目的地不变，重新求路并分天。
+    // ★不清空已录的打卡：那是真实发生过的行程，丢不得。
+    _state.plan.origin = newPlaceRef({
+      lat: _state.deviAt.lat,
+      lon: _state.deviAt.lon,
+      source: 'gps',
+      name: t('rt.deviationCurrentPlace'),
+    });
+    _state.deviMsg = '';
+    _state.candidates = {};
+    _onPlan();
+  });
+  card.appendChild(h('div', { class: 'field field--row' }, [replan]));
 }
 
 /* ------------------------------------------------------------------ */

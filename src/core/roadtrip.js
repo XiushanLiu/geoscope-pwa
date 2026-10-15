@@ -110,6 +110,31 @@ export const DEFAULT_FILTERS = {
   food: DEFAULT_FOOD_FILTER,
 };
 
+/**
+ * 偏离重规划的**默认阈值**（米）：当前位置离最近的规划停留点超过它就提示重新规划。
+ *
+ * 50 km 是用户 2026-10-16 拍板的数（最初提 100 km，同轮改为 50 km）。
+ * ★它是**可设置**的 —— 不同行程的容忍度不一样（城市周边游 20 km 就该警觉，
+ * 西北长线 200 km 才算跑偏），所以放在 `plan.deviationReplanM` 里随行程走，
+ * 界面给出 `DEVIATION_PRESETS_M` 几档。**不许在代码里写死成一个字面量**。
+ */
+export const DEFAULT_DEVIATION_REPLAN_M = 50000;
+
+/** 偏离阈值的可选档位（米）：20 / 50 / 100 / 200 km。 */
+export const DEVIATION_PRESETS_M = [20000, 50000, 100000, 200000];
+
+/**
+ * 偏离判定的结果键（core 只产键，UI 翻译）。
+ */
+export const DEVIATION_STATE = {
+  /** 判定成立：在阈值内。 */
+  OK: 'ok',
+  /** 判定成立：超出阈值，建议重新规划。 */
+  OVER: 'over',
+  /** **判不了**（没有当前位置 / 没有规划停留点）—— 与「没偏离」是两回事，不许混。 */
+  UNKNOWN: 'unknown',
+};
+
 /** @type {number} id 生成用的单调计数器（同毫秒内多次生成也不会撞号）。 */
 let _idSeq = 0;
 
@@ -481,6 +506,91 @@ export function adoptCandidate(candidate, type, patch = {}) {
  * @param {'stay'|'sight'|'food'} type 类型（候选自身没有这个语义，必须由调用方给）。
  * @returns {Object} 可喂给 `partitionByFilter()` 的条目（不改动入参）。
  */
+/**
+ * 判定「当前位置是否偏离了规划的停留点」（纯函数，可离线单测）。
+ *
+ * ★语义：比较的是**当前位置 ↔ 最近的规划停留点**的**直线**距离（用户原话：
+ *   「若实录或实时定位的停留点不是规划的停留点（例如，距离大于 100 km），
+ *   则应重新规划路线（从当前停留点到目的地）」）。
+ *
+ * ★必须说清用的是直线距离：它是「离那个停留点有多远」的近似，
+ *   不是「沿路还要开多远」—— 后者要沿路线几何积分，是两个不同的量。
+ *   判「跑偏了没有」用直线距离就够；**界面显示时不许把它说成「还需行驶 X km」**。
+ *
+ * ★三态，不许压成布尔：没有当前位置、或压根没有规划停留点时返回 `unknown` ——
+ *   「判不了」和「没偏离」是两件事。压成 `false` 等于在任何时候都宣称「一切正常」，
+ *   那正是把「看不清」伪装成「都挺好」。
+ *
+ * ★iOS 没有后台定位：这个判定只能在**前台、用户触发**时跑一次，锁屏 / 切走期间的
+ *   位置拿不到。这是平台限制，不是实现偷懒 —— UI 必须写明，不许假装能实时追踪。
+ *
+ * @param {{lat:number, lon:number}|null} current 当前位置。
+ * @param {Array<Object>} stopovers 规划的停留点（取 `coord`）。
+ * @param {number} [thresholdM] 阈值（米）；非法或缺失时用 `DEFAULT_DEVIATION_REPLAN_M`。
+ * @returns {{state:string, nearestKm:number|null, nearestIndex:number|null,
+ *            thresholdM:number, locatedCount:number}} `state` 取 `DEVIATION_STATE` 之一。
+ */
+/**
+ * 一个定位结果**能不能拿来判偏离**。
+ *
+ * ★为什么必须有这一个函数：`core/geo.js::getCurrentPosition()` 在定位失败 / 被拒 /
+ *   超时时会**回退到默认地点**（`source:'default'`），坐标是真实可用的经纬度 ——
+ *   拿它去算距离会得出一个看起来很有道理的「偏离 N 公里」，那是把默认值冒充实测值，
+ *   比直接说「没拿到定位」糟得多。
+ *
+ * ★收成函数而不是让调用方各自写 `pos.source === 'gps'`：那种写法一旦散开，
+ *   漏判一处就是**静默造假**（界面不报错，只是给了一个假数字）。
+ *
+ * @param {Object|null} pos `getCurrentPosition()` 的结果。
+ * @returns {boolean} 只有真实 GPS 定位才算数。
+ */
+export function isRealGps(pos) {
+  return !!(
+    pos &&
+    pos.source === 'gps' &&
+    Number.isFinite(Number(pos.lat)) &&
+    Number.isFinite(Number(pos.lon))
+  );
+}
+
+export function findDeviation(current, stopovers, thresholdM) {
+  const thr = Number.isFinite(Number(thresholdM)) && Number(thresholdM) > 0
+    ? Number(thresholdM)
+    : DEFAULT_DEVIATION_REPLAN_M;
+  const cur = _coord(current);
+  const list = Array.isArray(stopovers) ? stopovers : [];
+
+  if (!cur || list.length === 0) {
+    return { state: DEVIATION_STATE.UNKNOWN, nearestKm: null, nearestIndex: null, thresholdM: thr, locatedCount: 0 };
+  }
+
+  let bestKm = null;
+  let bestIdx = null;
+  let located = 0;
+  list.forEach((s, i) => {
+    const c = s && _coord(s.coord);
+    if (!c) return; // 没坐标的停留点不参与比较，但也不许当成「距离为 0」
+    located += 1;
+    const km = distanceKm(cur, c);
+    if (bestKm === null || km < bestKm) {
+      bestKm = km;
+      bestIdx = i;
+    }
+  });
+
+  if (bestKm === null) {
+    return { state: DEVIATION_STATE.UNKNOWN, nearestKm: null, nearestIndex: null, thresholdM: thr, locatedCount: 0 };
+  }
+
+  return {
+    state: bestKm * 1000 > thr ? DEVIATION_STATE.OVER : DEVIATION_STATE.OK,
+    nearestKm: bestKm,
+    nearestIndex: bestIdx,
+    thresholdM: thr,
+    locatedCount: located,
+  };
+}
+
 export function asFilterableCandidate(cand, type) {
   const c = cand && typeof cand === 'object' && !Array.isArray(cand) ? cand : {};
   return {
@@ -559,6 +669,11 @@ function _plan(raw) {
     days: Number.isInteger(p.days) && p.days > 0 ? p.days : null,
     dailyTargetSec,
     minGapSec: _num(p.minGapSec) === null ? DEFAULT_MIN_GAP_SEC : _num(p.minGapSec),
+    // 偏离重规划阈值（米）：只认正有限数，其余一律回落默认值 ——
+    // ★不许因为「没这个字段」就当成 0（0 = 一动就报偏离，比没有判定更糟）
+    deviationReplanM: Number.isFinite(Number(p.deviationReplanM)) && Number(p.deviationReplanM) > 0
+      ? Number(p.deviationReplanM)
+      : DEFAULT_DEVIATION_REPLAN_M,
     filters: {
       stay: filters.stay && typeof filters.stay === 'object' ? { ...DEFAULT_STAY_FILTER, ...filters.stay } : { ...DEFAULT_STAY_FILTER },
       sight: filters.sight && typeof filters.sight === 'object' ? { ...DEFAULT_SIGHT_FILTER, ...filters.sight } : { ...DEFAULT_SIGHT_FILTER },
