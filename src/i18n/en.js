@@ -895,6 +895,22 @@ export const EN = {
   'rt.field.roomType': 'room type',
   'rt.field.level': 'sight rating',
   'rt.field.localSpecial': 'local speciality',
+  // rating / keywords are also “not filled in” field names produced by partitionByFilter();
+  // without a row here the UI used to show the raw English `rating`.
+  'rt.field.rating': 'rating',
+  'rt.field.keywords': 'keywords',
+  // Filter panel (user request: make these conditions optional, e.g. a dropdown)
+  'rt.filterTitle': 'Filters (editable)',
+  'rt.filterHint': 'Only the conditions you tick take part in filtering — an unticked one is not judged at all, so it never pushes an item into “below the bar” or into “not filled in”. Amap does not return price, room type or sight rating; when they are missing the item goes to “not filled in” instead of being filled with an average or a default.',
+  'rt.filter.effective': '{n} in effect',
+  'rt.filter.priceOpt': 'up to ¥{n}',
+  'rt.filter.ratingOpt': '{n} and up',
+  'rt.filter.levelOpt': '{lv} and up',
+  'rt.filter.rating': 'Minimum rating',
+  'rt.filter.room.standard': 'Standard',
+  'rt.filter.room.king': 'King bed',
+  'rt.filter.room.twin': 'Twin beds',
+  'rt.filter.keywordsPh': 'comma separated, e.g. local speciality, signature dish',
   'rt.checkedTitle': 'Adopted check-ins ({n})',
   'rt.saveTitle': 'Save',
   'rt.tripName': 'Trip name',

@@ -866,6 +866,22 @@ export const ZH = {
   'rt.field.roomType': '房型',
   'rt.field.level': '景区等级',
   'rt.field.localSpecial': '当地特色',
+  // ★rating / keywords 也是 `partitionByFilter()` 会产出的「未填」字段名，
+  //   原先没有对应文案，界面上会直接甩英文 `rating` —— 一并补齐。
+  'rt.field.rating': '评分',
+  'rt.field.keywords': '关键词',
+  // ★筛选条件面板（用户原话：「这些条件都设计为可选项（例如，可选下拉框）」）
+  'rt.filterTitle': '筛选条件（可编辑）',
+  'rt.filterHint': '只有勾上的条件才参与筛选 —— 没勾的这一条压根不参与判定，既不会把条目推到「不达标」，也不会推到「未填」。房价、房型、景区等级高德免费接口拿不到，缺就如实进「未填」，不用均价或默认值补。',
+  'rt.filter.effective': '已生效 {n} 项',
+  'rt.filter.priceOpt': '{n} 元以内',
+  'rt.filter.ratingOpt': '{n} 分以上',
+  'rt.filter.levelOpt': '{lv} 及以上',
+  'rt.filter.rating': '最低评分',
+  'rt.filter.room.standard': '标准间',
+  'rt.filter.room.king': '大床房',
+  'rt.filter.room.twin': '双床房',
+  'rt.filter.keywordsPh': '逗号分隔，例如：当地特色,名菜',
   'rt.checkedTitle': '已采用的打卡（{n}）',
   'rt.saveTitle': '保存',
   'rt.tripName': '行程名字',

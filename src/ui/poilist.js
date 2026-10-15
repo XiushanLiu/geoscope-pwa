@@ -37,6 +37,11 @@ const FIELD_KEY = {
   roomType: 'rt.field.roomType',
   level: 'rt.field.level',
   localSpecial: 'rt.field.localSpecial',
+  // ★rating / keywords 同样是 `_evaluate()` 会记进 `unknownCounts` 的字段名（评分三类
+  //   共用、关键词是美食那条）。原先漏了这两个，界面上会直接甩出 `未填：rating（3）`
+  //   —— 与「文案零硬编码」冲突，也看不懂。补上。
+  rating: 'rt.field.rating',
+  keywords: 'rt.field.keywords',
 };
 
 /**

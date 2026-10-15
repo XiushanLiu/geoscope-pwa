@@ -93,6 +93,57 @@ const POI_RADIUS_M = AMAP_DEFAULT_RADIUS;
 /** 三类候选（顺序即界面顺序）。 */
 const POI_TYPES = ['stay', 'sight', 'food'];
 
+/**
+ * 房价上限档位（元）。
+ *
+ * ★顺序即下拉框顺序，也是「放宽一档」的推导依据（见 `_stayFilterRows()`）。
+ *   档位是**界面给用户的门槛**，不是任何一家的实测房价 —— 房价高德免费接口拿不到。
+ */
+const STAY_PRICE_OPTIONS = [150, 200, 300, 500];
+
+/** 最低评分档位（★高德评分是一位小数，故保留 4.6 这类原值，不做取整）。 */
+const RATING_OPTIONS = [4.0, 4.5, 4.6, 4.8];
+
+/** 景区等级档位（低到高；与 `core/roadtrip.js::LEVEL_RANK` 的键对齐）。 */
+const LEVEL_OPTIONS = ['3A', '4A', '5A'];
+
+/**
+ * 房型档位（值 → 文案键）。
+ *
+ * ★为什么存 `labelKey` 而不把文案直接写进常量：模块级常量在 **import 时**求值，
+ *   而 `t()` 取决于**调用方**之后才设进去的语言 —— 那时写死就是**永远中文**（切到英文
+ *   界面也不变）。`data/sources.js` 的 SOURCES 踩过同一个坑，解法一致：存键、渲染时翻。
+ *   顺带，键名能被 `tools/check.mjs` 第 9 节的 `labelKey:` 眼睛扫到，漏翻立刻报红。
+ */
+const ROOM_TYPE_OPTIONS = [
+  { value: 'standard', labelKey: 'rt.filter.room.standard' },
+  { value: 'king', labelKey: 'rt.filter.room.king' },
+  { value: 'twin', labelKey: 'rt.filter.room.twin' },
+];
+
+/**
+ * 深拷贝一份筛选条件。
+ *
+ * ★为什么必须深拷贝：`DEFAULT_FILTERS` 是 `core/roadtrip.js` 的模块级常量，它的
+ *   `enabled` 与 `roomTypes` 都是**引用**（浅拷贝只复制这一层，两个对象仍共享同一个
+ *   `enabled`）。界面改的是 `_state.plan.filters`，一旦写成 `= DEFAULT_FILTERS`，
+ *   用户勾一下复选框就把**常量**改掉了 —— 下一次进页面 / 新建行程拿到的默认值是
+ *   被改过的那份，而且这种污染跨模块、不报错，只在「新建一条行程才发现默认不对」时
+ *   才暴露。深拷贝是唯一能堵住它的写法。
+ *
+ * @param {*} v 任意值。
+ * @returns {*} 与入参结构相同但**不共享任何引用**的副本。
+ */
+function _cloneFilters(v) {
+  if (Array.isArray(v)) return v.map(_cloneFilters);
+  if (v && typeof v === 'object') {
+    const out = {};
+    for (const k of Object.keys(v)) out[k] = _cloneFilters(v[k]);
+    return out;
+  }
+  return v;
+}
+
 /* ------------------------------------------------------------------ */
 /* 状态（内存态：路线与候选**都不**落盘）                                */
 /* ------------------------------------------------------------------ */
@@ -106,13 +157,22 @@ const POI_TYPES = ['stay', 'sight', 'food'];
  * 内存态是唯一正确的位置 —— 刷新页面就没了，这正是我们想要的。
  */
 const _state = {
-  /** @type {{origin:Object|null, destination:Object|null, via:Array<Object>, startDate:string|null, dailyTargetSec:number}} */
+  /**
+   * @type {{origin:Object|null, destination:Object|null, via:Array<Object>, startDate:string|null,
+   *         dailyTargetSec:number, filters:Object}}
+   */
   plan: {
     origin: null,
     destination: null,
     via: [],
     startDate: null,
     dailyTargetSec: 14400,
+    // ★深拷贝，不能写 `DEFAULT_FILTERS`（理由见 `_cloneFilters()` 的注释）。
+    //   ★为什么放在 plan 里而不是单开一个 `_state.filters`：`PlanInput.filters` 是
+    //     `core/roadtrip.js::_plan()` 既定的字段（`DEFAULT_FILTERS` 的注释就写着
+    //     「PlanInput.filters 的初值」），`migrateTrip()` 也会给老行程补上它。另起一处
+    //     等于让「什么会随行程存下来」有两个决策点，迟早会有一处被绕开。
+    filters: _cloneFilters(DEFAULT_FILTERS),
   },
   /** @type {''|'routing'|'poi'} 正在跑的异步动作。 */
   busy: '',
@@ -258,15 +318,356 @@ function _points() {
 }
 
 /**
- * 取当前筛选条件。
+ * 取当前筛选条件（= **用户在本页改过的那一份**）。
  *
- * 本轮一律用 `core/roadtrip.js` 的 `DEFAULT_FILTERS` —— 界面还没提供调条件的入口，
- * ★宁可让用户看见「未填」分组，也不自己编一套默认值（编出来的默认值就是推算值）。
+ * ★本轮之前这里写死 `return DEFAULT_FILTERS`，于是用户**一个字都改不了**：
+ *   界面上「符合 / 不达标 / 未填」三组永远按同一套门槛切，而门槛本身藏在常量里。
+ *   现在返回 `_state.plan.filters`，由下面的「筛选条件」面板写入。
  *
- * @returns {Object} 筛选条件。
+ * ★依然是**不补数据**：面板只改**门槛**（我想要多少钱以内的房），绝不碰**条目上的字段**
+ *   （这家酒店多少钱）。房价 / 房型 / 景区等级高德免费接口拿不到，就只能进「未填」组
+ *   并被计数 —— 调低门槛不会让它们变出值来，只会让「未填」不再被计数（因为那条条件
+ *   压根不参与判定了）。
+ *
+ * @returns {Object} `PlanInput.filters` 形状的三类筛选条件。
  */
 function _filters() {
-  return DEFAULT_FILTERS;
+  return _state.plan.filters;
+}
+
+/**
+ * 取某一类的筛选条件（缺字段时回落到默认常量的一份**新拷贝**）。
+ *
+ * @param {'stay'|'sight'|'food'} type 类别。
+ * @returns {Object} 该类筛选条件（活对象，可直接改）。
+ */
+function _filterOf(type) {
+  const bag =
+    _state.plan.filters && typeof _state.plan.filters === 'object'
+      ? _state.plan.filters
+      : (_state.plan.filters = _cloneFilters(DEFAULT_FILTERS));
+  let cfg = bag[type];
+  if (!cfg || typeof cfg !== 'object') {
+    cfg = _cloneFilters(DEFAULT_FILTERS[type] || {});
+    bag[type] = cfg;
+  }
+  // ★`enabled` 必须是活对象：下面的开关直接写 `en[field] = on`，若这一层缺失，
+  //   写入会落在一个临时对象上而**不进状态** —— 表现为「勾了没反应」。
+  if (!cfg.enabled || typeof cfg.enabled !== 'object') cfg.enabled = {};
+  return cfg;
+}
+
+/**
+ * 数某一类里「已生效」的条件条数（折叠状态下给用户一个一眼可见的信号）。
+ *
+ * ★只数 `enabled`：开关为 false 就是这条压根不参与判定，与阈值有没有值是两件事
+ *   （阈值由开关打开时补上，见各行的 `onToggle`）。
+ *
+ * @param {'stay'|'sight'|'food'} type 类别。
+ * @returns {number} 条数。
+ */
+function _activeFilterCount(type) {
+  const en = _filterOf(type).enabled;
+  if (!en || typeof en !== 'object') return 0;
+  return Object.keys(en).filter((k) => en[k] === true).length;
+}
+
+/* ------------------------------------------------------------------ */
+/* 筛选条件面板（可编辑）                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 判一个阈值**真的有值**。
+ *
+ * ★绝对不许写成 `Number.isFinite(Number(v))`：`Number(null)` 是 **0** 而
+ *   `Number.isFinite(0)` 为真 —— 于是「阈值还是 null」会被当成「阈值是 0」，
+ *   打开开关时就不会补默认档位，界面留下一个「勾上了却没阈值」的空条件。
+ *   本仓真机上出过两处症状都源于这个坑（见 `_coordOf()` 的注释），这里同样是雷区。
+ *
+ * @param {*} v 阈值。
+ * @returns {boolean} 是否有值。
+ */
+function _hasThreshold(v) {
+  return v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+}
+
+/**
+ * 画一条条件的**启用开关**（复选框 + 字段名）。
+ *
+ * ★`enabled` 的语义（用户原话「这些条件都设计为可选项」）：**关掉 = 这条压根不参与判定**，
+ *   于是相关字段既不把条目推进 `fail`（不达标），也不推进 `unknown`（未填）——
+ *   `core/roadtrip.js::_active()` 就是按这个写的。这与「把阈值改成 0 / 无穷大」完全不同：
+ *   后者是在**用一个假门槛判定**，前者是**不判定**。
+ *
+ * @param {string} id 复选框 id。
+ * @param {boolean} on 渲染时是否启用。
+ * @param {string} label 字段名文案（已翻译）。
+ * @param {(next:boolean)=>void} onToggle 开关变化回调：**只写状态**，重画由本函数负责。
+ * @returns {Object} label 节点。
+ */
+function _filterSwitch(id, on, label, onToggle) {
+  const cb = h('input', { type: 'checkbox', id });
+  if (on) cb.setAttribute('checked', '');
+  cb.addEventListener('change', () => {
+    // ★真浏览器里用户点过之后 `cb.checked` 才是真相（`checked` **属性**只是初值）；
+    //   测试替身没实现这个属性，回落到渲染时的值 —— 两者在「每次变化都整页重画」的
+    //   前提下永远一致。
+    const next = typeof cb.checked === 'boolean' ? cb.checked : on;
+    onToggle(!!next);
+    _renderPage();
+  });
+  return h('label', { class: 'card-note' }, [cb, label]);
+}
+
+/**
+ * 画一个取值下拉框。
+ *
+ * ★`selected` 必须按当前值回写：本页每次变化都**整槽重建**，不带 value 就等于把
+ *   用户刚选的档位扔掉（与 `sel-daily` / `sel-manual-type` 同一条理由）。
+ *
+ * @param {string} id select 的 id。
+ * @param {Array<{value:*, text:string}>} options 选项。
+ * @param {*} current 当前值。
+ * @param {(v:string)=>void} onChange 变化回调：**只写状态**，重画由本函数负责。
+ * @param {boolean} [enabled=true] false 时禁用（该条件没勾上时，控件该看起来就是没生效）。
+ * @returns {Object} select 节点。
+ */
+function _filterSelect(id, options, current, onChange, enabled = true) {
+  const sel = h('select', { class: 'btn', id, disabled: !enabled });
+  for (const o of options) {
+    const opt = h('option', { value: String(o.value), text: o.text });
+    if (String(o.value) === String(current)) opt.setAttribute('selected', '');
+    sel.appendChild(opt);
+  }
+  sel.addEventListener('change', () => {
+    onChange(String(sel.value));
+    _renderPage();
+  });
+  return sel;
+}
+
+/** 画住宿的筛选条件行。 */
+function _stayFilterRows() {
+  const f = _filterOf('stay');
+  const en = f.enabled && typeof f.enabled === 'object' ? f.enabled : {};
+  const priceOn = en.price === true;
+  const roomOn = en.roomType === true;
+  const ratingOn = en.rating === true;
+
+  // —— 房价上限：选档即写 `maxPriceCny`；`flexMaxPriceCny` 跟着「放宽一档」
+  const priceSel = _filterSelect(
+    'sel-stay-price',
+    STAY_PRICE_OPTIONS.map((n) => ({ value: n, text: t('rt.filter.priceOpt', { n: String(n) }) })),
+    f.maxPriceCny,
+    (v) => {
+      const n = v === '' ? NaN : Number(v);
+      if (!Number.isFinite(n)) return;
+      f.maxPriceCny = n;
+      // ★「放宽一档」：默认档 150 → flex 200 正是用户原始需求（特殊房型可到 200）。
+      //   换档后保留同宽的放宽空间；最高档没有更高档可放，就如实置 null —— 不编一个数。
+      const i = STAY_PRICE_OPTIONS.indexOf(n);
+      f.flexMaxPriceCny = i >= 0 && i < STAY_PRICE_OPTIONS.length - 1 ? STAY_PRICE_OPTIONS[i + 1] : null;
+    },
+    priceOn
+  );
+  const rows = [
+    h('div', { class: 'field' }, [
+      _filterSwitch('cb-stay-price', priceOn, t('rt.field.pricePerNight'), (on) => {
+        en.price = on;
+        if (on && !_hasThreshold(f.maxPriceCny)) f.maxPriceCny = STAY_PRICE_OPTIONS[0];
+      }),
+      priceSel,
+    ]),
+  ];
+
+  // —— 房型：多选。★绝不允许 0 个（与上面的 POI 类别开关同一条规矩 —— 0 个等于
+  //   这条条件没有阈值，`_active()` 会判成不生效，与「勾着却不起作用」自相矛盾）
+  const roomBox = h('div', { class: 'field field--row' });
+  for (const opt of ROOM_TYPE_OPTIONS) {
+    const on = Array.isArray(f.roomTypes) && f.roomTypes.indexOf(opt.value) !== -1;
+    const cb = h('input', { type: 'checkbox', id: `cb-stay-room-${opt.value}`, disabled: !roomOn });
+    if (on) cb.setAttribute('checked', '');
+    cb.addEventListener('change', () => {
+      const next = typeof cb.checked === 'boolean' ? cb.checked : on;
+      const cur = Array.isArray(f.roomTypes) ? f.roomTypes.slice() : [];
+      const list = next ? cur.concat([opt.value]) : cur.filter((x) => x !== opt.value);
+      if (list.length > 0) f.roomTypes = list;
+      _renderPage();
+    });
+    roomBox.appendChild(h('label', { class: 'card-note' }, [cb, t(opt.labelKey)]));
+  }
+  rows.push(
+    h('div', { class: 'field' }, [
+      _filterSwitch('cb-stay-roomType', roomOn, t('rt.field.roomType'), (on) => {
+        en.roomType = on;
+        if (on && (!Array.isArray(f.roomTypes) || f.roomTypes.length === 0)) {
+          f.roomTypes = _cloneFilters(DEFAULT_FILTERS.stay.roomTypes);
+        }
+      }),
+      roomBox,
+    ])
+  );
+
+  // —— 最低评分（三类共用 `_evaluate()` 里的评分分支）
+  const ratingSel = _filterSelect(
+    'sel-stay-rating',
+    RATING_OPTIONS.map((n) => ({ value: n, text: t('rt.filter.ratingOpt', { n: n.toFixed(1) }) })),
+    f.minRating,
+    (v) => {
+      const n = v === '' ? NaN : Number(v);
+      if (Number.isFinite(n)) f.minRating = n;
+    },
+    ratingOn
+  );
+  rows.push(
+    h('div', { class: 'field' }, [
+      _filterSwitch('cb-stay-rating', ratingOn, t('rt.filter.rating'), (on) => {
+        en.rating = on;
+        if (on && !_hasThreshold(f.minRating)) f.minRating = RATING_OPTIONS[0];
+      }),
+      ratingSel,
+    ])
+  );
+  return rows;
+}
+
+/** 画景点的筛选条件行。 */
+function _sightFilterRows() {
+  const f = _filterOf('sight');
+  const en = f.enabled && typeof f.enabled === 'object' ? f.enabled : {};
+  const levelOn = en.level === true;
+  const ratingOn = en.rating === true;
+
+  const levelSel = _filterSelect(
+    'sel-sight-level',
+    LEVEL_OPTIONS.map((lv) => ({ value: lv, text: t('rt.filter.levelOpt', { lv }) })),
+    f.minLevel,
+    (v) => {
+      f.minLevel = LEVEL_OPTIONS.indexOf(v) === -1 ? f.minLevel : v;
+    },
+    levelOn
+  );
+  const ratingSel = _filterSelect(
+    'sel-sight-rating',
+    RATING_OPTIONS.map((n) => ({ value: n, text: t('rt.filter.ratingOpt', { n: n.toFixed(1) }) })),
+    f.minRating,
+    (v) => {
+      const n = v === '' ? NaN : Number(v);
+      if (Number.isFinite(n)) f.minRating = n;
+    },
+    ratingOn
+  );
+  return [
+    h('div', { class: 'field' }, [
+      _filterSwitch('cb-sight-level', levelOn, t('rt.field.level'), (on) => {
+        en.level = on;
+        if (on && LEVEL_OPTIONS.indexOf(f.minLevel) === -1) f.minLevel = LEVEL_OPTIONS[1]; // 4A：默认档
+      }),
+      levelSel,
+    ]),
+    h('div', { class: 'field' }, [
+      _filterSwitch('cb-sight-rating', ratingOn, t('rt.filter.rating'), (on) => {
+        en.rating = on;
+        if (on && !_hasThreshold(f.minRating)) f.minRating = RATING_OPTIONS[2]; // 4.6：默认档
+      }),
+      ratingSel,
+    ]),
+  ];
+}
+
+/**
+ * 把关键词输入框里的原文切成关键词数组。
+ *
+ * @param {*} raw 原文。
+ * @returns {Array<string>} 关键词（去空、去空白）。
+ */
+function _parseKeywords(raw) {
+  return String(raw === null || raw === undefined ? '' : raw)
+    .split(/[,，、;；]+/)
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+}
+
+/** 画美食的筛选条件行。 */
+function _foodFilterRows() {
+  const f = _filterOf('food');
+  const en = f.enabled && typeof f.enabled === 'object' ? f.enabled : {};
+  const specialOn = en.localSpecial === true;
+  const kwOn = en.keywords === true;
+
+  const kwInput = h('input', {
+    class: 'btn',
+    type: 'text',
+    id: 'in-food-keywords',
+    placeholder: t('rt.filter.keywordsPh'),
+    value: Array.isArray(f.keywords) ? f.keywords.join(',') : '',
+    autocomplete: 'off',
+    spellcheck: 'false',
+    disabled: !kwOn,
+  });
+  // ★绑 `change`（失焦 / 回车）而不是 `input`：整页重画会销毁输入框，绑 input 会让用户
+  //   每敲一个字就丢一次焦点。与「手填名称」那段同一条理由。
+  kwInput.addEventListener('change', () => {
+    f.keywords = _parseKeywords(kwInput.value);
+    _renderPage();
+  });
+
+  return [
+    // —— 要求当地特色：只有一个语义（要求 = 真），没有第二个可选项，所以只有开关
+    h('div', { class: 'field' }, [
+      _filterSwitch('cb-food-localSpecial', specialOn, t('rt.field.localSpecial'), (on) => {
+        en.localSpecial = on;
+        if (on) f.requireLocalSpecial = true;
+      }),
+    ]),
+    h('div', { class: 'field' }, [
+      _filterSwitch('cb-food-keywords', kwOn, t('rt.field.keywords'), (on) => {
+        en.keywords = on;
+        if (on && (!Array.isArray(f.keywords) || f.keywords.length === 0)) {
+          f.keywords = _cloneFilters(DEFAULT_FILTERS.food.keywords);
+        }
+      }),
+      kwInput,
+    ]),
+  ];
+}
+
+/**
+ * 画一个类别的折叠块（标题行带「已生效 N 项」，展开后是该类的条件行）。
+ *
+ * ★默认折叠：这块有 7 条条件，全展开会把「搜索候选」按钮顶到屏幕外；折叠 + 标题上
+ *   带生效条数，既一眼看得到「现在按什么筛」，又不占地方。
+ *
+ * @param {'stay'|'sight'|'food'} type 类别。
+ * @returns {Object} details 节点。
+ */
+function _filterBlock(type) {
+  const rows = type === 'stay' ? _stayFilterRows() : type === 'sight' ? _sightFilterRows() : _foodFilterRows();
+  const det = h('details', { class: 'filt', id: `filt-${type}` });
+  det.appendChild(
+    h('summary', {
+      class: 'card-note filt-sum',
+      text: `${t(`rt.type.${type}`)} · ${t('rt.filter.effective', { n: _activeFilterCount(type) })}`,
+    })
+  );
+  const body = h('div', { class: 'filt-body' });
+  for (const r of rows) body.appendChild(r);
+  det.appendChild(body);
+  return det;
+}
+
+/**
+ * 画「筛选条件」区块（住宿 / 景点 / 美食各一个折叠块）。
+ *
+ * @returns {Object} 区块节点。
+ */
+function _renderFilterBox() {
+  const box = h('div', { id: 'filter-box' }, [
+    h('p', { class: 'card-note', text: t('rt.filterTitle') }),
+    h('p', { class: 'card-note', text: t('rt.filterHint') }),
+  ]);
+  for (const type of POI_TYPES) box.appendChild(_filterBlock(type));
+  return box;
 }
 
 /* ------------------------------------------------------------------ */
@@ -700,6 +1101,11 @@ function _renderPoiCard() {
   );
   card.appendChild(h('p', { class: 'card-note', text: t('rt.poiTypeHint') }));
 
+  // ★筛选条件（可编辑）：放在类别开关之后、搜索按钮之前 —— 用户是「先决定搜什么、
+  //   再决定按什么筛」，最后才按下去。★改完条件会立刻重算下面三组（pass/fail/unknown），
+  //   所以不必再搜一次候选，也不消耗配额。
+  card.appendChild(_renderFilterBox());
+
   if (_state.poiProgress) {
     card.appendChild(h('p', { class: 'card-note', text: t('rt.poiSearching', { done: _state.poiProgress.done, n: _state.poiProgress.total }) }));
   }
@@ -772,7 +1178,19 @@ function _renderPoiCard() {
     //   （与 CheckIn 同字段），列表卡照 category 显示。
     //   ★房价 / 房型 / 等级这些**参与筛选的字段一律不补**：候选里没有就是没有，
     //   于是它们老老实实进 unknown 组并被计数。
-    const filterable = items.map((c) => ({ ...c, type, category: c && c.type }));
+    //   ★`common.rating` 是唯一的例外，而且它与「不许补数据」不冲突：评分是高德
+    //     **真的返回了**的值（同一行列表上「★ 4.5」就是这个数），不是推算值；
+    //     `partitionByFilter()` 的评分分支读的是 `item.common.rating`（CheckIn 的形状），
+    //     而 `parsePoi()` 把评分放在**顶层** —— 不补这一处，同一块屏幕上会同时出现
+    //     「★ 4.5」和「未填：评分」：同一个数既已知又未知，是自相矛盾的显示，
+    //     而用户要的「4.6 分以上」会**永远匹配不上任何一条**（全落「未填」）。
+    //     菜名 / 标签（美食关键词那条）依然**不补**：高德免费接口确实给不了。
+    const filterable = items.map((c) => ({
+      ...c,
+      type,
+      category: c && c.type,
+      common: { rating: c && c.rating, tags: [] },
+    }));
     const groups = partitionByFilter(filterable, _filters());
     card.appendChild(
       renderPoiGroup({
