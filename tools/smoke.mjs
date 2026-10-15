@@ -307,7 +307,9 @@ async function main() {
   check('air current 字段', aReq.params.current === 'european_aqi,pm10,pm2_5,ozone,nitrogen_dioxide');
 
   const gReq = buildGeocodeRequest(ctx);
-  check('geocode 端点与参数', gReq.url === 'https://geocoding-api.open-meteo.com/v1/search' && gReq.params.count === 10 && gReq.params.language === 'zh' && gReq.params.format === 'json');
+  // count 由 10 提到 20（2026-10-16）：GeoNames 里中国有大量与大城市同名的小村庄，
+  // 只取 10 条时它们会挤掉真正的城市、且没有重排的余地（见 place-rank.test.mjs）。
+  check('geocode 端点与参数', gReq.url === 'https://geocoding-api.open-meteo.com/v1/search' && gReq.params.count === 20 && gReq.params.language === 'zh' && gReq.params.format === 'json');
 
   const elReq = buildElevationRequest(ctx);
   check('elevation 端点', elReq.url === 'https://api.open-meteo.com/v1/elevation', elReq.url);

@@ -264,7 +264,11 @@ export function buildGeocodeRequest(ctx) {
     url: `${GEOCODE_HOST}/v1/search`,
     params: {
       name: String(ctx.keyword || ''),
-      count: 10,
+      // ★20 而不是 10：GeoNames 里中国有大量与大城市同名的小村庄，
+      //   服务端返回的顺序里它们会和大城市混在一起（甚至排在前面）。
+      //   多拿一倍候选，由 parseGeocode → rankPlaces 重排后再交给界面，
+      //   免得「北京」的前三条里两条是重庆和四川的无名村庄。
+      count: 20,
       language: ctx.lang || 'zh',
       format: 'json',
     },
@@ -273,23 +277,120 @@ export function buildGeocodeRequest(ctx) {
 }
 
 /**
- * 解析地名搜索响应 → Place[]。
+ * GeoNames `feature_code` → 等级（数字越小越重要）。
+ *
+ * 真机报障「搜索出发地和目的地，出现一些莫名其妙的候选项」的根因：
+ * 请求只传 count，**顺序完全由服务端定**，于是 1896 万人口的首都
+ * 和不带人口的村庄平起平坐。实测 curl 搜「北京」返回三条：
+ * PPLC 北京市(pop 18960744) / PPL 重庆市 / PPL 四川成都市 —— 后两条都是村庄。
+ *
+ * 等级依据 GeoNames Feature Codes（P = populated places）：
+ * PPLC 国家首都 > PPLG 政府所在地 > PPLA 省级 > PPLA2 地级 >
+ * PPLA3 县级 > PPLA4 乡级 > PPLX 城区片区 > PPL 村庄 > 其余。
+ */
+const FEATURE_RANK = {
+  PPLC: 0,
+  PPLG: 0,
+  PPLA: 1,
+  PPLA2: 2,
+  PPLA3: 3,
+  PPLA4: 4,
+  PPLA5: 5,
+  PPLX: 6,
+  PPL: 7,
+  PPLL: 8,
+  PPLF: 9,
+  PPLR: 9,
+  PPLS: 9,
+  PPLH: 10,
+  PPLQ: 11,
+  PPLW: 11,
+};
+
+/** 未在 FEATURE_RANK 里列出的类型（含 null、非聚落类型如 ISL）的默认等级。 */
+const FEATURE_RANK_DEFAULT = 9;
+
+/**
+ * 取 feature_code 的等级。
+ *
+ * @param {string|null} code GeoNames feature_code。
+ * @returns {number} 等级，越小越重要。
+ */
+function _featureRank(code) {
+  if (!code) return FEATURE_RANK_DEFAULT;
+  const r = FEATURE_RANK[code];
+  return typeof r === 'number' ? r : FEATURE_RANK_DEFAULT;
+}
+
+/**
+ * 按「行政等级 → 人口 → 原始顺序」重排地点候选。
+ *
+ * ★为什么必须有这一层：GeoNames 的数据是真的（那些「北京 · 重庆市」确实是叫北京的村庄），
+ *   问题是**我们不能把服务端的原始顺序直接当推荐顺序**。等级高的排前面，
+ *   同等级里人口多的排前面，村庄于是自然沉到最后 —— **降权而不是隐藏**，
+ *   用户真要去某个无名小村时仍然找得到。
+ *
+ * 排序是稳定的（末位比较原始下标），所以同级同人口的条目保持服务端原序。
+ *
+ * @param {Array<Object>} list 地点列表（parseGeocode 的产物）。
+ * @returns {Array<Object>} 重排后的新数组；输入非数组时返回空数组。
+ */
+export function rankPlaces(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => {
+      const ra = _featureRank(a.p && a.p.featureCode);
+      const rb = _featureRank(b.p && b.p.featureCode);
+      if (ra !== rb) return ra - rb;
+      const pa = _popOf(a.p);
+      const pb = _popOf(b.p);
+      if (pa !== pb) return pb - pa;
+      return a.i - b.i;
+    })
+    .map((x) => x.p);
+}
+
+/**
+ * 取人口用于排序：缺失或非正数一律视为 -1（排在有人口的条目之后）。
+ *
+ * @param {Object|null} p 地点。
+ * @returns {number} 人口，或 -1。
+ */
+function _popOf(p) {
+  const n = p ? _n(p.population) : null;
+  return n === null || n <= 0 ? -1 : n;
+}
+
+/**
+ * 解析地名搜索响应 → Place[]（已按等级与人口重排，见 rankPlaces）。
+ *
+ * ★`admin2` / `featureCode` / `population` 三个字段必须留下来：
+ *   ① `admin2` 是**同名多地消歧的关键** —— 截图里「上海 · 云南」出现三次长得一模一样，
+ *      实际是丽江市 / 曲靖市 / 昆明市，丢掉 admin2 就再也分不开；
+ *   ② `featureCode` 与 `population` 供 rankPlaces 排序（首都 vs 村庄）。
+ *   它们只用于排序与展示，不参与任何业务计算。
  *
  * @param {Object} json 响应 JSON。
  * @returns {Array<{name:string, lat:number|null, lon:number|null, country:string|null,
- *                  admin1:string|null, timezone:string|null}>} 地点列表。
+ *                  admin1:string|null, admin2:string|null, timezone:string|null,
+ *                  featureCode:string|null, population:number|null}>} 地点列表。
  */
 export function parseGeocode(json) {
   const results = (json && json.results) || [];
   if (!Array.isArray(results)) return [];
-  return results.map((r) => ({
+  const mapped = results.map((r) => ({
     name: String(r.name || ''),
     lat: _n(r.latitude),
     lon: _n(r.longitude),
     country: r.country || null,
     admin1: r.admin1 || null,
+    admin2: r.admin2 || null,
     timezone: r.timezone || null,
+    featureCode: r.feature_code || null,
+    population: _n(r.population),
   }));
+  return rankPlaces(mapped);
 }
 
 /* ------------------------------------------------------------------ */

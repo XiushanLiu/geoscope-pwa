@@ -751,3 +751,75 @@ test('★空必经点槽位不许变成 (0,0) 进 URL：这是真机 HTTP 400 �
     );
   }
 });
+
+/**
+ * ★真机截图里「必经点 1」显示成 `0.0000°N, 0.0000°E` —— 与上一条进 URL 的是
+ * **同一个坑的两半**：`Number(null) === 0` 既会让空槽位混进点序列，也会让它在界面上
+ * 显示成一个看似合法的坐标。上面的用例只钉住了「进 URL」那一半，这里钉显示那一半。
+ */
+test('★空槽位显示「—」，不许因 Number(null)===0 显示成 0.0000°N', async () => {
+  installRouteHandler();
+  reloadRoadtrip();
+  await pickPlace('ps-origin', '成都');
+  reloadRoadtrip();
+  await pickPlace('ps-destination', '西安');
+  reloadRoadtrip();
+  await clickOnce('btn-via-add'); // 加空槽位：不选地点
+
+  const text = appText();
+  assert.equal(
+    text.indexOf('0.0000'),
+    -1,
+    `空槽位不许显示成 0.0000°N, 0.0000°E —— 用户会以为程序坏了。实际页面：${text.slice(0, 400)}`
+  );
+  assert.ok(text.indexOf('—') !== -1, '空槽位应当显示占位符「—」，而不是空行');
+});
+
+/**
+ * ★真机报障「搜索出发地和目的地，出现一些莫名其妙的候选项」的**消歧那一半**。
+ *
+ * 根因：`parseGeocode` 只留下 `admin1` 就丢掉了 `admin2`。云南的丽江市 / 曲靖市 /
+ * 昆明市各有一个叫「上海」的村庄，只拼 `name · admin1` 就是三条一模一样的
+ * 「上海 · 云南」；带上 admin2 立刻分得开。
+ * （排序那一半 —— 首都排前、村庄降权 —— 在 `tests/place-rank.test.mjs` 里钉。）
+ */
+test('★候选必须带 admin2：否则同名地点完全分不开', async () => {
+  net.setHandler((u) => {
+    if (String(u).indexOf('/v1/search') !== -1) {
+      return {
+        status: 200,
+        json: {
+          results: [
+            {
+              name: '上海',
+              latitude: 27.0741,
+              longitude: 100.107,
+              admin1: '云南',
+              admin2: '丽江市',
+              feature_code: 'PPL',
+            },
+          ],
+        },
+      };
+    }
+    return { status: 200, json: {} };
+  });
+  reloadRoadtrip();
+
+  const input = appNode('ps-origin');
+  input.value = '上海';
+  await input.fire('input');
+  await settle(450);
+
+  const box = appNode('place-results');
+  const btns = (box ? box.descendants() : []).filter((n) => n.tagName === 'BUTTON');
+  assert.ok(btns.length > 0, '地点搜索「上海」没出结果');
+  const label = String(btns[0].textContent || '');
+  assert.ok(
+    label.indexOf('丽江市') !== -1,
+    `候选必须带 admin2 才能与云南其他「上海」区分开，实际候选是「${label}」`
+  );
+
+  installRouteHandler(); // 还原共享 handler，免得影响后续用例
+});
+

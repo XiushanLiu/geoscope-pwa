@@ -217,24 +217,39 @@ function _dist(m) {
  *
  * @returns {Array<{lat:number, lon:number, name:string}>} 点序列（不足 2 个时如实返回短数组）。
  */
+/**
+ * 取出**真的存在**的坐标；不存在或非有限返回 null。
+ *
+ * ★绝对不许写成 `Number.isFinite(Number(p.lat))`：`Number(null)` 是 **0**，
+ *   `Number.isFinite(0)` 为真 —— 于是「点了『添加一个必经点』但还没选地点」留下的
+ *   空槽位（`newPlaceRef()` 产出的 `{lat:null, lon:null}`）会被当成合法的 **(0,0)**。
+ *   这个坑在真机上留下了**两处**症状，都是它：
+ *     ① 拼出 `0.000000,0.000000` 的 URL → OSRM 实测 **HTTP 400 InvalidUrl**
+ *        （「数据源返回 HTTP 400」的根因）；
+ *     ② 界面把空槽位显示成 `0.0000°N, 0.0000°E`，看着像程序坏了。
+ *   所以判定只能有一份：计算层（`_points`）与显示层（`_placeRow`）都走这里。
+ *
+ * 注意这里**只管「有没有」**，不管「越不越界」—— 越界坐标由 data 层的 OSRM
+ * `usable()` 闸门拦（那边会报 `rt.err.badCoord` 并指明几个点），两处职责不重叠。
+ *
+ * @param {Object|null} p 含 lat / lon 的对象。
+ * @returns {{lat:number, lon:number}|null} 可用坐标，或 null。
+ */
+function _coordOf(p) {
+  if (!p) return null;
+  const lat = p.lat === null || p.lat === undefined ? NaN : Number(p.lat);
+  const lon = p.lon === null || p.lon === undefined ? NaN : Number(p.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
 function _points() {
   const out = [];
-  /**
-   * 只接受**真的有坐标**的点。
-   *
-   * ★为什么不许写 `Number.isFinite(Number(p.lat))`：`Number(null)` 是 **0**，而
-   *   `Number.isFinite(0)` 为真 —— 于是「点了『添加一个必经点』但还没选地点」留下的
-   *   空槽位（`newPlaceRef()` 产出的 `{lat:null, lon:null}`）会被当成 **(0,0)** 放行，
-   *   最后拼出 `0.000000,0.000000` 的 URL。实测 OSRM 对它是 **HTTP 400 InvalidUrl** ——
-   *   这正是真机报障「数据源返回 HTTP 400」的根因。
-   *   空槽位不是坐标：不许进点序列，也不许让「点数够不够」这个数跟着谎报。
-   */
+  /** 空槽位不是坐标：不许进点序列，也不许让「点数够不够」这个数跟着谎报。 */
   const push = (p) => {
-    if (!p) return;
-    const lat = p.lat === null || p.lat === undefined ? NaN : Number(p.lat);
-    const lon = p.lon === null || p.lon === undefined ? NaN : Number(p.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    out.push({ lat, lon, name: String(p.name || '') });
+    const c = _coordOf(p);
+    if (!c) return;
+    out.push({ lat: c.lat, lon: c.lon, name: String((p && p.name) || '') });
   };
   push(_state.plan.origin);
   for (const v of _state.plan.via) push(v);
@@ -378,11 +393,34 @@ function _renderPlaceResults() {
     const btn = h('button', {
       class: 'btn',
       type: 'button',
-      text: `${p.name}${p.admin1 ? ` · ${p.admin1}` : ''}`,
+      text: _placeLabel(p),
     });
     btn.addEventListener('click', () => _ps.pick(p));
     box.appendChild(btn);
   }
+}
+
+/**
+ * 候选按钮上的地名文本。
+ *
+ * ★必须带上 `admin2`： GeoNames 里同名地点极多，真机截图里「上海 · 云南」
+ *   连着出现三条、长得一模一样 —— 它们其实是丽江市 / 曲靖市 / 昆明市，
+ *   只因为旧实现只拼 `name · admin1` 而无法区分，用户只能瞎点。
+ *   `admin1 === admin2` 时去重（直辖市就是这种：北京/北京市），避免「北京 · 北京市 · 北京市」。
+ *
+ * 等级与人口的降权由 data 层 `rankPlaces()` 负责（首都排最前、无名村庄沉到最后），
+ * 这里只管把**区分信息**显示出来，两者分工不重叠。
+ *
+ * @param {Object} p 地点。
+ * @returns {string} 如 '北京 · 北京市' 或 '上海 · 云南 · 丽江市'。
+ */
+function _placeLabel(p) {
+  const bits = [String((p && p.name) || '')];
+  const parts = [p && p.admin1, p && p.admin2];
+  for (const part of parts) {
+    if (part && !bits.includes(part)) bits.push(String(part));
+  }
+  return bits.join(' · ');
 }
 
 /**
@@ -418,13 +456,15 @@ function _placeRow(labelKey, ref, target, params) {
     _ps.input(input.value);
   });
 
-  const has = ref && Number.isFinite(Number(ref.lat)) && Number.isFinite(Number(ref.lon));
+  // ★判定走 _coordOf()，不许自己写 Number.isFinite(Number(...)) —— 那会把
+  //   空槽位的 null 判成合法的 0，进而显示成「0.0000°N, 0.0000°E」。
+  const c = _coordOf(ref);
   const row = h('div', { class: 'field', 'data-row-target': target }, [
     h('p', { class: 'card-note', text: t(labelKey, params) }),
     // 当前值：没选就写 '—'，绝不显示一个空行 —— 空行分不清「没填」和「填了空的」
     h('p', {
       class: 'card-note',
-      text: has ? String(ref.name || fmt.coord(Number(ref.lat), Number(ref.lon))) : fmt.DASH,
+      text: c ? String(ref.name || fmt.coord(c.lat, c.lon)) : fmt.DASH,
     }),
     input,
   ]);

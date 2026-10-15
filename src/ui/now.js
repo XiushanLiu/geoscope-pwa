@@ -413,13 +413,18 @@ function _searchBodyNodes() {
  * 与别处的同名地全靠它分开。两者都可能为 null（Open-Meteo 对小地方经常只给一半），
  * 那种情况整行不渲染，绝不能拼出 "null" 或孤零零的 " · "。
  *
- * @param {Object} place 地点（name/lat/lon/admin1/country）。
+ * @param {Object} place 地点（name/lat/lon/admin1/admin2/country）。
  * @returns {HTMLElement} 可点击的结果项。
  */
 function _searchItem(place) {
   const p = place && typeof place === 'object' ? place : {};
   const name = String(p.name || '').trim();
-  const sub = [p.admin1, p.country].filter(Boolean).join(' · ');
+  // ★admin2 也要带上：**省级相同、地级不同**的同名地靠 admin1 分不开 ——
+  //   云南的丽江市 / 曲靖市 / 昆明市各有一个叫「上海」的村庄（真机实测截图的来源）。
+  //   `admin1 === admin2` 时去重，否则直辖市会拼成「北京市 · 北京市 · 中国」。
+  const sub = [p.admin1, p.admin2, p.country]
+    .filter((v, i, arr) => v && arr.indexOf(v) === i)
+    .join(' · ');
   const btn = h('button', { type: 'button', class: 'search-item' }, [
     h('span', { class: 'search-item-name', text: name || t('search.unnamed') }),
   ]);
