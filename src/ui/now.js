@@ -13,6 +13,12 @@ import { t, tr } from '../i18n/index.js';
 import * as fmt from '../core/format.js';
 import { wmo, aqi, uv, windDir16, beaufort } from '../core/wmo.js';
 import { isDaylight } from '../core/sun.js';
+// ★本模块**不许** import `core/mag.js` / `data/wmm2025.js`。
+//   原因（2026-10-16 打包报错实证）：`src/ui/selfcheck.js` 只从本模块取 `h` 与 `applyI18n`
+//   两个工具函数，于是本模块被登记进「数据源自检页」单文件产物的依赖闭包（build-standalone
+//   的 ORDER）。一旦本模块 import 了 WMM，mag.js 26.6 KB + wmm2025.js 9.5 KB 就变成那个诊断页
+//   的**死重量**（自检页从不显示磁偏角）。与 `ui/map.js` 同口径：闭包里只留真用得上的东西。
+//   磁偏角数值由调用方（此刻页入口 `app.js`，不在闭包内）算好传进来，本模块只负责读法。
 // 收藏状态读写走 store（唯一真相源）。依赖方向 ui → core，与 settings.js 一致。
 import { isFavorite, addFavorite, removeFavorite } from '../core/store.js';
 // 地点搜索：状态机在 placesearch.js（纯逻辑），这里只负责把 state 画成 DOM。
@@ -180,6 +186,9 @@ export function renderSkeleton(root) {
   // （now.js 不 import map.js —— map.js 要用 now.js 的 h()，反方向依赖会成环）。
   // ★顺序必须在 prov 之前建：槽位顺序由首次创建那一刻决定，建错位置就再也挪不回去。
   root.appendChild(_slot(root, 'map'));
+  // 方位卡槽（2026-10-16：方位页撤出底部 tabbar，此刻页只留「磁偏角一个数 + 进完整罗盘的入口」）。
+  // ★顺序：底图之后、来源说明之前 —— 槽位顺序由首次创建那一刻决定，建错位置就再也挪不回去。
+  root.appendChild(_slot(root, 'bearing')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'prov'));
   // 指标释义入口放**最后**（页面底部）：它是查阅物，不该插在数据卡之间把首屏撑长。
   // 槽位顺序由首次创建那一刻决定，建在 prov 之后就再也挪不回去了。
@@ -701,6 +710,93 @@ export function renderPlaceCard(root, snapshot) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 方位卡（此刻页的简化版）                                              */
+/* ------------------------------------------------------------------ */
+
+/** 磁偏角小于此值视为「正北（不偏）」（度）。 */
+const DECLINATION_FLAT_EPS = 0.05;
+
+/**
+ * 把角度归一到 (−180, 180]。
+ *
+ * ★为什么在这里抄一遍而不 import `core/mag.js` 的 `normalizeSignedAngle`：见文件头的闭包红线，
+ *   一次 import 就会把 26.6 KB 拖进自检页产物。抄的是 3 行取模算术（数学上不会漂移），
+ *   真身仍在 `core/mag.js:normalizeSignedAngle` —— 改那边时**不必**改这里，但语义必须一致。
+ *
+ * @param {number} deg 角度（度）。
+ * @returns {number} 归一后的角度。
+ */
+function _wrapSigned(deg) {
+  let v = deg % 360;
+  if (v > 180) v -= 360;
+  else if (v <= -180) v += 360;
+  return v;
+}
+
+/**
+ * 磁偏角的**读法**（不是数字）：东偏为正，负数要读成「西偏 N°」。
+ *
+ * 全仓唯一实现 —— 罗盘页（大号数字）、设置页、此刻页方位卡共用这一份。
+ * 住在 now.js 而不是 compass.js，是因为 now.js 在自检页闭包内、compass.js 不在，
+ * 放在 compass.js 会逼着 now.js import 一个不在闭包里的模块。
+ *
+ * ★必须用**整句模板**（`compass.east` 是「东偏 {deg}°」），不能拼「磁偏角」+「东」+ 数字 ——
+ *   英文语序是「{deg}° east」，拼片段必错。这与「体感 26°」是同一条约束。
+ *
+ * @param {number|null} declinationDeg 磁偏角（度，东偏为正）。
+ * @returns {string} 如「西偏 7.49°」；缺失返回占位符。
+ */
+export function declinationText(declinationDeg) {
+  if (declinationDeg === null || declinationDeg === undefined || !Number.isFinite(Number(declinationDeg))) {
+    return t('app.dash');
+  }
+  const d = _wrapSigned(Number(declinationDeg));
+  if (Math.abs(d) < DECLINATION_FLAT_EPS) return t('compass.noDeclination');
+  const abs = fmt.num(Math.abs(d), 2);
+  return d > 0 ? t('compass.east', { deg: abs }) : t('compass.west', { deg: abs });
+}
+
+/**
+ * 渲染「方位 · 磁偏角」卡（此刻页的**简化**版）。
+ *
+ * 2026-10-16 导航重构：方位页从底部 tabbar 撤下来，日常只看得到**磁偏角一个数**；
+ * 完整罗盘、真/磁方位换算、WMM 模型有效期三块留在 compass.html，由本卡的按钮进去。
+ * 换算与模型版本是低频信息，占着底部导航不划算，但**入口必须留着**。
+ *
+ * ★本卡不需要传感器：磁偏角是**本机 WMM2025 算出来的**，不联网、不用方向传感器，
+ *   所以放在此刻页不会触发任何权限请求（iOS 的 `requestPermission()` 必须由用户手势
+ *   触发，罗盘本身仍然只能待在 compass.html 里 —— 这也是按钮去不掉的原因）。
+ *
+ * @param {HTMLElement} root 根容器。
+ * @param {Object} snapshot NowSnapshot。
+ * @param {number|null} [declinationDeg] 磁偏角（度，东偏为正），由调用方用
+ *   `data/wmm2025.js` 的 `declinationDegAt()` 算好 —— 本模块不碰 WMM（见文件头红线）。
+ * @returns {void}
+ */
+export function renderBearingCard(root, snapshot, declinationDeg) {
+  const box = _slot(root, 'bearing');
+  // ★`Number(null) === 0`：直接 `Number.isFinite(Number(x))` 会把「没算出来」当成「0°（正北不偏）」，
+  //   显示一个看起来很有道理的假结果。必须**先**显式排除 null / undefined，再判有限性。
+  //   （本仓第三次踩同一个坑：计算层、显示层，现在是渲染层。）
+  const has = declinationDeg !== null && declinationDeg !== undefined && Number.isFinite(Number(declinationDeg));
+
+  box.textContent = '';
+  box.appendChild(
+    h('div', { class: 'card' }, [
+      h('p', { class: 'card-title', text: t('compass.title') }),
+      // 标签与值分开两行，不拼串（拼串会踩中英文语序）
+      h('div', { class: 'kv' }, [
+        _kv(t('compass.d'), has ? declinationText(declinationDeg) : t('compass.na')),
+      ]),
+      h('p', { class: 'card-note', text: t('compass.calcNote') }),
+      h('div', { class: 'field field--row' }, [
+        h('a', { class: 'btn', href: 'compass.html', text: t('now.bearingBtn') }),
+      ]),
+    ])
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* 溯源气泡                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -801,7 +897,8 @@ export function renderSlotEmpty(root, slotId, text, onRetry) {
  *
  * @param {HTMLElement} root 根容器。
  * @param {Object} snapshot NowSnapshot。
- * @param {{isDefaultPlace?:boolean, staleAgeMs?:number}} [opts] 选项。
+ * @param {{isDefaultPlace?:boolean, staleAgeMs?:number, declinationDeg?:number|null}} [opts] 选项。
+ *   `declinationDeg` 由调用方（`app.js`）用本机 WMM2025 算好；不传就显示「暂不可用」。
  * @returns {void}
  */
 export function renderSnapshot(root, snapshot, opts = {}) {
@@ -810,5 +907,8 @@ export function renderSnapshot(root, snapshot, opts = {}) {
   renderWeatherCard(root, snapshot);
   renderAirCard(root, snapshot);
   renderPlaceCard(root, snapshot);
+  // 方位卡夹在「地点」与「来源」之间：磁偏角是地点的属性，跟在地点后面才讲得通；
+  // 来源说明压在整页最后（它是这一屏数据的出处，收尾最合适）。
+  renderBearingCard(root, snapshot, opts.declinationDeg);
   renderProvenance(root, snapshot);
 }

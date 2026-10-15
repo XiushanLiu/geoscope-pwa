@@ -22,7 +22,7 @@
  * 红线：本模块是纯数据与装配，不做任何 IO，只 import core 层的纯算法（可被任意层安全 import）。
  */
 
-import { createMagneticModel } from '../core/mag.js';
+import { createMagneticModel, decimalYearFromDate } from '../core/mag.js';
 
 /** 模型元信息：UI 需要显示模型版本与到期提示，统一从这里取。 */
 export const WMM_MODEL = Object.freeze({
@@ -158,6 +158,39 @@ export const computeGeomagnetic = (params) => WMM2025.compute(params);
  * @returns {number} 磁偏角。
  */
 export const geomagneticDeclination = (params) => WMM2025.declination(params);
+
+/**
+ * **UI 层的统一入口**：按「米 + 日期」口径算磁偏角（度，东偏为正）。
+ *
+ * ★为什么要有这一层：WMM 的入参有三个已知的单位坑，写错不会报错、只会给错值 ——
+ *   ① `altitudeKm` 是**千米**且是椭球高，而项目通用单位是**米** → 必须 /1000；
+ *   ② 不传 `decimalYear` 会按历元 2025.0 算，2029 年打开就拿到 2025 年的值；
+ *   ③ 计算可能抛 RangeError / TypeError（越界、非数值）→ 必须兜住，不许白屏。
+ *   此前 settings.js（导出 CSV）与 compass.js 各写了一份，现在 UI 侧统一走这里。
+ *
+ * @param {{lat:number|null, lon:number|null}} coord 坐标（度）。
+ * @param {{altitudeM?:number|null, atMs?:number}} [opts] 海拔（**米**）与时刻。
+ * @returns {number|null} 磁偏角（度）；坐标缺失或计算失败一律 null（调用方显示「—」）。
+ */
+export function declinationDegAt(coord, opts = {}) {
+  const lat = coord ? Number(coord.lat) : NaN;
+  const lon = coord ? Number(coord.lon) : NaN;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const altM = Number(opts.altitudeM);
+  try {
+    const deg = geomagneticDeclination({
+      latitude: lat,
+      longitude: lon,
+      altitudeKm: Number.isFinite(altM) ? altM / 1000 : 0,
+      decimalYear: decimalYearFromDate(new Date(Number(opts.atMs) || Date.now())),
+    });
+    return Number.isFinite(deg) ? deg : null;
+  } catch (err) {
+    // 不许把异常抛给渲染层 —— 一页白屏比一个「—」糟得多
+    console.warn('[wmm] declination failed:', err && err.message);
+    return null;
+  }
+}
 
 /**
  * 判定给定十进制年是否在有效期内（含中文提示文案）。

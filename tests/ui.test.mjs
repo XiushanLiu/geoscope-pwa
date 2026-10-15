@@ -140,6 +140,74 @@ test('回归锁（缺陷 5）：离线且无 store 快照、但 cache 里有数�
   assert.ok(text(dom.byId['banner']).includes('离线'));
 });
 
+/* ------------------------------------------------------------------ */
+/* 此刻页方位卡（2026-10-16：方位页撤出 tabbar，只留磁偏角 + 入口）      */
+/* ------------------------------------------------------------------ */
+
+test('★此刻页方位卡：显示磁偏角，且只有一条进 compass.html 的链接', () => {
+  const root = document.createElement('div');
+  now.renderSkeleton(root);
+  // 数值由调用方（app.js 用本机 WMM）算好传进来 —— now.js 不许碰 WMM（见文件头红线）
+  now.renderBearingCard(root, { atMs: Date.now(), coord: { lat: 39.9087, lon: 116.3975 }, elevationM: 44 }, -6.49);
+  const card = text(root.querySelector('#card-bearing'));
+  // 北京磁偏角约 −6°（西偏）。具体数值交给 WMM 模型算，这里只钉「有方向词 + 有度数」，
+  // 不钉死数字 —— 模型系数换版本时数值会变，钉数字会变成假失败。
+  assert.ok(/东偏|西偏|正北/.test(card), `方位卡必须给出磁偏角方向，实际：${card}`);
+  assert.ok(/\d/.test(card), `方位卡必须带度数，实际：${card}`);
+
+  const links = root.querySelector('#card-bearing').descendants().filter((n) => n.tagName === 'A');
+  assert.equal(links.length, 1, '方位卡必须有且只有一条链接');
+  // 假 DOM 的 href 只落在 attribute 上，不在 .href 属性（读 .href 会得到 undefined）
+  assert.equal(links[0].getAttribute('href'), 'compass.html', '链接必须指向 compass.html（完整罗盘）');
+});
+
+test('★方位卡必须本机算：渲染它一个网络请求都不许发', () => {
+  const root = document.createElement('div');
+  now.renderSkeleton(root);
+  const before = fetchMock.count;
+  now.renderBearingCard(root, { atMs: Date.now(), coord: { lat: 39.9087, lon: 116.3975 }, elevationM: 44 }, -6.49);
+  assert.equal(
+    fetchMock.count,
+    before,
+    '磁偏角走本机 WMM2025 系数，不许联网 —— 这也是它能直接放进此刻页（不触发任何权限）的前提'
+  );
+});
+
+test('方位卡：磁偏角缺失（null / 非数）时显示「暂不可用」，不抛错也不编方向', () => {
+  const root = document.createElement('div');
+  now.renderSkeleton(root);
+  now.renderBearingCard(root, { atMs: Date.now(), coord: null }, null);
+  const card = text(root.querySelector('#card-bearing'));
+  assert.ok(card.includes('暂不可用'), `坐标缺失必须显示暂不可用，实际：${card}`);
+  assert.ok(!/东偏|西偏/.test(card), '没坐标时不许编一个方向出来');
+});
+
+test('★此刻页方位卡必须真的被渲染出来：走真实 boot，不许停在骨架或「暂不可用」', async () => {
+  // 为什么必须走 boot：在线路径是「出一张渲染一张」的增量流，**不走 renderSnapshot()，
+  // 而方位槽位在 renderSkeleton() 里就已建好 —— 漏掉 app.js 里那一句 renderBearingCard()，
+  // 在线时那张卡会永远停在骨架，而直接调 renderBearingCard 的单元测试照样全绿。
+  // 这是「自己手接回调 / 自己调渲染函数」绕开接线断点的同类盲区。
+  routeFixture();
+  await app.boot();
+  const box = dom.byId['app'].querySelector('#card-bearing');
+  assert.ok(box, '此刻页必须存在方位槽位');
+  const card = text(box);
+  assert.ok(!card.includes('sk'), `方位卡不许停在骨架，实际：${card}`);
+  assert.ok(!card.includes('暂不可用'), `有坐标就必须算出磁偏角，实际：${card}`);
+  assert.ok(/东偏|西偏|正北/.test(card), `boot 后方位卡必须给出磁偏角方向，实际：${card}`);
+});
+
+test('★自检页产物不许被 WMM 拖胖：now.js 不得 import mag.js / wmm2025.js', async () => {
+  // now.js 在「数据源自检页」单文件产物的依赖闭包内（selfcheck.js 只为 h / applyI18n 引它）。
+  // 一旦它 import 了 WMM，mag.js 26.6 KB + wmm2025.js 9.5 KB 就变成那个从不显示磁偏角的
+  // 诊断页的死重量 —— build-standalone 会直接「打包中止」，这里再钉一道更明确的护栏。
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/ui/now.js', import.meta.url), 'utf8');
+  for (const banned of ["from '../core/mag.js'", "from '../data/wmm2025.js'"]) {
+    assert.ok(!src.includes(banned), `now.js 不许 import ${banned}（会把 WMM 拖进自检页产物）`);
+  }
+});
+
 test('回归锁（缺陷 3）：天气码缺失时界面显示「未知天气」，绝不能显示「晴」', () => {
   const root = document.createElement('div');
   now.renderSkeleton(root);

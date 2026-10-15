@@ -36,12 +36,17 @@ import { request, isOnline } from '../core/http.js';
 import { getSource } from '../data/sources.js';
 import { recordResult, overallMode, resetHealth } from '../data/health.js';
 import { probeTile, sampleTiles, setNoMapMode, degradeMapMode, mapMode, MAP_MODE } from '../data/tiles.js';
+// ★WMM 只在本页（此刻）入口 import，不许进 `ui/now.js` —— 详见 now.js 文件头的闭包红线：
+//   now.js 在「数据源自检页」单文件产物闭包内，把 mag.js（26.6 KB）+ wmm2025.js（9.5 KB）
+//   拽进去，那个从不显示磁偏角的诊断页就白胖 36 KB。
+import { declinationDegAt } from '../data/wmm2025.js';
 import {
   renderSkeleton,
   renderHeader,
   renderWeatherCard,
   renderAirCard,
   renderPlaceCard,
+  renderBearingCard,
   renderProvenance,
   renderBanner,
   renderEmptyState,
@@ -271,7 +276,7 @@ function _renderOffline(root, bannerEl, snapshot, isDefaultPlace) {
 
   // 1) 缓存里有任何一路 → 直接渲染（有旧数据绝不显示空白）
   if (weather || air || elevation || reverse) {
-    renderSnapshot(root, snapshot, { isDefaultPlace });
+    renderSnapshot(root, snapshot, { isDefaultPlace, declinationDeg: _declinationDeg(snapshot) });
     renderBanner(bannerEl, 'offline', { staleAgeMs: maxStaleAge });
     return;
   }
@@ -280,7 +285,7 @@ function _renderOffline(root, bannerEl, snapshot, isDefaultPlace) {
   const cached = getLastSnapshot();
   if (cached && cached.weather) {
     const merged = { ...snapshot, ...cached };
-    renderSnapshot(root, merged, { isDefaultPlace });
+    renderSnapshot(root, merged, { isDefaultPlace, declinationDeg: _declinationDeg(merged) });
     renderBanner(bannerEl, 'offline', { staleAgeMs: Date.now() - (cached.atMs || Date.now()) });
     return;
   }
@@ -338,6 +343,24 @@ export async function probeTileBatch(styleId, tiles, opts = {}) {
   }
 
   return probes;
+}
+
+/**
+ * 本机 WMM2025 算磁偏角（度，东偏为正）。
+ *
+ * ★不联网、不用传感器：三处（此刻页方位卡 / 罗盘页 / 设置页）共用 data 层的
+ *   `declinationDegAt()` —— 米→千米换算、decimalYear、异常兜底都在那一层收口，
+ *   这里只把快照里的字段递过去。算不出来返回 null，由 now.js 显示「暂不可用」。
+ *
+ * @param {Object} snapshot NowSnapshot。
+ * @returns {number|null} 磁偏角（度），算不出返回 null。
+ */
+function _declinationDeg(snapshot) {
+  if (!snapshot || !snapshot.coord) return null;
+  return declinationDegAt(snapshot.coord, {
+    altitudeM: snapshot.elevationM,
+    atMs: snapshot.atMs,
+  });
 }
 
 /**
@@ -659,6 +682,11 @@ export async function boot() {
   // 首屏完成：落一份本机快照，供离线冷启动降级
   setLastSnapshot(snapshot);
   renderBanner(bannerEl, _bannerMode(), { staleAgeMs: _maxStaleAge(snapshot) });
+  // ★方位卡必须在这里显式渲染一次：在线路径是「出一张渲染一张」的增量流，不走
+  //   renderSnapshot()，而方位槽位在 renderSkeleton() 里就已经建好 —— 漏了这一句，
+  //   在线时那张卡会**永远停在骨架**，只有离线路径（renderSnapshot）才画得出来。
+  //   放在海拔之后：磁偏角要用椭球高，此时 elevationM 才有值。
+  renderBearingCard(root, snapshot, _declinationDeg(snapshot));
   renderProvenance(root, snapshot);
 
   // ---- 后台补齐 ----

@@ -74,9 +74,8 @@ const ENTRY_OF_PAGE = {
   // 对比页**不进 tabbar**（底部胶囊在 320px 屏上四个 tab 已贴临界点，加第五项必断行），
   // 但它仍然是一个手写页面，入口登记同样要在这儿占一行 —— 漏登记等于漏引 JS、白屏。
   'compare.html': 'src/ui/compare.js',
-  // 自驾页同样**不进 tabbar**（底部胶囊在 320px 屏上四个 tab 已贴临界点，加第五项必断行），
-  // 入口只在「我的」页那张「自驾」卡上，页面内给一条明确的「返回『我的』」路。
-  // 但它仍然是一个手写页面，入口登记同样要在这儿占一行 —— 漏登记等于漏引 JS、白屏。
+  // 自驾页 2026-10-16 起**进 tabbar**（主导航砍到三个：此刻 / 自驾 / 我的，见 MAIN_TABS）。
+  // 它是一个手写页面，入口登记必须在这儿占一行 —— 漏登记等于漏引 JS、白屏。
   'roadtrip.html': 'src/ui/roadtrip.js',
   // 生成产物：入口写在内联引导脚本的 `var ENTRY = "src/ui/selfcheck.js"` 里，
   // 不是 <script src=…> 属性，所以也能被同一条断言覆盖到。
@@ -91,7 +90,22 @@ const ENTRY_OF_PAGE = {
  *
  * @type {string[]}
  */
-const PAGES = ['index.html', 'selfcheck.html', 'compass.html', 'settings.html'];
+const PAGES = ['index.html', 'selfcheck.html', 'compass.html', 'settings.html', 'roadtrip.html'];
+
+/**
+ * **主导航**：底部 tabbar 上出现的三个页面（此刻 / 自驾 / 我的）。
+ *
+ * ★为什么和 PAGES 分开（2026-10-16 导航重构）：
+ *   原来四个 tab 在 320px 屏上内容宽 294px 已贴临界点（真机出过断行），加第五个必撑破。
+ *   用户拍板砍到三个：自检与方位降为「我的」里的入口，空出来的位置让给自驾。
+ *   于是 compass.html / selfcheck.html **仍然带 tabbar**（方便返回主页面），
+ *   但它们**不在** tabbar 里 —— 「有 tabbar 的页面」与「tabbar 指向的页面」不再是同一个集合。
+ *   tabbar 的**覆盖检查**必须对 MAIN_TABS 做（要求覆盖全部 3 个主页面），
+ *   对 PAGES 做会要求把自检、方位也塞回 tabbar —— 那正是本次要消除的东西。
+ *
+ * @type {string[]}
+ */
+const MAIN_TABS = ['index.html', 'roadtrip.html', 'settings.html'];
 
 /** 禁止出现的关键词（CDN / 统计 / 账号 / 广告）。 */
 const FORBIDDEN_PATTERNS = [
@@ -806,22 +820,33 @@ async function main() {
           : `缺少 ${missing.length ? missing.join('、') : '（无）'}；多出 ${extra.length ? extra.join('、') : '（无）'}`;
     }
     check(`${html} tab href 列表与基准 ${BASE_PAGE} 一致（含顺序）`, detail === '', detail);
-    // 反向护栏：万一四页一起漏掉同一个 tab，(a) 依然是绿的 —— 用页面清单兜住
-    const notCovered = PAGES.filter((p) => hrefs.indexOf(p) === -1);
-    check(`${html} tab 覆盖全部 ${PAGES.length} 个手写页面`, notCovered.length === 0, `未覆盖 ${notCovered.join('、')}`);
+    // 反向护栏：万一几页一起漏掉同一个 tab，(a) 依然是绿的 —— 用主导航清单兜住。
+    // ★对 MAIN_TABS 做而不是 PAGES：自检页 / 方位页仍带 tabbar 但已不在导航里，
+    //   要求覆盖它们等于逼着把这两个 tab 塞回去（见 MAIN_TABS 的注释）。
+    const notCovered = MAIN_TABS.filter((p) => hrefs.indexOf(p) === -1);
+    check(`${html} tab 覆盖全部 ${MAIN_TABS.length} 个主导航页面`, notCovered.length === 0, `未覆盖 ${notCovered.join('、')}`);
   }
 
-  // (b) 每页恰好一个激活项，且激活项指向自己
+  // (b) 激活项：主导航页恰好一个且指向自己；子页面（自检 / 方位）必须**没有**激活项 ——
+  //     它不在导航里，标了 active 就等于谎称「你正在这一页」。
   for (const html of PAGES) {
     const tabs = navTabs[html] || [];
     const active = tabs.filter((t) => classTokens(t.cls).indexOf(ACTIVE_CLASS) !== -1);
-    check(
-      `${html} 恰好一个 ${ACTIVE_CLASS}`,
-      active.length === 1,
-      `实际 ${active.length} 个：${active.map((t) => t.href).join('、') || '无'}`
-    );
-    if (active.length === 1) {
-      check(`${html} 激活项指向自己（href=${html}）`, normalizeHref(active[0].href) === html, `实际指向 ${active[0].href}`);
+    if (MAIN_TABS.indexOf(html) !== -1) {
+      check(
+        `${html} 恰好一个 ${ACTIVE_CLASS}（主导航页）`,
+        active.length === 1,
+        `实际 ${active.length} 个：${active.map((t) => t.href).join('、') || '无'}`
+      );
+      if (active.length === 1) {
+        check(`${html} 激活项指向自己（href=${html}）`, normalizeHref(active[0].href) === html, `实际指向 ${active[0].href}`);
+      }
+    } else {
+      check(
+        `${html} 无 ${ACTIVE_CLASS}（不在主导航里，标了等于谎称当前页）`,
+        active.length === 0,
+        `实际 ${active.length} 个：${active.map((t) => t.href).join('、') || '无'}`
+      );
     }
   }
 
@@ -1443,7 +1468,8 @@ async function main() {
    * 只要有一个入口漏掉那一行，用户从设置页切到英文再进那一页，就会看到半中半英。
    */
   section(`15. 语言引导（${PAGES.length + 2} 个手写页面的入口必须在模块顶层切 i18n）`);
-  for (const html of [...PAGES, 'compare.html', 'roadtrip.html']) {
+  // roadtrip.html 已并入 PAGES（它现在带 tabbar），不再单列 —— 否则会被遍历两次。
+  for (const html of [...PAGES, 'compare.html']) {
     const entry = ENTRY_OF_PAGE[html];
     const entrySrc = read(entry);
     check(`${html} 入口 ${entry} 引用语言引导 applyLocale`, entrySrc.indexOf('applyLocale') !== -1, '漏了它，这一页永远说中文');

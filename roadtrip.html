@@ -42,9 +42,14 @@
     <div class="skeleton-note" data-i18n="app.loading">正在装载…</div>
   </main>
 
-  <!-- ★本页**没有**底部 tabbar：.tabbar 是 shrink-to-fit 的固定定位容器，四个 tab 在
-       320px 屏上已经贴着临界点（实测内容宽 294px），真机上出过文字断行的 bug。
-       加第五项必撑破，所以本页走「页面内返回『我的』」这条明确的路（见 roadtrip.js）。 -->
+  <!-- ★本页带底部 tabbar：主导航只有三个 tab（此刻 / 自驾 / 我的），
+       比原来的四个更宽裕 —— 四个 tab 时 320px 屏上内容宽 294px 已贴临界点（真机出过断行），
+       加第五个必撑破；砍到三个后本页才有位置放 tabbar。 -->
+  <nav class="tabbar" aria-label="主导航" data-i18n-aria="a11y.mainNav">
+    <a class="tab" href="index.html" data-i18n="tab.now">此刻</a>
+    <a class="tab tab--active" href="roadtrip.html" aria-current="page" data-i18n="tab.roadtrip">自驾</a>
+    <a class="tab" href="settings.html" data-i18n="tab.settings">我的</a>
+  </nav>
 
   <script type="module" src="src/ui/roadtrip.js"></script>
 </body>

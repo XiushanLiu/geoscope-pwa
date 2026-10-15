@@ -45,7 +45,12 @@ import {
   normalizeSignedAngle,
   normalizeBearing,
 } from '../core/mag.js';
-import { h, applyI18n } from './now.js';
+// ★`declinationText` 从 now.js 取，不在这里自己实现一份：它是全仓唯一的「磁偏角读法」，
+//   三处（本页大号数字 / 设置页 / 此刻页方位卡）共用。放在 now.js 是因为**本页不在自检页
+//   单文件产物的闭包里**，而 now.js 在 —— 反过来让 now.js import 本页会把 mag.js（26.6 KB）
+//   拖进那个诊断页。这里 re-export 只为保持既有 import 路径（tests/compass.test.mjs）。
+import { h, applyI18n, declinationText } from './now.js';
+export { declinationText };
 import { applyThemeMode, applyFontScale } from './theme.js';
 // 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
 // （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
@@ -71,9 +76,6 @@ const GEO_TIMEOUT_MS = 8000;
  * 判定为「本机无方向传感器」并降级，绝不让用户对着一个空指针等下去。
  */
 const SENSOR_WAIT_MS = 2500;
-
-/** 磁偏角小于这个度数就读成「正北（不偏）」（度）。 */
-const DECLINATION_FLAT_EPS = 0.05;
 
 /**
  * 传感器运行时状态（模块级：DOM 事件监听与超时守卫要跨渲染存活）。
@@ -136,22 +138,6 @@ export function computeAt(coord, opts = {}) {
     log('compass: compute failed', name, err && err.message);
     return { mag: null, error: name };
   }
-}
-
-/**
- * 磁偏角的**读法**（不是数字）：东偏为正，负数要读成「西偏 N°」。
- *
- * @param {number|null} declinationDeg 磁偏角（度，东偏为正）。
- * @returns {string} 如「西偏 7.49°」；缺失返回占位符。
- */
-export function declinationText(declinationDeg) {
-  if (declinationDeg === null || declinationDeg === undefined || !Number.isFinite(Number(declinationDeg))) {
-    return t('app.dash');
-  }
-  const d = normalizeSignedAngle(Number(declinationDeg));
-  if (Math.abs(d) < DECLINATION_FLAT_EPS) return t('compass.noDeclination');
-  const abs = fmt.num(Math.abs(d), 2);
-  return d > 0 ? t('compass.east', { deg: abs }) : t('compass.west', { deg: abs });
 }
 
 /**

@@ -34,6 +34,8 @@ export const EN = {
   'tab.selfcheck': 'Check',
   'tab.compass': 'Bearing',
   'tab.settings': 'Me',
+  // Three tabs only: Now / Trip / Me. Check and Bearing became entries under Me.
+  'tab.roadtrip': 'Trip',
 
   // ---------- Data sources ----------
   'source.weather': 'Weather (Open-Meteo Forecast)',
@@ -77,6 +79,8 @@ export const EN = {
 
   // ---------- Now screen ----------
   'now.title': 'Now',
+  // Button on the Now page's bearing card (2026-10-16: the full compass moved into compass.html)
+  'now.bearingBtn': 'Open compass',
   'now.defaultPlaceNotice': 'No location fix, showing the default place',
   'now.locating': 'Getting your location…',
   'now.gpsOk': 'Location acquired',
@@ -152,6 +156,10 @@ export const EN = {
   // ---------- Self-check ----------
   'sc.title': 'Source self-check',
   'sc.subtitle': 'On-device re-check: samples each source serially, tiles judged by fingerprint de-duplication',
+  // Entry on the Me page (2026-10-16: self-check moved out of the bottom tabbar)
+  'sc.entryTitle': 'Source self-check',
+  'sc.entryHint': 'Sample each source and see which ones answer. Start here when you change network or the data looks wrong.',
+  'sc.entryBtn': 'Open',
   'sc.networkType': 'Network type',
   'sc.networkType.hint': 'Browsers do not expose the real network type, pick one manually',
   'sc.net.wifi': 'WiFi',

@@ -36,6 +36,8 @@ export const ZH = {
   'tab.selfcheck': '自检',
   'tab.compass': '方位',
   'tab.settings': '我的',
+  // 底部主导航只有三个 tab：此刻 / 自驾 / 我的。自检与方位降为「我的」里的入口。
+  'tab.roadtrip': '自驾',
 
   // ---------- 数据源名 ----------
   'source.weather': '天气（Open-Meteo Forecast）',
@@ -78,6 +80,8 @@ export const ZH = {
 
   // ---------- 此刻屏 ----------
   'now.title': '此刻',
+  // 此刻页方位卡的按钮（2026-10-16：完整罗盘收进 compass.html，此刻页只留磁偏角一个数）
+  'now.bearingBtn': '打开罗盘',
   'now.defaultPlaceNotice': '未取得定位，正在显示默认地点',
   'now.locating': '正在获取定位…',
   'now.gpsOk': '定位成功',
@@ -152,6 +156,10 @@ export const ZH = {
   // ---------- 自检页 ----------
   'sc.title': '数据源自检',
   'sc.subtitle': '真机复验：逐源串行取样，瓦片做指纹去重判定',
+  // 「我的」页里的自检入口（2026-10-16：自检从底部 tabbar 搬进「我的」页）
+  'sc.entryTitle': '数据源自检',
+  'sc.entryHint': '逐源取样，看清哪一路通、哪一路不通。换网络或数据看着不对时先来这里。',
+  'sc.entryBtn': '打开自检',
   'sc.networkType': '网络类型',
   'sc.networkType.hint': '浏览器不暴露真实网络类型，请手动点选',
   'sc.net.wifi': 'WiFi',

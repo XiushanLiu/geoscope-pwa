@@ -30,9 +30,8 @@
 import { t } from '../i18n/index.js';
 import { errorText, reasonText } from './errtext.js';
 import * as fmt from '../core/format.js';
-import { decimalYearFromDate } from '../core/mag.js';
 import { snapshotToCsv, CSV_MIME } from '../core/csv.js';
-import { geomagneticDeclination } from '../data/wmm2025.js';
+import { declinationDegAt } from '../data/wmm2025.js';
 import {
   getState,
   getLastSnapshot,
@@ -557,24 +556,9 @@ function _csvSummaryText() {
  */
 function _declinationFor(snapshot) {
   const coord = snapshot && snapshot.coord ? snapshot.coord : null;
-  const lat = coord ? Number(coord.lat) : NaN;
-  const lon = coord ? Number(coord.lon) : NaN;
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  try {
-    const altM = Number(snapshot.elevationM);
-    const deg = geomagneticDeclination({
-      latitude: lat,
-      longitude: lon,
-      // WMM 要**千米**且是椭球高，项目通用单位是米 —— 与 compass.js 的 altitudeKmFromM 同口径
-      altitudeKm: Number.isFinite(altM) ? altM / 1000 : 0,
-      // 不传会按历元 2025.0 算而不是今天（2029 年打开就会拿到 2025 年的值）
-      decimalYear: decimalYearFromDate(new Date()),
-    });
-    return Number.isFinite(deg) ? deg : null;
-  } catch (err) {
-    log('csv declination failed', err && err.message);
-    return null;
-  }
+  // 单位换算（米→千米）、decimalYear、异常兜底统一由 data 层的 declinationDegAt 管 ——
+  // 与 compass.js、此刻页共用同一份，避免三处各写一遍 WMM 的单位坑。
+  return declinationDegAt(coord, { altitudeM: snapshot ? snapshot.elevationM : null });
 }
 
 /**
@@ -646,6 +630,29 @@ function _renderRoadtripCard() {
     h('p', { class: 'card-note', text: t('rt.entryHint') }),
     h('div', { class: 'field field--row' }, [
       h('a', { class: 'btn btn--primary', href: 'roadtrip.html', text: t('rt.entryBtn') }),
+    ]),
+  ]);
+}
+
+/**
+ * 渲染「数据源自检」入口卡。
+ *
+ * 2026-10-16 导航重构：自检**从底部 tabbar 移进「我的」页**（主导航砍到三个：
+ * 此刻 / 自驾 / 我的）。它不是日常要看的东西，占一个 tab 位不划算；
+ * 但它的价值不只在调试 —— **换网络环境**（出境、换运营商）时要靠它看清
+ * 哪一路还通，**数据看着不对**时也要靠它判断是上游挂了还是 App 的问题。
+ * 所以入口必须留着，只是从常驻挪到了收纳处。
+ *
+ * 同样只是一条 `<a href>`：离线时 SW 才能命中预缓存的页面。
+ *
+ * @returns {HTMLElement} 卡片节点。
+ */
+function _renderSelfcheckCard() {
+  return h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('sc.entryTitle') }),
+    h('p', { class: 'card-note', text: t('sc.entryHint') }),
+    h('div', { class: 'field field--row' }, [
+      h('a', { class: 'btn', href: 'selfcheck.html', text: t('sc.entryBtn') }),
     ]),
   ]);
 }
@@ -842,6 +849,11 @@ function _renderPage() {
 
   // (d) 导出 CSV（紧跟备份两张卡：三张都是「把数据带出本机」，连成一片更好找）
   app.appendChild(_renderCsvCard());
+
+  // (d2) 数据源自检 —— 2026-10-16 从底部 tabbar 搬进来（主导航只剩三个，见 MAIN_TABS）。
+  //      位置：数据类卡片末尾、外观类之前 —— 它是诊断工具而不是外观设置；
+  //      语言卡必须压在整页最后（点完要整页重画，见下面 (g) 的注释），不能抢它的位置。
+  app.appendChild(_renderSelfcheckCard());
 
   // (e) 主题
   app.appendChild(_renderThemeCard());

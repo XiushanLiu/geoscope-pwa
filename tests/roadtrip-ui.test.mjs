@@ -190,12 +190,25 @@ test('返回「我的」必须是 <a href="settings.html">：没有 SPA 路由�
   assert.equal(back[0].tagName, 'A', '必须是 <a>，不能是按钮 + JS 跳转');
 });
 
-test('自驾页不带底部 tabbar：第五个 tab 会撑破 320px（roadtrip.js 文件头有实测）', () => {
-  initRoadtrip();
+test('★自驾页带底部 tabbar，且恰好三个主导航 tab（此刻 / 自驾 / 我的）', () => {
+  // ★直接读**静态 HTML**：tabbar 是写在 .html 里的静态结构，不是 JS 渲染出来的，
+  //   所以「用假 DOM 查 body 里有没有 .tabbar」根本看不到它 ——
+  //   本用例的前身「自驾页不带 tabbar」就是这么一直绿着的：它测的东西从一开始就缺位。
+  const src = fs.readFileSync(new URL('../roadtrip.html', import.meta.url), 'utf8');
+  const block = /<nav class="tabbar"[^>]*>([\s\S]*?)<\/nav>/.exec(src);
+  assert.ok(block, 'roadtrip.html 必须含 <nav class="tabbar">');
+
+  const hrefs = [...block[1].matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(
+    hrefs,
+    ['index.html', 'roadtrip.html', 'settings.html'],
+    '主导航三个 tab（此刻 / 自驾 / 我的）—— 2026-10-16 决策：自检与方位降为「我的」里的入口，' +
+      '空出的位置让给自驾。四个 tab 时 320px 屏上内容宽 294px 已贴临界点（真机出过断行）'
+  );
   assert.equal(
-    dom.body.querySelectorAll('.tabbar').length,
-    0,
-    '本页不许出现 .tabbar —— 它的宽度是 shrink-to-fit，第五项必撑破'
+    (block[1].match(/class="tab tab--active"/g) || []).length,
+    1,
+    '本页自己是激活项'
   );
 });
 
