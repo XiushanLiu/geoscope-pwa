@@ -23,7 +23,8 @@
  *   6) getSource('climate') 可解析；SOURCE_LIST 仍是六路、未被污染；
  *   7) climateCacheKey 同坐标同键、异坐标异键；
  *   8) renderClimateCard 四态（idle 有按钮 / ready 有 12 行 / error 有重试 / 回调非函数不绑不崩）；
- *   9) now.js 的闭包红线（不许发请求、不许 import data 层）+ 红线上屏文案。
+ *   9) now.js 的闭包红线（不许发请求、不许 import data 层）+ 红线上屏文案；
+ *   10) 格点中心 `grid`（北京 40,116.5 / 手算距离区间 / 缺字段一律 null / 整行不显示）。
  */
 
 import { test } from 'node:test';
@@ -535,6 +536,7 @@ test('⑨b climate.* / source.climate 中英成对且非空（不许简写红线
     'source.climate',
     'climate.title',
     'climate.entryNote',
+    'climate.gridNote',
     'climate.loadBtn',
     'climate.loading',
     'climate.colMonth',
@@ -567,4 +569,122 @@ test('⑨b climate.* / source.climate 中英成对且非空（不许简写红线
   // 红线文案不许简写：必须含「非官方」
   assert.ok(String(ZH['climate.entryNote']).indexOf('非官方') !== -1);
   assert.ok(/not an official/i.test(String(EN['climate.entryNote'])));
+});
+
+/* ------------------------------------------------------------------ */
+/* 10. 格点中心（grid）—— 解释「为什么不是台站数」的物证                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 手算的北京格点距离（写死在注释里，别把浮点写进断言）。
+ *
+ * 独立算法（不 import 本仓任何模块）：Haversine，R = 6371 km（与 core/geo.js 同）
+ *   39.9087,116.3975 → 40,116.5  =  13.3939 km
+ * 交叉验证两路：
+ *   - 平面近似（1° 纬度 ≈ 111.32 km，1° 经度 ≈ 111.32 × cos(39.95°)）= 13.4090 km
+ *     —— 与球面解差 0.015 km（0.1%），量级对得上。
+ *   - 换 WGS84 长半轴 R = 6378.137 → 13.4089 km（球半径不同带来 0.015 km 差异，属正常）。
+ * 所以断言取区间 13.0 ~ 13.8，不写死 13.3939 / 13.4。
+ */
+const HAND_BJ_GRID_KM = 13.3939;
+
+test('⑩ 北京夹具 → grid 是格点中心 40,116.5，distanceKm 落在手算区间内', () => {
+  // 响应自己的 latitude/longitude 就是物证：请求 39.9087,116.3975，回来的是 40,116.5
+  assert.equal(REAL_BJ.latitude, 40, '夹具的 latitude 必须是格点中心 40');
+  assert.equal(REAL_BJ.longitude, 116.5, '夹具的 longitude 必须是格点中心 116.5');
+
+  const got = parseClimate(REAL_BJ, { lat: 39.9087, lon: 116.3975 });
+  assert.ok(got, '真实响应必须解析出结果');
+  assert.ok(got.grid, 'grid 必须有值');
+  assert.equal(got.grid.lat, 40, 'grid.lat 必须取自响应的 latitude');
+  assert.equal(got.grid.lon, 116.5, 'grid.lon 必须取自响应的 longitude');
+
+  // 手算 13.3939 km（见 HAND_BJ_GRID_KM 注释）—— 区间断言，不锁浮点
+  assert.ok(
+    got.grid.distanceKm > 13.0 && got.grid.distanceKm < 13.8,
+    `distanceKm 应落在 13.0~13.8（手算 ${HAND_BJ_GRID_KM}），实际 ${got.grid.distanceKm}`
+  );
+  // 1 位小数
+  assert.equal(got.grid.distanceKm, 13.4, 'distanceKm 保留 1 位小数后应等于 13.4');
+  // ★绝不退化成 0：0 km 等于谎称格点就在脚下
+  assert.notEqual(got.grid.distanceKm, 0);
+});
+
+test('⑩b 缺 json.latitude / longitude → grid === null 且不抛（不是 0,0）', () => {
+  // 浅拷贝即可：parseClimate 只读 daily 与 latitude/longitude，不碰别的
+  const noLat = Object.assign({}, REAL_BJ);
+  delete noLat.latitude;
+  const noLon = Object.assign({}, REAL_BJ);
+  delete noLon.longitude;
+
+  let r1 = null;
+  let r2 = null;
+  assert.doesNotThrow(() => {
+    r1 = parseClimate(noLat, { lat: 39.9087, lon: 116.3975 });
+    r2 = parseClimate(noLon, { lat: 39.9087, lon: 116.3975 });
+  }, '缺格点字段不许抛');
+
+  assert.ok(r1, '少了 latitude 也该照常聚合（聚合不依赖它）');
+  assert.equal(r1.grid, null, '缺 latitude → grid 必须是 null');
+  assert.ok(r2);
+  assert.equal(r2.grid, null, '缺 longitude → grid 必须是 null');
+
+  // 非有限数（null / NaN / 字符串）同罪 —— `Number(null) === 0` 是本仓踩过四次的坑
+  for (const bad of [null, undefined, NaN, 'abcd', {}]) {
+    const j = Object.assign({}, REAL_BJ, { latitude: bad });
+    const got = parseClimate(j, { lat: 39.9087, lon: 116.3975 });
+    assert.equal(got.grid, null, `latitude=${String(bad)} 时 grid 必须是 null`);
+  }
+});
+
+test('⑩c ctx 缺失 → lat/lon 照给，distanceKm === null（不是 0）', () => {
+  const a = parseClimate(REAL_BJ, {});
+  assert.ok(a && a.grid);
+  assert.equal(a.grid.lat, 40, '格点中心与 ctx 无关，ctx 缺也照给');
+  assert.equal(a.grid.lon, 116.5);
+  assert.equal(a.grid.distanceKm, null, 'ctx 空 → distanceKm 必须是 null');
+  assert.notEqual(a.grid.distanceKm, 0, '★绝不能是 0 —— 0 km 是假结果');
+
+  // 不传 ctx（老调用点）、ctx 里坐标是 null / NaN，同一条规则
+  const b = parseClimate(REAL_BJ);
+  assert.equal(b.grid.distanceKm, null, '不传 ctx 也必须是 null');
+  for (const bad of [null, NaN, undefined, 'x']) {
+    const c = parseClimate(REAL_BJ, { lat: bad, lon: 116.3975 });
+    assert.equal(c.grid.distanceKm, null, `ctx.lat=${String(bad)} 时必须是 null`);
+    const d = parseClimate(REAL_BJ, { lat: 39.9087, lon: bad });
+    assert.equal(d.grid.distanceKm, null, `ctx.lon=${String(bad)} 时必须是 null`);
+  }
+});
+
+test('⑩d 渲染：有 grid 出格点那一行；grid 为 null / 距离缺失 → 整行不出现', () => {
+  // 有值：整句模板只插值数字，且排在如实标注那一行之后
+  const root = mount();
+  const data = Object.assign(fakeAggregate(), { grid: { lat: 40, lon: 116.5, distanceKm: 13.4 } });
+  renderClimateCard(root, { status: 'ready', data, text: '' }, null);
+  const body = text(root);
+  const line = t('climate.gridNote', { lat: 40, lon: 116.5, km: 13.4 });
+  assert.ok(body.indexOf(line) !== -1, '必须出格点那一行');
+  assert.ok(body.indexOf(line) > body.indexOf(t('climate.entryNote')), '格点行必须排在如实标注之后');
+  // 不许出现「0 km」这种退化
+  assert.ok(body.indexOf('0 km') === -1, '不许出现 0 km');
+
+  // grid === null：整行消失，其余照旧
+  const root2 = mount();
+  const data2 = Object.assign(fakeAggregate(), { grid: null });
+  renderClimateCard(root2, { status: 'ready', data: data2, text: '' }, null);
+  const body2 = text(root2);
+  assert.ok(body2.indexOf(t('climate.gridNote', { lat: 40, lon: 116.5, km: 13.4 })) === -1, 'grid 为 null 时整行不显示');
+  assert.ok(body2.indexOf('格点') === -1, 'grid 为 null 时不许留「格点」字样');
+  assert.equal(root2.querySelectorAll('.clim-c').length, 36, '其余内容不受影响');
+  assert.ok(body2.indexOf(t('climate.entryNote')) !== -1, '如实标注照旧在');
+
+  // grid 有值但 distanceKm === null（算不出距离）→ 同样整行不显示
+  const root3 = mount();
+  const data3 = Object.assign(fakeAggregate(), { grid: { lat: 40, lon: 116.5, distanceKm: null } });
+  renderClimateCard(root3, { status: 'ready', data: data3, text: '' }, null);
+  assert.ok(
+    text(root3).indexOf(t('climate.gridNote', { lat: 40, lon: 116.5, km: 0 })) === -1,
+    'distanceKm 为 null 时整行不显示'
+  );
+  assert.ok(text(root3).indexOf('格点') === -1, 'distanceKm 缺失时不许显示「格点 —」或「约 0 km」');
 });

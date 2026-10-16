@@ -773,22 +773,25 @@ export function renderClimateCard(root, view, onLoad) {
   const months = data && Array.isArray(data.months) ? data.months : [];
   if (status === 'ready' && months.length > 0) {
     const summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
-    _fill(box, [
-      h('div', { class: 'card' }, [
-        title,
-        h('p', { class: 'card-title', text: t('climate.annual') }),
-        h('div', { class: 'kv' }, [
-          _kv(t('climate.annualHigh'), fmt.tempC(summary.tmaxC, 1)),
-          _kv(t('climate.annualLow'), fmt.tempC(summary.tminC, 1)),
-          _kv(t('climate.annualPrecip'), fmt.precipMm(summary.precipMm)),
-        ]),
-        _climateTable(months),
-        // 样本量如实给：多少天、多少年。整句模板只插值数字（中英语序不同，不拼片段）
-        h('p', { class: 'card-note', text: t('climate.sample', { n: _count(data.dayCount), years: _count(data.years) }) }),
-        // ★红线文案，整句上屏，不许简写
-        h('p', { class: 'card-note', text: t('climate.entryNote') }),
+    // 格点那一行：grid 或距离缺一个就**不产生节点**（见 _gridNoteLine）
+    const gridLine = _gridNoteLine(data.grid);
+    const readyNodes = [
+      title,
+      h('p', { class: 'card-title', text: t('climate.annual') }),
+      h('div', { class: 'kv' }, [
+        _kv(t('climate.annualHigh'), fmt.tempC(summary.tmaxC, 1)),
+        _kv(t('climate.annualLow'), fmt.tempC(summary.tminC, 1)),
+        _kv(t('climate.annualPrecip'), fmt.precipMm(summary.precipMm)),
       ]),
-    ]);
+      _climateTable(months),
+      // 样本量如实给：多少天、多少年。整句模板只插值数字（中英语序不同，不拼片段）
+      h('p', { class: 'card-note', text: t('climate.sample', { n: _count(data.dayCount), years: _count(data.years) }) }),
+      // ★红线文案，整句上屏，不许简写
+      h('p', { class: 'card-note', text: t('climate.entryNote') }),
+    ];
+    // 格点说明排在如实标注**后面**：先说清「这不是官方常态」，再说清「数据来自哪个格点」
+    if (gridLine) readyNodes.push(gridLine);
+    _fill(box, [h('div', { class: 'card' }, readyNodes)]);
     return;
   }
 
@@ -802,6 +805,38 @@ export function renderClimateCard(root, view, onLoad) {
     idleNodes.push(h('div', { class: 'field field--row' }, [btn]));
   }
   _fill(box, [h('div', { class: 'card' }, idleNodes)]);
+}
+
+/**
+ * 格点中心那一行（`climate.gridNote`）。
+ *
+ * 它回答的是用户看到月平均后的第一个疑问：「为什么跟我印象里的官方常态不一样？」
+ * —— 因为数据是 ERA5 的 0.25° **格点中心**的值，不是台站观测，那个格点可能在
+ * 十几公里外（北京查询点 39.9087,116.3975 → 格点 40,116.5，实测约 13.4 km）。
+ *
+ * ★「没算出来」就**整行没有**，绝不退化成「格点 —」或「约 0 km」：
+ *   本仓被 `Number(null) === 0` 咬过四次 —— 空值一旦被当成 0，界面上就是一个
+ *   看起来很有道理的假结果（「距查询点约 0 km」等于谎称数据就在你脚下）。
+ *   所以先判 null/undefined，再判有限数，两步都不能省。
+ *
+ * 坐标不补小数位：响应给 `40` / `116.5` 就显示 `40` / `116.5`，补成 `40.00` 会给一个
+ * ~31 km 的格点凭空添两位精度。
+ *
+ * @param {*} grid parseClimate 的 `grid` 字段。
+ * @returns {HTMLElement|null} 那一行 <p>；数字缺任何一个时 null（调用方就不渲染）。
+ */
+function _gridNoteLine(grid) {
+  if (!grid || typeof grid !== 'object') return null;
+  const { lat, lon, distanceKm } = grid;
+  if (lat === null || lat === undefined) return null;
+  if (lon === null || lon === undefined) return null;
+  if (distanceKm === null || distanceKm === undefined) return null;
+  const nLat = Number(lat);
+  const nLon = Number(lon);
+  const nKm = Number(distanceKm);
+  if (!Number.isFinite(nLat) || !Number.isFinite(nLon) || !Number.isFinite(nKm)) return null;
+  // 整句模板只插值数字（英文语序不同，不拼片段）
+  return h('p', { class: 'card-note', text: t('climate.gridNote', { lat: nLat, lon: nLon, km: nKm }) });
 }
 
 /**

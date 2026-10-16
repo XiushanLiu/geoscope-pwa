@@ -29,7 +29,10 @@
  */
 
 import { makeKey } from '../core/cache.js';
-import { round4 } from '../core/geo.js';
+// ★大圆距离直接复用 core/geo.js 的 distanceKm()，不在本模块抄第二份实现
+//   （本仓有过「抄一份然后两边漂移」的教训）。它不做 null 兜底，所以调用方必须先把
+//   四个坐标都判成有限数字 —— 见 _gridOf()。
+import { round4, distanceKm } from '../core/geo.js';
 import { t } from '../i18n/index.js';
 import { OPENMETEO_ATTRIBUTION_KEY } from './openmeteo.js';
 
@@ -113,6 +116,40 @@ function _r1(v) {
 }
 
 /**
+ * 取响应里的 **ERA5 格点中心** 与它到查询点的距离。
+ *
+ * 为什么要有它：archive-api 返回的 `latitude` / `longitude` **不是**我们请求的那两个值，
+ *   而是上游把请求点吸附到的 **0.25° 网格中心**（北京请求 39.9087,116.3975 → 返回
+ *   40,116.5；广州 23.1291,113.2644 → 返回 23.25,113.25）。这一步就把「为什么这些
+ *   月平均跟我印象里的官方常态不一样」讲清楚了 —— 数据不是台站的，是**十几公里外
+ *   一个格点的**。这个数必须上屏（见 climate.gridNote），不该只躺在注释里。
+ *
+ * ★四个「没算出来」的坑照旧：`json.latitude` / `json.longitude` / `ctx.lat` / `ctx.lon`
+ *   任何一个缺失或非有限数 → 对应字段是 **null**，绝不出 `0,0` 或 `0 km`
+ *   （`Number(null) === 0` 是本仓踩过四次的坑，会显示一个看起来很有道理的假结果）。
+ *   格点中心本身与 ctx 无关：ctx 缺失时 lat/lon 照常给，只有 distanceKm 是 null。
+ *
+ * @param {Object} json 响应 JSON。
+ * @param {{lat:number, lon:number}} [ctx] 查询点上下文。
+ * @returns {{lat:number, lon:number, distanceKm:number|null}|null} 格点；缺格点字段时 null。
+ */
+function _gridOf(json, ctx) {
+  const gLat = _finite(json && json.latitude);
+  const gLon = _finite(json && json.longitude);
+  if (gLat === null || gLon === null) return null;
+
+  const cLat = _finite(ctx && ctx.lat);
+  const cLon = _finite(ctx && ctx.lon);
+  let km = null;
+  if (cLat !== null && cLon !== null) {
+    const d = distanceKm({ lat: cLat, lon: cLon }, { lat: gLat, lon: gLon });
+    // distanceKm 不兜底（core 层按约定只算数），NaN / Infinity 一律收敛成 null
+    km = Number.isFinite(d) ? _r1(d) : null;
+  }
+  return { lat: gLat, lon: gLon, distanceKm: km };
+}
+
+/**
  * 从 'YYYY-MM-DD' 取年份与月份。
  *
  * 只认这一种形态的首段（`daily.time` 就是它）；解析不出返回 null，由调用方**整日跳过**
@@ -164,13 +201,18 @@ function _yearMonth(s) {
  * 退化输入（不是数组 / 缺 `daily` / `daily.time` 长度为 0 / 抛异常）一律返回 **null** ——
  * 不是返回一堆 0，也不是抛异常让整条链路炸掉。
  *
+ *   - `grid`：响应里的**格点中心**（`json.latitude` / `json.longitude`）+ 它到查询点
+ *     `ctx` 的大圆距离（km，1 位小数）。聚合本身与 ctx 无关，ctx 只用于算这个距离；
+ *     缺任一坐标 → 对应字段 null（见 `_gridOf`）。界面靠它解释「为什么不是台站数」。
+ *
  * @param {Object} json 响应 JSON。
- * @param {{lat:number, lon:number}} [ctx] 上下文（本聚合不用它，签名与其它 parse 对齐）。
+ * @param {{lat:number, lon:number}} [ctx] 查询点上下文（只用于算 `grid.distanceKm`）。
  * @returns {{years:number, dayCount:number,
  *            months:Array<{month:number, tmaxC:number|null, tminC:number|null,
  *                          precipMm:number|null, days:number, monthYears:number}>,
- *            summary:{tmaxC:number|null, tminC:number|null, precipMm:number|null}}|null}
- *   聚合结果；输入不可用时 null。
+ *            summary:{tmaxC:number|null, tminC:number|null, precipMm:number|null},
+ *            grid:{lat:number, lon:number, distanceKm:number|null}|null}|null}
+ *   聚合结果；输入不可用时 null（`grid` 单独判空，与整体 null 无关）。
  */
 export function parseClimate(json, ctx) {
   try {
@@ -247,6 +289,10 @@ export function parseClimate(json, ctx) {
       years: allYears.size,
       dayCount,
       months,
+      // 格点中心与查询点的距离。缺 json.latitude/longitude 时整个 grid 是 null，
+      // 缺 ctx.lat/lon 时 lat/lon 照给、只有 distanceKm 是 null —— 两种「没算出来」
+      // 都不能退化成 0,0 或 0 km（界面据此整行不显示，见 climate.gridNote）。
+      grid: _gridOf(json, ctx),
       summary: {
         tmaxC: dayCount > 0 ? _r1(allTmaxSum / dayCount) : null,
         tminC: dayCount > 0 ? _r1(allTminSum / dayCount) : null,

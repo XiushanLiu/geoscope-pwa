@@ -52,6 +52,10 @@ export const EN = {
   //   shortened to "climate normals". These are self-computed ERA5 reanalysis averages.
   'climate.title': 'Climate averages (1991–2020)',
   'climate.entryNote': 'Self-computed monthly averages from the ERA5 reanalysis, 1991–2020 · not an official climate normal',
+  // Whole-sentence template, numbers only (English word order differs — never concatenate
+  // fragments). {lat}/{lon} is the ERA5 0.25° grid cell centre, {km} its distance from the
+  // queried point; if any of them is missing the whole line is hidden (see renderClimateCard).
+  'climate.gridNote': 'Values come from the ERA5 grid cell at {lat}, {lon}, about {km} km from the point you looked up',
   'climate.loadBtn': 'Show monthly averages',
   'climate.loading': 'Fetching 30 years of reanalysis data…',
   'climate.colMonth': 'Month',

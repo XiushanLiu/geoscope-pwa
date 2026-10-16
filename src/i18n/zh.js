@@ -54,6 +54,10 @@ export const ZH = {
   //   它不是官方气候常态，是 ERA5 再分析格点值自算的月平均。
   'climate.title': '气候常态（1991–2020）',
   'climate.entryNote': 'ERA5 再分析 1991–2020 自算月平均 · 非官方气候常态',
+  // 整句模板，只插值数字（英文语序不同，不能拼片段）。
+  // {lat}/{lon} 是 ERA5 的 0.25° 格点中心，{km} 是它到查询点的距离；
+  // 三者缺任一 → 整行不显示（见 ui/now.js 的 renderClimateCard）。
+  'climate.gridNote': '数据取自 ERA5 格点 {lat}, {lon}，距查询点约 {km} km',
   'climate.loadBtn': '查看月平均',
   'climate.loading': '正在取 30 年再分析数据…',
   'climate.colMonth': '月份',
