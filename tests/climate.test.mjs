@@ -161,9 +161,12 @@ test('①b CLIMATE_SOURCES.climate 契约值（timeoutMs / retry / ttlMs / cache
   assert.equal(s.id, 'climate');
   assert.equal(s.labelKey, 'source.climate');
   assert.equal(s.host, CLIMATE_HOST);
-  // 23428 = max(6000, ceil(11713.75 × 2))：北京三次实测最大 11.714 s（沙箱口径，待真机复测）
-  assert.equal(s.timeoutMs, 23428);
-  assert.equal(s.retry, 1);
+  // 30000：取**全部七个实测样本**的最大值 14.284 s（不是只取北京那三次的 11.714 s ——
+  //   那是挑好看的数字）。ceil(14284.211 × 2) = 28569 → 上收整数 30000。沙箱口径，待真机复测。
+  //   七样本：北京 5.062 / 11.714 / 9.417；广州 14.284 / 4.619 / 2.493 / 3.540。
+  assert.equal(s.timeoutMs, 30000);
+  // ★retry 0：http.js 全局并发 1，30 s 超时 × 2 会独占队列 60 s；失败态已有手动重试按钮
+  assert.equal(s.retry, 0);
   assert.equal(s.ttlMs, 2592000000); // 30 天
   assert.equal(s.cacheable, true);
   assert.equal(s.critical, false);
@@ -239,6 +242,23 @@ test('②b 常识校验：北京 1 月 / 7 月 与年降水总量（对不上的
   // 12 个月的月降水之和必须等于年降水总量（界面上「12 行相加 == 年均」）
   const sum = got.months.reduce((a, m) => a + (m.precipMm || 0), 0);
   assert.equal(Math.round(sum * 10) / 10, got.summary.precipMm);
+
+  // ★取整取舍（主理人 2026-10-16 裁决：不改代码，只钉住这个差）：
+  //   现状 = 已取整月值求和（列能加得起来）= 531.7 mm；
+  //   「未取整月值求和再取整」那条更准的路 = 531.6 mm。两者差 0.1 mm（0.02%），
+  //   远低于 ERA5 格点与台站 18% 量级的噪声，属预期。**改成 531.6 会立刻红**
+  //   —— 那正是「有人偷偷换了口径」时该看到的红。
+  const sumUnrounded = REAL_BJ.daily.precipitation_sum.reduce(
+    (acc, v, i) => acc + (typeof v === 'number' && Number.isFinite(v) ? v : 0),
+    0
+  );
+  const unroundedAnnual = Math.round((sumUnrounded / 30) * 10) / 10;
+  assert.equal(unroundedAnnual, 531.6, '未取整月值求和再取整应为 531.6 mm');
+  assert.equal(got.summary.precipMm, 531.7, '现状（已取整月值求和）应为 531.7 mm');
+  assert.ok(
+    Math.abs(unroundedAnnual - got.summary.precipMm) <= 0.1 + 1e-9,
+    '两条路的差必须 ≤ 0.1 mm（超出说明某处取整口径变了）'
+  );
 });
 
 /* ------------------------------------------------------------------ */
