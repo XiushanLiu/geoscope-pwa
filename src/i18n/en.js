@@ -44,6 +44,39 @@ export const EN = {
   'source.elevation': 'Elevation (Open-Meteo Elevation)',
   'source.reverse': 'Reverse geocoding (Photon)',
   'source.tile': 'Basemap tiles (ArcGIS Online)',
+  // Climate averages: ERA5 1991–2020 daily reanalysis, aggregated locally by calendar month.
+  'source.climate': 'Climate averages (Open-Meteo ERA5 archive)',
+
+  // ---------- Climate averages (1991–2020 monthly / annual) ----------
+  // ★Red line: `climate.entryNote` must be rendered as the whole sentence — never
+  //   shortened to "climate normals". These are self-computed ERA5 reanalysis averages.
+  'climate.title': 'Climate averages (1991–2020)',
+  'climate.entryNote': 'Self-computed monthly averages from the ERA5 reanalysis, 1991–2020 · not an official climate normal',
+  'climate.loadBtn': 'Show monthly averages',
+  'climate.loading': 'Fetching 30 years of reanalysis data…',
+  'climate.colMonth': 'Month',
+  'climate.colHigh': 'Avg high',
+  'climate.colLow': 'Avg low',
+  'climate.colPrecip': 'Precip.',
+  'climate.annual': 'Annual',
+  'climate.annualHigh': 'Annual avg high',
+  'climate.annualLow': 'Annual avg low',
+  'climate.annualPrecip': 'Annual precip. total',
+  'climate.sample': 'Based on {n} days · {years} years',
+  'climate.m1': 'Jan',
+  'climate.m2': 'Feb',
+  'climate.m3': 'Mar',
+  'climate.m4': 'Apr',
+  'climate.m5': 'May',
+  'climate.m6': 'Jun',
+  'climate.m7': 'Jul',
+  'climate.m8': 'Aug',
+  'climate.m9': 'Sep',
+  'climate.m10': 'Oct',
+  'climate.m11': 'Nov',
+  'climate.m12': 'Dec',
+  'climate.err': 'Could not load the climate averages',
+  'climate.retry': 'Retry',
 
   // ---------- Status words ----------
   'status.idle': 'Not requested',

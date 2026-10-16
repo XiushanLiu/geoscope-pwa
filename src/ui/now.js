@@ -182,6 +182,14 @@ export function renderSkeleton(root) {
   root.appendChild(_slot(root, 'weather')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'air')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'place')).appendChild(h('div', { class: 'sk' }));
+  // 气候常态槽（1991–2020 月平均）：**紧跟 place 之后、map 之前**建。
+  //   理由一（为什么跟在地点卡后面）：气候常态是「这个地点 30 年的属性」，跟在地点卡
+  //   后面才讲得通 —— 它回答的是「这儿通常什么样」，不是「此刻什么样」。
+  //   理由二（为什么不插在实时数据卡之间）：它是**查阅物**（要点按钮才取 303 KB 的
+  //   30 年再分析），不是首屏数据，插进 weather / air 之间会把首屏撑长、还让「实时」
+  //   与「常态」两类数字挨在一起被误读成同一时刻的值。
+  // ★顺序由首次创建那一刻决定（appendChild 的先后），建错位置就再也挪不回去。
+  root.appendChild(_slot(root, 'climate'));
   // 底图槽：这里**只建槽不填内容**，由 ui/map.js 的 renderMapSkeleton / renderMapCard 填充
   // （now.js 不 import map.js —— map.js 要用 now.js 的 h()，反方向依赖会成环）。
   // ★顺序必须在 prov 之前建：槽位顺序由首次创建那一刻决定，建错位置就再也挪不回去。
@@ -710,6 +718,132 @@ export function renderPlaceCard(root, snapshot) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 气候常态卡（1991–2020 月平均 / 年平均，懒加载）                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 渲染气候常态卡（月平均 / 年平均）。
+ *
+ * ★本函数**不发起任何请求**：30 年再分析数据的取数在 `ui/app.js` 的 `_loadClimate()`
+ *   （本模块不许 import `src/data/` 下的任何东西，见文件头闭包红线）。数据由调用方
+ *   算好 / 取好后放进 `view.data` 传进来，与 `renderBearingCard(root, snapshot,
+ *   declinationDeg)` 的「调用方算、渲染层画」是同一个模式。
+ *
+ * ★上屏红线：`climate.entryNote` 那句「ERA5 再分析 1991–2020 自算月平均 · 非官方气候
+ *   常态」必须**整句**上屏，不许简写成「气候常态」（那是说谎：它不是官方常态值）。
+ *
+ * @param {HTMLElement} root 根容器。
+ * @param {{status:'idle'|'loading'|'ready'|'error', data:Object|null, text:string}} view 视图状态。
+ * @param {() => void} [onLoad] 点击回调（**必须是函数才绑**；本仓规矩：回调不许
+ *   「取不到就退化成空函数」，那是静默断线的最爱 —— 没传就干脆不绑）。
+ * @returns {void}
+ */
+export function renderClimateCard(root, view, onLoad) {
+  const box = _slot(root, 'climate');
+  const v = view && typeof view === 'object' ? view : {};
+  const status = v.status === 'loading' || v.status === 'ready' || v.status === 'error' ? v.status : 'idle';
+  const bind = typeof onLoad === 'function' ? onLoad : null;
+  const title = h('p', { class: 'card-title', text: t('climate.title') });
+
+  if (status === 'loading') {
+    _fill(box, [
+      h('div', { class: 'card' }, [
+        title,
+        h('div', { class: 'sk' }),
+        h('p', { class: 'card-note', text: t('climate.loading') }),
+      ]),
+    ]);
+    return;
+  }
+
+  if (status === 'error') {
+    // 取数失败只废这一张卡：空态 + 重试按钮（不转圈）
+    _fill(box, [
+      h('div', { class: 'card' }, [
+        title,
+        // 第三参数给「重试」按钮的文案键：这一颗按钮重取的是 303 KB 的 30 年再分析，
+        // 不是普通的一路源，文案单独一条（中英各一版），不借 app.retry。
+        _emptyCard(String(v.text || t('climate.err')), bind, 'climate.retry'),
+      ]),
+    ]);
+    return;
+  }
+
+  const data = v.data && typeof v.data === 'object' ? v.data : null;
+  const months = data && Array.isArray(data.months) ? data.months : [];
+  if (status === 'ready' && months.length > 0) {
+    const summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
+    _fill(box, [
+      h('div', { class: 'card' }, [
+        title,
+        h('p', { class: 'card-title', text: t('climate.annual') }),
+        h('div', { class: 'kv' }, [
+          _kv(t('climate.annualHigh'), fmt.tempC(summary.tmaxC, 1)),
+          _kv(t('climate.annualLow'), fmt.tempC(summary.tminC, 1)),
+          _kv(t('climate.annualPrecip'), fmt.precipMm(summary.precipMm)),
+        ]),
+        _climateTable(months),
+        // 样本量如实给：多少天、多少年。整句模板只插值数字（中英语序不同，不拼片段）
+        h('p', { class: 'card-note', text: t('climate.sample', { n: _count(data.dayCount), years: _count(data.years) }) }),
+        // ★红线文案，整句上屏，不许简写
+        h('p', { class: 'card-note', text: t('climate.entryNote') }),
+      ]),
+    ]);
+    return;
+  }
+
+  // idle：默认不上数（303 KB / 十几秒），用户点按钮才取。
+  // ★拿不到回调就**不画按钮**：一颗点了没反应的按钮比没有按钮更糟（本仓「静默断线」
+  //   的其中一种形态），没坐标时（bind 为 null）这张卡只留标题与如实标注。
+  const idleNodes = [title, h('p', { class: 'card-note', text: t('climate.entryNote') })];
+  if (bind) {
+    const btn = h('button', { type: 'button', class: 'btn', text: t('climate.loadBtn') });
+    btn.addEventListener('click', bind);
+    idleNodes.push(h('div', { class: 'field field--row' }, [btn]));
+  }
+  _fill(box, [h('div', { class: 'card' }, idleNodes)]);
+}
+
+/**
+ * 取计数（非有限数字 → 0，仅用于「样本 N 天」这类展示）。
+ *
+ * @param {*} v 值。
+ * @returns {number} 非负整数。
+ */
+function _count(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+
+/**
+ * 月度表：4 列（月份 / 平均最高 / 平均最低 / 月降水）。
+ *
+ * ★中文语序陷阱：整句是**模板**、只插值数字（`fmt.tempC` / `fmt.precipMm` 产出的成品串），
+ *   绝不拼「平均最高」+ 数字片段 —— 英文语序是另一套，拼片段必错。
+ * 月份名走 i18n（`climate.m1`…`climate.m12`），不硬编码「1月」。
+ *
+ * @param {Array<{month:number, tmaxC:number|null, tminC:number|null, precipMm:number|null}>} months 12 个月。
+ * @returns {HTMLElement} 表格节点。
+ */
+function _climateTable(months) {
+  const cells = [
+    h('span', { class: 'clim-h', text: t('climate.colMonth') }),
+    h('span', { class: 'clim-h', text: t('climate.colHigh') }),
+    h('span', { class: 'clim-h', text: t('climate.colLow') }),
+    h('span', { class: 'clim-h', text: t('climate.colPrecip') }),
+  ];
+  for (const m of months) {
+    const month = Number(m && m.month);
+    if (!Number.isFinite(month) || month < 1 || month > 12) continue; // 越界月份直接跳过，不画
+    cells.push(h('span', { text: t(`climate.m${Math.round(month)}`) }));
+    cells.push(h('span', { class: 'clim-c', text: fmt.tempC(m.tmaxC, 1) }));
+    cells.push(h('span', { class: 'clim-c', text: fmt.tempC(m.tminC, 1) }));
+    cells.push(h('span', { class: 'clim-c', text: fmt.precipMm(m.precipMm) }));
+  }
+  return h('div', { class: 'clim' }, cells);
+}
+
+/* ------------------------------------------------------------------ */
 /* 方位卡（此刻页的简化版）                                              */
 /* ------------------------------------------------------------------ */
 
@@ -850,12 +984,15 @@ function _shortUrl(url) {
  *
  * @param {string} text 提示文案。
  * @param {() => void} [onRetry] 重试回调。
+ * @param {string} [retryLabelKey='app.retry'] 重试按钮的文案键（默认通用「重试」；
+ *   气候常态卡传 'climate.retry' —— 那颗按钮重取的是 303 KB 的 30 年再分析，
+ *   文案单独一条，中英各一版）。
  * @returns {HTMLElement} 空态节点。
  */
-function _emptyCard(text, onRetry) {
+function _emptyCard(text, onRetry, retryLabelKey = 'app.retry') {
   const nodes = [h('span', { text })];
   if (typeof onRetry === 'function') {
-    const btn = h('button', { class: 'btn btn--primary', type: 'button', text: t('app.retry') });
+    const btn = h('button', { class: 'btn btn--primary', type: 'button', text: t(retryLabelKey) });
     btn.addEventListener('click', onRetry);
     nodes.push(btn);
   }

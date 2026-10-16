@@ -46,6 +46,39 @@ export const ZH = {
   'source.elevation': '海拔（Open-Meteo Elevation）',
   'source.reverse': '逆地理反查（Photon）',
   'source.tile': '底图瓦片（ArcGIS Online）',
+  // 气候常态：ERA5 1991–2020 逐日再分析，**本地按月聚合**出来的月平均。
+  'source.climate': '气候常态（Open-Meteo ERA5 归档）',
+
+  // ---------- 气候常态（1991–2020 月平均 / 年平均） ----------
+  // ★红线：`climate.entryNote` 必须整句上屏，不许简写成「气候常态」——
+  //   它不是官方气候常态，是 ERA5 再分析格点值自算的月平均。
+  'climate.title': '气候常态（1991–2020）',
+  'climate.entryNote': 'ERA5 再分析 1991–2020 自算月平均 · 非官方气候常态',
+  'climate.loadBtn': '查看月平均',
+  'climate.loading': '正在取 30 年再分析数据…',
+  'climate.colMonth': '月份',
+  'climate.colHigh': '平均最高',
+  'climate.colLow': '平均最低',
+  'climate.colPrecip': '月降水',
+  'climate.annual': '年均',
+  'climate.annualHigh': '年均最高',
+  'climate.annualLow': '年均最低',
+  'climate.annualPrecip': '年降水总量',
+  'climate.sample': '样本 {n} 天 · {years} 年',
+  'climate.m1': '1月',
+  'climate.m2': '2月',
+  'climate.m3': '3月',
+  'climate.m4': '4月',
+  'climate.m5': '5月',
+  'climate.m6': '6月',
+  'climate.m7': '7月',
+  'climate.m8': '8月',
+  'climate.m9': '9月',
+  'climate.m10': '10月',
+  'climate.m11': '11月',
+  'climate.m12': '12月',
+  'climate.err': '气候常态取数失败',
+  'climate.retry': '重试',
 
   // ---------- 状态词 ----------
   'status.idle': '未请求',

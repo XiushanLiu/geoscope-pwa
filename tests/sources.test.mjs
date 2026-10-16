@@ -105,6 +105,8 @@ test('隐私红线：全仓库不得出现 six 数据源以外的域名、http:/
   // ★新增数据源必须同步加到这张表（与 tools/check.mjs 的 ALLOWED_HOSTS 是同一条红线的两只眼睛）
   const allowed = [
     'api.open-meteo.com', 'air-quality-api.open-meteo.com', 'geocoding-api.open-meteo.com',
+    // 气候常态：ERA5 逐日再分析归档（1991–2020 月平均，本地聚合），见 src/data/climate.js
+    'archive-api.open-meteo.com',
     'photon.komoot.io', 'server.arcgisonline.com',
     'router.project-osrm.org', 'restapi.amap.com',
   ];
@@ -175,6 +177,9 @@ test('i18n：所有 t() 字面量 key 与模板 key 的枚举都必须存在于�
     //   （ui/poilist.js 与 ui/roadtrip.js 都用 `rt.type.${type}` 这类模板 key 取文案，
     //    少一类就有一张卡显示成键名本身）。
     'rt.type.': ['stay', 'sight', 'food'],
+    // ★气候常态的 12 个月份名：与 src/ui/now.js 的 `t(\`climate.m${month}\`)` 一一对应，
+    //   少一个月那一行就显示成键名本身（界面上会出现 'climate.m7' 这种裸键）。
+    'climate.m': ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
   };
 
   for (const rel of FILES.filter((f) => f.endsWith('.js'))) {

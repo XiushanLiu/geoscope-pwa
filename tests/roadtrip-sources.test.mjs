@@ -32,9 +32,10 @@ const apikeys = await import(pathToFileURL(path.join(ROOT, 'src/core/apikeys.js'
 /* ① 源表拆分                                                          */
 /* ------------------------------------------------------------------ */
 
-test('① SOURCE_LIST 仍恰好六路；SOURCE_TABLE 是八路，getSource 能取到自驾两路', () => {
+test('① SOURCE_LIST 仍恰好六路；SOURCE_TABLE 是九路，getSource 能取到自驾两路与气候常态', () => {
   assert.equal(sources.SOURCE_LIST.length, 6, '自检六路的断言被 tests/sources.test.mjs 钉着，不能动');
-  assert.equal(Object.keys(sources.SOURCE_TABLE).length, 8);
+  // 九路 = 自检六路 + 自驾两路（osrmRoute / amapPoi）+ 气候常态（climate）
+  assert.equal(Object.keys(sources.SOURCE_TABLE).length, 9);
   assert.deepEqual(
     sources.SOURCE_LIST.map((s) => s.id),
     ['weather', 'air', 'geocode', 'elevation', 'reverse', 'tile']

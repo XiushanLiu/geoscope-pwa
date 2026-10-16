@@ -53,6 +53,8 @@ const ALLOWED_HOSTS = [
   'api.open-meteo.com',
   'air-quality-api.open-meteo.com',
   'geocoding-api.open-meteo.com',
+  // 气候常态：ERA5 逐日再分析归档（1991–2020 月平均，本地聚合），见 src/data/climate.js
+  'archive-api.open-meteo.com',
   'photon.komoot.io',
   'server.arcgisonline.com',
   'www.w3.org',

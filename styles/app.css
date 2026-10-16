@@ -434,6 +434,28 @@ body[data-page="compare"] {
    将来若接上，告警语义请用红色底纹承载，不要改回红字。 */
 .kv-v--alert { color: var(--c-text-1); }
 
+/* 气候常态月度表（4 列：月份 / 平均最高 / 平均最低 / 月降水）
+   —— 使用者：src/ui/now.js 的 _climateTable()（气候常态卡，「此刻」页）。
+   ★只有布局与字号：颜色一律继承 .card / 父级，不新增任何 color 声明
+     （tools/contrast-audit.mjs v2 全量扫 app.css 的 color 声明，加一条就要重新达标）。 */
+.clim {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+/* 表头：比数值小一号，与 .kv-k / .kv-v 的主次关系一致 */
+.clim-h {
+  font-size: var(--fs-xs);
+}
+
+/* 数值列：等宽 + 等宽数字，12 行上下对齐才读得出「哪个月更高」 */
+.clim-c {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------------- 徽标 / 胶囊 ---------------- */
 
 .chip {
@@ -1380,6 +1402,10 @@ body[data-page="compare"] {
   #card-weather { grid-column: 1 / 2; grid-row: 3; }
   #card-air { grid-column: 2 / 3; grid-row: 3; }
   #card-place { grid-column: 1 / -1; grid-row: 4; }
+  /* 气候常态卡（12 行月度表）独占一整行：半宽会让 4 列挤到换行。
+     行位显式给定而不是靠自动排布 —— 自动排布下它会和同样未登记的 #card-bearing
+     一起被塞进同一行的两半里，那张表就废了。 */
+  #card-climate { grid-column: 1 / -1; grid-row: 8; }
   #card-map { grid-column: 1 / -1; grid-row: 5; }
   #card-prov { grid-column: 1 / -1; grid-row: 6; }
   #card-legend { grid-column: 1 / -1; grid-row: 7; }

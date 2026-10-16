@@ -52,10 +52,13 @@ import {
   renderEmptyState,
   renderSlotEmpty,
   renderSnapshot,
+  renderClimateCard,
   applyI18n,
 } from './now.js';
 import { renderMapCard, renderMapSkeleton } from './map.js';
 import { applyThemeMode, applyFontScale } from './theme.js';
+// 错误文案（把 core/http.js 的 messageKey 翻成人话）：气候常态卡要用它显示失败原因。
+import { errorText } from './errtext.js';
 // 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
 // （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
 import { applyLocale, placeDisplayName } from './locale.js';
@@ -278,6 +281,9 @@ function _renderOffline(root, bannerEl, snapshot, isDefaultPlace) {
   if (weather || air || elevation || reverse) {
     renderSnapshot(root, snapshot, { isDefaultPlace, declinationDeg: _declinationDeg(snapshot) });
     renderBanner(bannerEl, 'offline', { staleAgeMs: maxStaleAge });
+    // 离线也把气候常态卡画成 idle：按钮在，点了会拿到「设备离线，未发起请求」——
+    // 比整张卡缺席诚实（离线不是「这个地点没有气候常态」）。
+    _renderClimate(root, snapshot);
     return;
   }
 
@@ -287,6 +293,7 @@ function _renderOffline(root, bannerEl, snapshot, isDefaultPlace) {
     const merged = { ...snapshot, ...cached };
     renderSnapshot(root, merged, { isDefaultPlace, declinationDeg: _declinationDeg(merged) });
     renderBanner(bannerEl, 'offline', { staleAgeMs: Date.now() - (cached.atMs || Date.now()) });
+    _renderClimate(root, merged);
     return;
   }
 
@@ -361,6 +368,87 @@ function _declinationDeg(snapshot) {
     altitudeM: snapshot.elevationM,
     atMs: snapshot.atMs,
   });
+}
+
+/**
+ * 气候常态卡的状态（**不进 store**：它是「此刻页的一次性查阅物」，不是用户数据，
+ *   既不该被备份导出，也不该在「我的」页出现）。
+ *
+ * 只存聚合结果（几百字节），不存 30 年逐日数组（303 KB）—— 见 data/climate.js 文件头。
+ */
+const _climate = { status: 'idle', data: null, text: '', lat: null, lon: null };
+
+/**
+ * 渲染气候常态卡（按当前 `_climate` 状态）。
+ *
+ * ★坐标守卫：卡里若是**别处**的 ready 数据就退回 idle。场景很窄但真实 ——
+ *   本页是四个独立 HTML 之一，同页内 refresh() 会复用这个模块级状态；
+ *   与其显示一个「看起来很有道理其实是另一个地方」的月平均，不如退回未取。
+ *
+ * @param {HTMLElement} root 根容器。
+ * @param {Object} snapshot NowSnapshot（提供坐标；无坐标时按钮不绑回调）。
+ * @returns {void}
+ */
+function _renderClimate(root, snapshot) {
+  const c = snapshot && snapshot.coord ? snapshot.coord : null;
+  if (c && _climate.status === 'ready') {
+    const dLat = Math.abs(Number(_climate.lat) - Number(c.lat));
+    const dLon = Math.abs(Number(_climate.lon) - Number(c.lon));
+    if (!(dLat <= 1e-6) || !(dLon <= 1e-6)) {
+      _climate.status = 'idle';
+      _climate.data = null;
+      _climate.text = '';
+    }
+  }
+  renderClimateCard(root, _climate, c ? () => _loadClimate(root, snapshot) : null);
+}
+
+/**
+ * 取气候常态（30 年 ERA5 再分析 → 本地按月聚合），**只由用户点击按钮触发**。
+ *
+ * ★三条刻意的「不」：
+ *   1) **不调 `recordResult()`，也不参与 `overallMode()`**：climate 不在自检六路内
+ *      （它进的是 `SOURCE_TABLE` 全量表），进了健康台账就会污染「整体降级态」——
+ *      用户没点按钮、根本没请求过这一路，整屏却显示「部分数据源不可用」，那是假话。
+ *   2) **不进首屏取数链路**：单次响应 303 KB、耗时十几秒，且 http.js 全局并发 1，
+ *      最坏会占住队列约 2 × 23.4 s。首屏三路必须在它之前跑完。
+ *   3) **失败只废这一张卡**：整屏不报错、其余卡片不动。
+ *
+ * @param {HTMLElement} root 根容器。
+ * @param {Object} snapshot NowSnapshot（提供坐标）。
+ * @returns {Promise<void>}
+ */
+async function _loadClimate(root, snapshot) {
+  if (!snapshot || !snapshot.coord) return;
+  const lat = Number(snapshot.coord.lat);
+  const lon = Number(snapshot.coord.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+  _climate.status = 'loading';
+  _climate.text = '';
+  _renderClimate(root, snapshot);
+
+  let res = null;
+  try {
+    res = await request('climate', { lat, lon });
+  } catch (err) {
+    log('climate pull failed', err && err.message);
+    res = null;
+  }
+
+  if (res && res.ok && res.data && Array.isArray(res.data.months) && res.data.months.length > 0) {
+    _climate.status = 'ready';
+    _climate.data = res.data;
+    _climate.text = '';
+    _climate.lat = lat;
+    _climate.lon = lon;
+  } else {
+    _climate.status = 'error';
+    _climate.data = null;
+    // 离线时 http.js 会给 error.OFFLINE；其余走 errtext 的通用兜底
+    _climate.text = errorText(res && res.error, 'climate.err');
+  }
+  _renderClimate(root, snapshot);
 }
 
 /**
@@ -611,6 +699,9 @@ export async function boot() {
 
   const snapshot = _blankSnapshot(base);
   renderHeader(root, snapshot, { isDefaultPlace });
+  // 气候常态卡：骨架期就画成 **idle**（标题 + 如实标注 + 「查看月平均」按钮）。
+  // ★不在这里取数 —— 30 年再分析是用户点按钮才发起的懒加载，见 _loadClimate。
+  _renderClimate(root, snapshot);
 
   // 离线：不发任何请求
   if (!isOnline()) {

@@ -65,6 +65,11 @@ const ORDER = [
   'src/data/osrm.js',
   'src/data/amap.js',
   'src/data/roadsources.js',
+  // 气候常态：sources.js 顶层 `import { CLIMATE_SOURCES } from './climate.js'`，
+  // 而 climate.js 又依赖 core/cache.js / core/geo.js / i18n/index.js / data/openmeteo.js
+  // （四者都已登记在它之前），所以 climate.js 必须排在 sources.js **之前**，
+  // 少登记一个 build 就直接「打包中止」（依赖校验未通过）。
+  'src/data/climate.js',
   'src/data/sources.js',
   'src/data/health.js',
   'src/ui/theme.js',
