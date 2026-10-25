@@ -523,6 +523,125 @@ test('★安卓自动启用后等满仍无数据：降级为「无传感器」�
   }
 });
 
+test('★页面在后台时不许判「本机无方向传感器」：方向事件规范上只在可见时派发', () => {
+  // ★真机场景：available（安卓）自动启用 → 用户锁屏 / 切走 → 2.5 s 到点。
+  //   这段时间一条事件都没有是**正常的**（规范如此），原来的代码却据此置 'unsupported'，
+  //   界面显示「本机无方向传感器」—— 假的，机器有传感器，只是页面不在前台。
+  //   而且刚采纳「不给重试按钮」，用户连恢复路径都没有，只能重载页面。
+  const { listeners } = installSensorWindow();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const doc = globalThis.document;
+  doc.hidden = true;
+  try {
+    assert.equal(compass.sensorSupport(), 'available');
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+    const renderer = compass.createCompassRenderer(dom.byId.app, snapshot);
+    renderer.rerender();
+    assert.equal(compass.sensorState().state, 'waiting');
+
+    mock.timers.tick(3000); // 后台期间：一条事件都不会来
+
+    assert.notEqual(
+      compass.sensorState().state,
+      'unsupported',
+      '★后台期间判「无传感器」是假结论（有传感器，只是页面不在前台）'
+    );
+    assert.equal(compass.sensorState().state, 'waiting', '★状态保持 waiting：「正在等待方向数据…」本就是实话');
+    assert.ok(
+      compassSlot().textContent.includes(t('compass.sensorWaiting')),
+      '界面必须仍是「正在等待方向数据…」'
+    );
+
+    // 回到前台：必须重等一轮（而不是永远卡在等待里）
+    doc.hidden = false;
+    const vis = doc.listeners.get('visibilitychange') || [];
+    assert.equal(vis.length, 1, '★必须挂上 visibilitychange（回到前台要重等一轮），且只挂一次');
+    vis[0]({});
+    assert.equal(compass.sensorState().state, 'waiting', '回前台后重新进入等待');
+    assert.equal(
+      (doc.listeners.get('visibilitychange') || []).length,
+      0,
+      '★回前台那一次之后 visibilitychange 必须摘掉（不摘就是泄漏）'
+    );
+
+    // 前台喂一条数据：必须真的变成 on（证明重等的那一轮是活的）
+    const handler = listeners.get('deviceorientation');
+    assert.ok(handler, 'deviceorientation 监听仍在');
+    handler({ webkitCompassHeading: 12 });
+    assert.equal(compass.sensorState().state, 'on');
+    assert.equal(compass.sensorState().headingMagDeg, 12);
+  } finally {
+    mock.timers.reset();
+    doc.hidden = false;
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
+
+test('★回到前台必须真的重等一轮（不是把状态留在 waiting 就完事）', () => {
+  // ★这条是上一条的补强：只断言「回前台后状态是 waiting」**抓不出**「根本没重等」
+  //   —— 状态本来就是 waiting，看不出有没有排下一轮计时。所以这里再等满一轮：
+  //   ★变异验证：把 visibility handler 里的 `_armWait(onChange)` 去掉，只有这条红。
+  installSensorWindow();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const doc = globalThis.document;
+  doc.hidden = true;
+  try {
+    compass.resetSensor();
+    compass.createCompassRenderer(dom.byId.app, snapshotAt(AT_2025)).rerender();
+    mock.timers.tick(3000); // 后台：不许降级
+    assert.equal(compass.sensorState().state, 'waiting');
+
+    doc.hidden = false; // 回到前台
+    (doc.listeners.get('visibilitychange') || []).forEach((fn) => fn({}));
+
+    mock.timers.tick(3000); // 已在前台，仍然一条数据都没有
+    assert.equal(
+      compass.sensorState().state,
+      'unsupported',
+      '★回到前台后必须真的重等一轮（等满仍无数据就照常降级，这才是「重等」的证据）'
+    );
+  } finally {
+    mock.timers.reset();
+    doc.hidden = false;
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
+
+test('★resetSensor() 必须把 visibilitychange 监听一起摘掉（漏摘＝挂在全局 document 上的泄漏）', () => {
+  installSensorWindow();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const doc = globalThis.document;
+  doc.hidden = true;
+  try {
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+    compass.createCompassRenderer(dom.byId.app, snapshot).rerender();
+    mock.timers.tick(3000);
+    assert.equal(
+      (doc.listeners.get('visibilitychange') || []).length,
+      1,
+      '后台超时后应挂上 visibilitychange（这条是下面断言的前提）'
+    );
+
+    compass.resetSensor();
+
+    // ★变异验证：把 resetSensor() 里的 `_disarmVisibility()` 去掉，这条会红。
+    assert.equal(
+      (doc.listeners.get('visibilitychange') || []).length,
+      0,
+      '★resetSensor() 必须连 visibilitychange 一起摘（_sensor.detach 只管 window 上的 deviceorientation）'
+    );
+  } finally {
+    mock.timers.reset();
+    doc.hidden = false;
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
+
 test('★自动启用只许挂一次：rerender 连调多次（boot 首屏就是这么调的）不许重复挂监听', () => {
   const { attached } = installSensorWindow();
   try {

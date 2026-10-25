@@ -509,6 +509,25 @@ class FakeNode {
   }
 
   /**
+   * 解绑监听。
+   *
+   * ★为什么现在才补：真 DOM 上「add 了没 remove」在测试里是**看不出来**的（只剩一个
+   *   事件回调静静挂在全局 document 上），而断言「只挂一次」这类用例将来会被它污染
+   *   —— 上一轮的 `deviceorientation` 泄漏就是这么躲过去的。有了它，
+   *   「resetSensor() 必须把监听摘干净」才测得出来。
+   *
+   * @param {string} type 事件类型。
+   * @param {Function} fn 要摘掉的回调。
+   * @returns {void}
+   */
+  removeEventListener(type, fn) {
+    const list = this.listeners.get(String(type));
+    if (!list) return;
+    const i = list.indexOf(fn);
+    if (i >= 0) list.splice(i, 1);
+  }
+
+  /**
    * 触发绑定在该节点上的事件（测试驱动点击）。
    *
    * ★为什么必须**先快照再遍历**：`listeners.get(type)` 拿到的是**活数组**，而处理器里

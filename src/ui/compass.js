@@ -147,6 +147,9 @@ const _sensor = {
   headingMagDeg: null,
   detach: null,
   timer: null,
+  // 「回到前台再重等一轮」用的 visibilitychange 摘除钩子（与 detach 分开：
+  // 它挂在 document 上、只在隐藏态那一轮存在，不是每次 attach 都有）
+  detachVis: null,
 };
 
 /* ------------------------------------------------------------------ */
@@ -319,6 +322,10 @@ export function resetSensor() {
     }
   }
   if (_sensor.timer) clearTimeout(_sensor.timer);
+  // ★连同 visibilitychange 一起摘：它挂在 **document** 上，`_sensor.detach` 只管
+  //   window 上的 deviceorientation。漏摘就是一次真实的监听泄漏 —— 而且泄漏的对象是
+  //   全局 document，将来任何「只挂一次」的断言都会被它污染。
+  _disarmVisibility();
   _sensor.state = 'idle';
   _sensor.headingMagDeg = null;
   _sensor.detach = null;
@@ -350,15 +357,96 @@ function _attachSensor(onChange) {
     window.addEventListener('deviceorientation', handler, true);
     _sensor.detach = () => window.removeEventListener('deviceorientation', handler, true);
   }
+  _armWait(onChange);
+}
+
+/**
+ * 页面此刻是不是在后台（隐藏）。
+ *
+ * ★为什么必须问这一句：方向事件按规范**只在页面可见时派发**，页面隐藏期间一条都不会来。
+ *   「等满一轮没数据」在后台根本不是证据 —— 那段时间本来就该是空的。
+ *
+ * @returns {boolean} 隐藏为 true；拿不到 document（Node 侧检查 / 老内核）时为 false。
+ */
+function _isDocumentHidden() {
+  return typeof document !== 'undefined' && document && document.hidden === true;
+}
+
+/**
+ * 摘掉「回到前台再重等一轮」那个 visibilitychange 监听（重入安全）。
+ *
+ * @returns {void}
+ */
+function _disarmVisibility() {
+  const fn = _sensor.detachVis;
+  if (!fn) return;
+  _sensor.detachVis = null;
+  try {
+    fn();
+  } catch (err) {
+    log('compass: visibility detach failed', err && err.message);
+  }
+}
+
+/**
+ * 起一轮「等不到方向数据就降级」的等待（可重入：每轮先清掉上一轮的定时器）。
+ *
+ * @param {() => void} [onChange] 状态变化时的重渲染回调。
+ * @returns {void}
+ */
+function _armWait(onChange) {
+  if (_sensor.timer) clearTimeout(_sensor.timer);
   _sensor.state = 'waiting';
   // 桌面内核常「定义了事件却永远不派发」→ 到点没数据就判定无传感器，降级而非空等
   _sensor.timer = setTimeout(() => {
     _sensor.timer = null;
-    if (_sensor.headingMagDeg === null) {
-      _sensor.state = 'unsupported';
-      if (typeof onChange === 'function') onChange();
+    if (_sensor.headingMagDeg !== null) return;
+    // ★2026-10 真机缺陷：页面在后台时（锁屏 / 切到别的 App）方向事件**规范上不派发**，
+    //   所以这段时间一条数据都收不到是**正常的**。原来的代码在这里直接置
+    //   'unsupported'，界面于是显示「本机无方向传感器」—— 那是**假的**：机器有传感器，
+    //   只是页面不在前台（正是「界面说的和实际发生的不一样」那一类毛病）。
+    //   所以：状态**保持 'waiting'**（「正在等待方向数据…」在后台期间本来就是实话，
+    //   ★因此不需要新增状态、也不需要新增文案），回到前台再重等一轮。
+    if (_isDocumentHidden()) {
+      _armVisibilityRewait(onChange);
+      return;
     }
+    _sensor.state = 'unsupported';
+    if (typeof onChange === 'function') onChange();
   }, SENSOR_WAIT_MS);
+}
+
+/**
+ * 等待期间页面切走了：挂一个 visibilitychange，回到前台再重等一轮。
+ *
+ * ★只挂一次（`_sensor.detachVis` 非空就直接返回）—— 每超时一次叠一个监听，
+ *   回到前台就会同时重等好几轮，定时器互相清掉，行为变得不可预测。
+ *
+ * @param {() => void} [onChange] 状态变化时的重渲染回调。
+ * @returns {void}
+ */
+function _armVisibilityRewait(onChange) {
+  if (_sensor.detachVis) return;
+  const doc = typeof document !== 'undefined' && document ? document : null;
+  if (!doc || typeof doc.addEventListener !== 'function') {
+    // 拿不到 visibilitychange（Node 侧检查等环境）：没有「回到前台」这条路可等，
+    //   只能按眼前的事实降级 —— 与上面「真没传感器」同一档处置。
+    _sensor.state = 'unsupported';
+    if (typeof onChange === 'function') onChange();
+    return;
+  }
+  const handler = () => {
+    if (_isDocumentHidden()) return; // 只是换了一种隐藏方式，还没真的回到前台
+    _disarmVisibility();
+    _armWait(onChange);
+    if (typeof onChange === 'function') onChange();
+  };
+  _sensor.detachVis = () => {
+    if (typeof doc.removeEventListener === 'function') {
+      doc.removeEventListener('visibilitychange', handler, true);
+    }
+  };
+  doc.addEventListener('visibilitychange', handler, true);
 }
 
 /**
