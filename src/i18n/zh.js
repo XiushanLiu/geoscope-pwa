@@ -36,8 +36,8 @@ export const ZH = {
   'tab.selfcheck': '自检',
   'tab.compass': '方位',
   'tab.settings': '我的',
-  // 底部主导航只有三个 tab：此刻 / 自驾 / 我的。自检与方位降为「我的」里的入口。
-  'tab.roadtrip': '自驾',
+  'tab.geo': '地理',
+  'tab.climate': '气候',
 
   // ---------- 数据源名 ----------
   'source.weather': '天气（Open-Meteo Forecast）',
@@ -339,9 +339,11 @@ export const ZH = {
   'about.noCommercial': '不商业化：自用工具，无广告、无第三方统计、无账号登录、无后端。',
   'about.noE2ee': '不做端到端加密同步：数据只存本机 localStorage，搬家靠导出 JSON。',
   'about.noAlert': '预警不采购数据源：本阶段不实现预警推送。',
-  // ★「六路」已不再准确：自驾模块新增了 OSRM 路线与高德 POI 两路（现共八路）。
-  //   诚实原则 —— 加了源就得改说法，否则这句话本身就成了假的隐私承诺。
-  'about.privacy': '除已声明的数据源（现有八路）之外，本应用不向任何域名发起请求；你的坐标不会被上传到数据源以外的地方。',
+  // ★这句话里的**数字必须跟着源表走**：诚实原则 —— 加了源就得改说法，
+  //   否则这句话本身就成了假的隐私承诺。
+  //   2026-10-17 自驾下线：原本是「六路 + 自驾两路 = 八路」，现为
+  //   「自检六路（`SOURCE_LIST`）+ 气候常态一路 = 七路」（见 data/sources.js 的 `SOURCE_TABLE`）。
+  'about.privacy': '除已声明的数据源（现有七路）之外，本应用不向任何域名发起请求；你的坐标不会被上传到数据源以外的地方。',
 
   // ---------- 收藏 ----------
   // 收藏是「地点」，不是天气快照：只存 名称 + 经纬度，不存任何取回来的数据。
@@ -762,7 +764,10 @@ export const ZH = {
   'desc.compass': '途候 WayScope —— 磁偏角与真/磁方位换算，本机 WMM2025 计算，不联网。',
   'desc.settings': '途候 WayScope —— 备份导出与导入、主题切换，数据只留本机，不联网。',
   'desc.compare': '途候 WayScope —— 多地点对比：把收藏地点的同一批指标并排列出来。',
-  'desc.roadtrip': '途候 WayScope —— 自驾：路线规划、行程实录与自驾路线图。',
+  // ★地理页（compass.html）：地点（海拔 / 坐标 / 地名）+ 底图 + 方位·磁偏角 + 完整罗盘。
+  //   2026-10-17 导航重构：方位页升级为「地理」主 tab，页面描述随之从「方位·磁偏角」
+  //   扩到整页内容 —— 罗盘那部分仍在本页，只是不再是唯一的主题。
+  'desc.geo': '途候 WayScope —— 地理：海拔、坐标与地名，配底图、方位·磁偏角与完整罗盘。',
   'a11y.mainNav': '主导航',
   'a11y.checkParams': '自检参数',
   // ---------- 界面语言 ----------
@@ -781,216 +786,6 @@ export const ZH = {
   'attr.openmeteo': 'Open-Meteo.com（CC-BY 4.0）',
   'attr.photon': 'Photon by Komoot（基于 OpenStreetMap，ODbL）',
   'attr.tile': 'Esri ArcGIS Online World Tile Service',
-  'attr.osrm': 'OSRM（基于 OpenStreetMap，ODbL）',
-  'attr.amap': '高德地图 Web 服务 API',
-
-  // ---------- 自驾模块：两路新源的源名 ----------
-  'source.osrmRoute': '路线规划（OSRM 公共实例）',
-  'source.amapPoi': '地点候选（高德 Web 服务）',
-
-  // ---------- 自驾模块：失败桶（data 层翻译，UI 层上屏） ----------
-  // ★这几句必须是**具体的**：高德的业务失败是 HTTP 200 包着 status:"0"，
-  //   分桶的用处是让用户知道该做什么（换 Key / 等明天 / 稍后再试 / 去关签名），
-  //   一句「请求失败」等于什么都没说。{code} 是数字，双语通用。
-  'rt.amap.noKey': '未填高德 Key',
-  'rt.amap.invalidKey': '高德 Key 无效或已过期（错误码 {code}）',
-  'rt.amap.quota': '今日配额已用尽（错误码 {code}）',
-  'rt.amap.busy': '调用过于频繁（错误码 {code}），请稍后再试',
-  'rt.amap.sig': '请在控制台关闭数字签名后重试（错误码 {code}）',
-  'rt.amap.other': '高德返回错误（错误码 {code}）',
-  'rt.err.noRoute': '未能算出路线（OSRM 返回 {code}）',
-  'rt.err.zeroDistance': '算出的路线距离为 0：坐标可能落在没有道路的地方',
-  'rt.err.noGeometry': 'OSRM 未返回路线几何',
-  'rt.err.needMorePoints': '至少需要 2 个坐标点才能算路线（现在 {n} 个）',
-  // ★与 needMorePoints 的区别：点数够，但坐标本身不可用（越界或 (0,0)）。
-  //   实测这两类坐标会让 OSRM 直接回 HTTP 400，所以必须在发请求前拦住，
-  //   并且说清是「坐标坏了」而不是「你没填够」—— 后者是骗人的。
-  'rt.err.badCoord': '有 {n} 个点的坐标不可用（越界或为零），请重新从搜索结果里选地点',
-  'rt.err.badAnchor': '候选搜索的中心坐标非法',
-  // 下面两个是切段（`core/roadtrip.js::splitStopovers`）的失败桶：
-  // 它拿不到 OSRM 错误码，只能说「这份路线数据缺了什么」，与上面几条同族。
-  'rt.err.noAnnotations': 'OSRM 未返回逐边时长，无法按天切分',
-  'rt.err.badTarget': '每天目标时长必须大于 0，最小间隔不能为负',
-  // ★与 rt.err.noRoute 的区别：那条要填 {code}（OSRM 真的回了一个错误码）；这条是
-  //   「压根没拿到一份路线数据」，没有码可填 —— 用带占位的那条会让 {code} 原样上屏。
-  'rt.err.noRouteData': '拿到的不是一份路线数据，无法按天切分',
-
-  // ---------- 自驾模块：页面文案（T03 页面外壳 + 设置页两张卡） ----------
-  'rt.title': '自驾',
-  'rt.subtitle': '规划路线与停留点、记录实际打卡、画出自驾路线图',
-  'rt.back': '返回「我的」',
-  'rt.empty': '这一版只有入口',
-  'rt.emptyHint': '路线规划、行程实录、路线图还没做完 —— 做完后就从这一页开始。现在这里不会发任何请求。',
-  'rt.entry': '自驾',
-  'rt.entryBtn': '进入自驾',
-  'rt.entryHint': '从出发地到目的地，按每天开 3–5 小时规划停留点，并记录实际打卡的住宿 / 景点 / 美食。',
-  'rt.keyTitle': '高德 Key',
-  'rt.keyHint': '住宿 / 景点 / 美食的候选走高德搜索，需要你自己的 Key（个人实名认证有免费额度）。没填也能求路和画路线图，只是候选搜不出来。',
-  'rt.keyPlaceholder': '粘贴你的高德 Web 服务 Key',
-  'rt.keySave': '保存',
-  'rt.keyClear': '清除',
-  'rt.keyCheck': '校验（会真的发请求、消耗配额）',
-  // ★不写「1 次」：amapPoi 的 retry = 1，业务失败（HTTP 200 包 status:"0"）不重试，
-  //   但**传输层**超时会重试一次 → 最坏 2 次。写死「1 次」在正常路径成立、在超时路径是假的。
-  'rt.keyCheckHint': '正常情况下 1 次；网络超时会自动重试，最多 2 次。',
-  'rt.keyChecking': '正在校验…',
-  'rt.keyOk': 'Key 可用：这次搜到 {count} 条候选',
-  'rt.keyOkZero': 'Key 可用（这次搜索返回 0 条候选，坐标或类别可能太窄）',
-  'rt.keyCurrent': '当前：{mask}',
-  'rt.keyNone': '当前：未填',
-  'rt.keySaved': '已保存（{mask}）',
-  'rt.keyCleared': '已清除',
-  'rt.keyBad': '没存进去：Key 为空、超过 {max} 个字符，或者中间有空格',
-  'rt.keyClearFail': '本来就没填，不用清',
-  'rt.keyStored': 'Key 只存在这台设备上，不进备份文件、不上传。',
-
-  // ---------- 自驾模块：规划主流程（T04b：表单 / 求路 / 分天 / 候选 / 存盘） ----------
-  'rt.planTitle': '规划',
-  'rt.planHint': '出发地与目的地走地点搜索挑，不手输经纬度；至少两个点才能算路线。',
-  'rt.origin': '出发地',
-  'rt.dest': '目的地',
-  'rt.viaTitle': '必经点（可选）',
-  'rt.viaItem': '必经点 {n}',
-  'rt.viaAdd': '添加一个必经点',
-  'rt.viaRemove': '移除',
-  'rt.viaRequired': '必须经过',
-  'rt.viaOptional': '仅供参考',
-  'rt.viaHint': '两种都会经过该点，区别在于算不算停留点：「必须经过」必定停，「仅供参考」只在当天时长合适时才停。设为必须经过时，当天驾驶时长可能超出目标。',
-  'rt.startDate': '出发日期',
-  'rt.dailyTarget': '每天开多久',
-  'rt.dailyOpt': '{h} 小时',
-  'rt.planBtn': '算路线并分天',
-  'rt.planning': '正在算路线…',
-  'rt.pickPh': '搜索地点（至少 2 个字）',
-  'rt.pickClear': '清除',
-  'rt.searching': '正在搜索…',
-  'rt.searchEmpty': '没搜到这个地方',
-  'rt.resultTitle': '结果',
-  'rt.totalLabel': '全程',
-  'rt.daysLabel': '{n} 天',
-  'rt.dayTitle': '第 {n} 天',
-  'rt.dayDrive': '开 {dur} · {dist}',
-  'rt.dayDriveUnknown': '开 — · —',
-  'rt.tailMerged': '末段 {min} 分钟并入第 {n} 天',
-  'rt.noStopover': '这一程不需要中途停留',
-  'rt.driftNote': '每日时长出自 OSRM 逐边时长求和，全程总时长出自 legs 求和；两者实测相差 {pct} %（OSRM 内部取整），不是同一个数。',
-  'rt.freeflowNote': '驾驶时长为 OSRM 自由流估算，非实时路况。',
-  'rt.snapWarn': '有途经点被吸附到 {km} 外的道路，请核对。',
-  'rt.poiTitle': '候选（不落盘）',
-  'rt.poiHint': '候选只活在这一页，不写进本机存储；点了「采用」才变成打卡记录。',
-  'rt.poiQuota': '将对 {a} 个停留点 × {t} 个类别发起 {n} 次搜索（串行，并发恒为 1），最多消耗 {n} 次配额。',
-  'rt.poiQuotaZero': '还没有停留点，没有可搜的锚点。',
-  'rt.poiBtn': '搜索候选',
-  'rt.poiSearching': '正在搜索候选（{done}/{n}）…',
-  'rt.poiOnlyStay': '只搜住宿',
-  'rt.poiAllTypes': '三类都搜',
-  'rt.poiTypeHint': '收窄类别能直接减少配额消耗。',
-  'rt.poiNoKey': '未填高德 Key：候选搜不出来。求路 / 分天 / 保存照常可用，也可以手动添加。',
-  'rt.poiGoSettings': '去设置页填 Key',
-  'rt.poiManualAdd': '手动添加',
-  'rt.poiManualPh': '手动填写名称',
-  'rt.poiEmpty': '这次没搜到候选（坐标或类别可能太窄）。',
-  'rt.poiAdopt': '采用',
-  'rt.poiAdopted': '已采用',
-  // ★必须标明是**直线**距离：路网距离要再发一次请求才拿得到，拿不到就不许冒充
-  'rt.poiStraight': '直线 {m}',
-  'rt.type.stay': '住宿',
-  'rt.type.sight': '景点',
-  'rt.type.food': '美食',
-  'rt.groupPass': '符合（{n}）',
-  'rt.groupFail': '不达标（{n}）',
-  'rt.groupUnknown': '未填（{n}）',
-  'rt.groupUnknownField': '未填：{field}（{n}）',
-  'rt.unknownHint': '「未填」是高德没给这个字段 —— 不用均价 / 默认值补；用户可以自己补录。',
-  'rt.field.pricePerNight': '房价',
-  'rt.field.roomType': '房型',
-  'rt.field.level': '景区等级',
-  'rt.field.localSpecial': '当地特色',
-  // ★rating / keywords 也是 `partitionByFilter()` 会产出的「未填」字段名，
-  //   原先没有对应文案，界面上会直接甩英文 `rating` —— 一并补齐。
-  'rt.field.rating': '评分',
-  'rt.field.keywords': '关键词',
-  // ★筛选条件面板（用户原话：「这些条件都设计为可选项（例如，可选下拉框）」）
-  'rt.filterTitle': '筛选条件（可编辑）',
-  'rt.filterHint': '只有勾上的条件才参与筛选 —— 没勾的这一条压根不参与判定，既不会把条目推到「不达标」，也不会推到「未填」。房价、房型、景区等级高德免费接口拿不到，缺就如实进「未填」，不用均价或默认值补。',
-  'rt.filter.effective': '已生效 {n} 项',
-  'rt.filter.priceOpt': '{n} 元以内',
-  'rt.filter.ratingOpt': '{n} 分以上',
-  'rt.filter.levelOpt': '{lv} 及以上',
-  'rt.filter.rating': '最低评分',
-  'rt.filter.room.standard': '标准间',
-  'rt.filter.room.king': '大床房',
-  'rt.filter.room.twin': '双床房',
-  'rt.filter.keywordsPh': '逗号分隔，例如：当地特色,名菜',
-  'rt.checkedTitle': '已采用的打卡（{n}）',
-  'rt.saveTitle': '保存',
-  'rt.tripName': '行程名字',
-  'rt.tripNamePh': '例如「成都—西安 5 天」',
-  'rt.saveBtn': '保存这条行程',
-  'rt.saveOk': '已保存：{name}',
-  'rt.saveFail': '没存进去：写入本机存储失败（配额可能已满）。请到设置页清理旧行程后再试。',
-  'rt.tripListTitle': '已保存的行程（{n}）',
-  'rt.tripListEmpty': '还没有保存过行程',
-  'rt.tripSkipped': '有 {n} 条行程打不开',
-  'rt.tripItem': '{name} · {days} 天',
-
-  // ---------- 自驾模块：路线图（T05） ----------
-  'rt.mapTitle': '路线图',
-  'rt.mapHint': '底图与署名照旧；缩放层级由「刚好装下这一程」反算，不手动调。',
-  'rt.mapWhole': '整段',
-  'rt.mapEmpty': '还没有路线可画：先规划一次。',
-  'rt.mapGeo': '几何来源：{src}',
-  'rt.mapGeoSimplified': 'OSRM 简化几何（simplified）',
-  'rt.mapGeoNone': '没有几何',
-  'rt.mapLoad': '取这一段的几何（simplified，1 次请求）',
-  'rt.mapFetching': '正在取几何…',
-  'rt.mapGeoFail': '几何没取到：{msg}',
-  'rt.mapSchematic': '★这条是**示意直线**（起点到终点直连），不是真实路径 —— 没拿到几何时不许画成实线。',
-  'rt.mapNoFit': '这一程跨度太大，已降到最小层级，可能看不全。',
-  'rt.mapNoCoord': '未定位',
-
-  // ---------- 自驾模块：实录（T05） ----------
-  'rt.recordTitle': '实录',
-  'rt.recordHint': '采用过的候选与手填的打卡都在这里；没坐标的不上图，只写在列表里。',
-  'rt.recordEmpty': '还没有打卡记录',
-  'rt.deviationTitle': '偏离多远就重规划',
-  'rt.deviationOpt': '{km} km',
-  'rt.deviationBtn': '检查是否偏离',
-  'rt.deviationChecking': '正在定位…',
-  'rt.deviationHint': '按一次判一次：本 App 不做后台定位，锁屏或切走期间不会记录（iOS 也没有后台定位）。',
-  'rt.deviationNoGps': '这次没拿到定位，无法判断（不会用默认地点凑一个数）。',
-  'rt.deviationUnknown': '还没有可比较的规划停留点，无法判断。',
-  'rt.deviationResult': '离最近的规划停留点直线距离 {km} km（阈值 {thr} km）。这是直线距离，不是还要开多远。',
-  'rt.deviationOk': '在阈值内，按原计划走。',
-  'rt.deviationOver': '已超出阈值 —— 规划里的停留点对不上你现在的位置了。',
-  'rt.deviationReplan': '从这里重新规划',
-  'rt.deviationCurrentPlace': '当前位置',
-  'rt.recordItem': '{name}{addr}',
-  'rt.recordNoLocated': '{n} 条未定位（不上图）',
-
-  // ---------- 自驾模块：搬家（导出 / 导入，T05） ----------
-  'rt.moveTitle': '搬家',
-  'rt.moveHint': '导出成独立文件（不含几何），在另一台机器上导入。文件里有你去过的地方，别发到公开场合。',
-  'rt.exportBtn': '导出全部行程',
-  'rt.exportOk': '已导出 {n} 条：{file}',
-  'rt.exportEmpty': '没有可导出的行程',
-  'rt.importBtn': '选择行程文件',
-  'rt.importPreview': '将导入 {n} 条（{d} 条被跳过）',
-  'rt.importApply': '确认导入',
-  'rt.importOk': '已导入 {n} 条',
-  'rt.importFail': '这个文件读不出行程：{msg}',
-
-  // ---------- 自驾模块：行程导入失败原因 ----------
-  // core/roadtrip.js 与 core/tripstore.js 只回 reasonKey / reasonParams
-  //（core 不许 import i18n），由 UI 层 tr() 上屏。
-  'trip.badJson': '不是合法 JSON',
-  'trip.notObject': '行程内容不是 JSON 对象',
-  'trip.badSchema': '行程文件格式版本不支持（schema={schema}）',
-  'trip.newerSchema': '这份行程由更新版本创建（schema={schema}），请升级后再打开',
-  'trip.notRoadtrip': '不是途候的行程文件',
-  'trip.noTrips': '文件里没有 trips 数组',
-  'trip.planNoTrips': '导入计划里没有 trips 数组（请先调用 inspectTripFile）',
-  'trip.notFound': '没有这条行程',
 
   // ---------- 备份导入失败原因 ----------
   // core/backup.js 只回 reasonKey / reasonParams（core 不许 import i18n），

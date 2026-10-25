@@ -34,8 +34,8 @@ export const EN = {
   'tab.selfcheck': 'Check',
   'tab.compass': 'Bearing',
   'tab.settings': 'Me',
-  // Three tabs only: Now / Trip / Me. Check and Bearing became entries under Me.
-  'tab.roadtrip': 'Trip',
+  'tab.geo': 'Geo',
+  'tab.climate': 'Climate',
 
   // ---------- Data sources ----------
   'source.weather': 'Weather (Open-Meteo Forecast)',
@@ -343,10 +343,12 @@ export const EN = {
   'about.noCommercial': 'Not commercial: a personal tool. No ads, no third-party tracking, no accounts, no backend.',
   'about.noE2ee': 'No end-to-end encrypted sync: data lives only in this device\'s localStorage; moving it means exporting JSON.',
   'about.noAlert': 'No alerting data source bought: push alerts are out of scope for this stage.',
-  // "six" is no longer accurate: the road-trip module added OSRM routing and Amap POI
-  // (eight in total). Honesty rule — adding a source means updating this sentence,
-  // otherwise the privacy promise itself becomes false.
-  'about.privacy': 'Apart from the declared data sources (eight at present), this app contacts no other domain; your coordinates are not uploaded anywhere beyond those sources.',
+  // The NUMBER in this sentence must track the source table. Honesty rule — adding a
+  // source means updating this sentence, otherwise the privacy promise itself is false.
+  // 2026-10-17: the road-trip module was removed, so it is no longer "six + two road
+  // sources = eight"; it is now "the six self-check sources (SOURCE_LIST) + the climate
+  // normals source = SEVEN" (see SOURCE_TABLE in data/sources.js).
+  'about.privacy': 'Apart from the declared data sources (seven at present), this app contacts no other domain; your coordinates are not uploaded anywhere beyond those sources.',
 
   // ---------- Favorites ----------
   // A favourite is a PLACE, not a weather snapshot: it stores a name + lat/lon only.
@@ -785,7 +787,12 @@ export const EN = {
   'desc.compass': 'WayScope — magnetic declination and true/magnetic bearing conversion, computed on device with WMM2025, offline.',
   'desc.settings': 'WayScope — backup export and import, theme switching; data stays on this device, no network.',
   'desc.compare': 'WayScope — compare places: the same readings for each saved place, side by side.',
-  'desc.roadtrip': 'WayScope — road trip: route planning, trip log and the trip map.',
+  // Geo page (compass.html): place (elevation / coordinates / name) + basemap +
+  // bearing & magnetic declination + the full compass.
+  // 2026-10-17 nav restructure: the bearing page was promoted to the "Geo" main tab, so
+  // the page description widened accordingly — the compass is still here, just no longer
+  // the only subject.
+  'desc.geo': 'WayScope — geo: elevation, coordinates and place name, with a basemap, bearing & magnetic declination, and the full compass.',
   'a11y.mainNav': 'Main navigation',
   'a11y.checkParams': 'Self-check parameters',
   // ---------- Interface language ----------
@@ -806,220 +813,6 @@ export const EN = {
   'attr.openmeteo': 'Open-Meteo.com (CC-BY 4.0)',
   'attr.photon': 'Photon by Komoot (based on OpenStreetMap, ODbL)',
   'attr.tile': 'Esri ArcGIS Online World Tile Service',
-  'attr.osrm': 'OSRM (based on OpenStreetMap, ODbL)',
-  'attr.amap': 'Amap Web Service API',
-
-  // ---------- Road trip: the two new sources ----------
-  'source.osrmRoute': 'Routing (OSRM public instance)',
-  'source.amapPoi': 'Place candidates (Amap Web Service)',
-
-  // ---------- Road trip: failure buckets (translated at the data layer, shown by the UI) ----------
-  // These must be SPECIFIC: Amap reports business failures as HTTP 200 with status:"0",
-  // and bucketing exists so the user knows what to do next (replace the key / wait until
-  // tomorrow / retry later / turn signing off). A generic "request failed" says nothing.
-  // {code} is numeric, so it reads the same in both languages.
-  'rt.amap.noKey': 'Amap key is not set',
-  'rt.amap.invalidKey': 'Amap key is invalid or expired (code {code})',
-  'rt.amap.quota': "today's quota is used up (code {code})",
-  'rt.amap.busy': 'too many requests (code {code}); please try again later',
-  'rt.amap.sig': 'turn off digital signature in the console and retry (code {code})',
-  'rt.amap.other': 'Amap returned an error (code {code})',
-  'rt.err.noRoute': 'no route could be calculated (OSRM returned {code})',
-  'rt.err.zeroDistance': 'the calculated route distance is 0: the coordinates may be somewhere without roads',
-  'rt.err.noGeometry': 'OSRM returned no route geometry',
-  'rt.err.needMorePoints': 'at least 2 coordinates are needed to calculate a route (got {n})',
-  // Distinct from needMorePoints: enough points, but the coordinates themselves are
-  // unusable (out of range or (0,0)). OSRM answers HTTP 400 for those, so we block
-  // before sending and say the coordinates are bad rather than that you did not fill enough.
-  'rt.err.badCoord': '{n} point(s) have unusable coordinates (out of range or zero) — pick them again from the search results',
-  'rt.err.badAnchor': 'the candidate search centre coordinates are invalid',
-  // Failure buckets of the day-splitter (`core/roadtrip.js::splitStopovers`).
-  // It has no OSRM error code to report, so it can only say what the route data is missing.
-  'rt.err.noAnnotations': 'OSRM returned no per-edge durations, so the route cannot be split by day',
-  'rt.err.badTarget': 'the daily target must be greater than 0 and the minimum gap cannot be negative',
-  // Distinct from rt.err.noRoute: that one needs {code} (OSRM really returned an error
-  // code). This one means "we never got route data at all" — reusing the {code} variant
-  // would print a raw {code} on screen.
-  'rt.err.noRouteData': 'did not receive route data, so it cannot be split into days',
-
-  // ---------- Road trip: page copy (T03 page shell + two settings cards) ----------
-  'rt.title': 'Road trip',
-  'rt.subtitle': 'Plan routes and stops, log what you actually did, draw the trip map',
-  'rt.back': 'Back to "Me"',
-  'rt.empty': 'This build is only the entry point',
-  'rt.emptyHint': 'Route planning, the trip log and the map are not built yet — they will start from this page. Nothing here sends a request right now.',
-  'rt.entry': 'Road trip',
-  'rt.entryBtn': 'Open road trip',
-  'rt.entryHint': 'From start to destination, plan stops at 3–5 hours of driving per day, and log the places you actually stayed, visited and ate at.',
-  'rt.keyTitle': 'Amap key',
-  'rt.keyHint': 'Lodging / sight / food candidates come from Amap search, which needs your own key (the personal verified tier has a free quota). Routing and the map work without it — only candidates come up empty.',
-  'rt.keyPlaceholder': 'Paste your Amap web service key',
-  'rt.keySave': 'Save',
-  'rt.keyClear': 'Clear',
-  'rt.keyCheck': 'Verify (sends a real request, uses quota)',
-  // ★Not "1 call": amapPoi has retry = 1. A business failure (HTTP 200 with status:"0")
-  //   does not retry, but a **transport** timeout does — so at most 2 calls.
-  //   Hard-coding "1" is true on the happy path and false on the timeout path.
-  'rt.keyCheckHint': 'Normally 1 call; a timeout retries once, so at most 2.',
-  'rt.keyChecking': 'Verifying…',
-  'rt.keyOk': 'Key works: this search returned {count} candidates',
-  'rt.keyOkZero': 'Key works (this search returned 0 candidates — the coordinates or category may be too narrow)',
-  'rt.keyCurrent': 'Current: {mask}',
-  'rt.keyNone': 'Current: not set',
-  'rt.keySaved': 'Saved ({mask})',
-  'rt.keyCleared': 'Cleared',
-  'rt.keyBad': 'Not saved: the key is empty, longer than {max} characters, or contains whitespace',
-  'rt.keyClearFail': 'Nothing was set, so there is nothing to clear',
-  'rt.keyStored': 'The key stays on this device only — it is not written into backups and never uploaded.',
-
-  // ---------- Road trip: planning flow (T04b: form / routing / day split / candidates / save) ----------
-  'rt.planTitle': 'Plan',
-  'rt.planHint': 'Pick the start and the destination with place search — do not type coordinates by hand. At least two points are needed to calculate a route.',
-  'rt.origin': 'Start',
-  'rt.dest': 'Destination',
-  'rt.viaTitle': 'Stops you must pass (optional)',
-  'rt.viaItem': 'Stop {n}',
-  'rt.viaAdd': 'Add a stop',
-  'rt.viaRemove': 'Remove',
-  'rt.viaRequired': 'Must stop',
-  'rt.viaOptional': 'Reference only',
-  'rt.viaHint': 'The route passes through the stop either way — the difference is whether it becomes an overnight stop. "Must stop" always stops; "Reference only" stops only when it fits that day\'s driving time. Choosing "Must stop" may push a day past your target hours.',
-  'rt.startDate': 'Departure date',
-  'rt.dailyTarget': 'Driving hours per day',
-  'rt.dailyOpt': '{h} hours',
-  'rt.planBtn': 'Calculate route and split into days',
-  'rt.planning': 'Calculating route…',
-  'rt.pickPh': 'Search a place (at least 2 characters)',
-  'rt.pickClear': 'Clear',
-  'rt.searching': 'Searching…',
-  'rt.searchEmpty': 'No such place found',
-  'rt.resultTitle': 'Result',
-  'rt.totalLabel': 'Whole trip',
-  'rt.daysLabel': '{n} days',
-  'rt.dayTitle': 'Day {n}',
-  'rt.dayDrive': 'Drive {dur} · {dist}',
-  'rt.dayDriveUnknown': 'Drive — · —',
-  'rt.tailMerged': 'the last {min} min are merged into day {n}',
-  'rt.noStopover': 'This trip needs no stop on the way',
-  'rt.driftNote': 'Per-day times come from summing OSRM per-edge durations; the whole-trip time comes from summing legs. The two differ by {pct} % in practice (OSRM internal rounding) — they are not the same number.',
-  'rt.freeflowNote': 'Driving times are OSRM free-flow estimates, not live traffic.',
-  'rt.snapWarn': 'A stop was snapped onto a road {km} away — please double-check.',
-  'rt.poiTitle': 'Candidates (not saved)',
-  'rt.poiHint': 'Candidates live on this page only and are never written to local storage; they become a check-in once you adopt them.',
-  'rt.poiQuota': 'This will send {n} searches for {a} stops × {t} categories (serial, concurrency is always 1), using at most {n} quota calls.',
-  'rt.poiQuotaZero': 'There are no stops yet, so there is no anchor to search around.',
-  'rt.poiBtn': 'Search candidates',
-  'rt.poiSearching': 'Searching candidates ({done}/{n})…',
-  'rt.poiOnlyStay': 'Lodging only',
-  'rt.poiAllTypes': 'All three',
-  'rt.poiTypeHint': 'Narrowing the categories directly cuts quota usage.',
-  'rt.poiNoKey': 'No Amap key: candidates cannot be searched. Routing, day splitting and saving all still work, and you can add entries by hand.',
-  'rt.poiGoSettings': 'Fill in the key in settings',
-  'rt.poiManualAdd': 'Add by hand',
-  'rt.poiManualPh': 'Type a name by hand',
-  'rt.poiEmpty': 'No candidates this time (the coordinates or the category may be too narrow).',
-  'rt.poiAdopt': 'Adopt',
-  'rt.poiAdopted': 'Adopted',
-  // Must say **straight line**: the road distance needs another request, and until then
-  // it must not be passed off as one.
-  'rt.poiStraight': '{m} straight line',
-  'rt.type.stay': 'Lodging',
-  'rt.type.sight': 'Sights',
-  'rt.type.food': 'Food',
-  'rt.groupPass': 'Passes ({n})',
-  'rt.groupFail': 'Below the bar ({n})',
-  'rt.groupUnknown': 'Not filled in ({n})',
-  'rt.groupUnknownField': 'Not filled in: {field} ({n})',
-  'rt.unknownHint': '“Not filled in” means Amap did not return that field — it is never filled with an average or a default; you can fill it in yourself.',
-  'rt.field.pricePerNight': 'price per night',
-  'rt.field.roomType': 'room type',
-  'rt.field.level': 'sight rating',
-  'rt.field.localSpecial': 'local speciality',
-  // rating / keywords are also “not filled in” field names produced by partitionByFilter();
-  // without a row here the UI used to show the raw English `rating`.
-  'rt.field.rating': 'rating',
-  'rt.field.keywords': 'keywords',
-  // Filter panel (user request: make these conditions optional, e.g. a dropdown)
-  'rt.filterTitle': 'Filters (editable)',
-  'rt.filterHint': 'Only the conditions you tick take part in filtering — an unticked one is not judged at all, so it never pushes an item into “below the bar” or into “not filled in”. Amap does not return price, room type or sight rating; when they are missing the item goes to “not filled in” instead of being filled with an average or a default.',
-  'rt.filter.effective': '{n} in effect',
-  'rt.filter.priceOpt': 'up to ¥{n}',
-  'rt.filter.ratingOpt': '{n} and up',
-  'rt.filter.levelOpt': '{lv} and up',
-  'rt.filter.rating': 'Minimum rating',
-  'rt.filter.room.standard': 'Standard',
-  'rt.filter.room.king': 'King bed',
-  'rt.filter.room.twin': 'Twin beds',
-  'rt.filter.keywordsPh': 'comma separated, e.g. local speciality, signature dish',
-  'rt.checkedTitle': 'Adopted check-ins ({n})',
-  'rt.saveTitle': 'Save',
-  'rt.tripName': 'Trip name',
-  'rt.tripNamePh': 'for example “Chengdu–Xi’an, 5 days”',
-  'rt.saveBtn': 'Save this trip',
-  'rt.saveOk': 'Saved: {name}',
-  'rt.saveFail': 'Not saved: writing to local storage failed (the quota may be full). Clean up old trips in settings and try again.',
-  'rt.tripListTitle': 'Saved trips ({n})',
-  'rt.tripListEmpty': 'No trips saved yet',
-  'rt.tripSkipped': '{n} trips cannot be opened',
-  'rt.tripItem': '{name} · {days} days',
-
-  // ---------- Road trip: route map (T05) ----------
-  'rt.mapTitle': 'Route map',
-  'rt.mapHint': 'The basemap and its credits are unchanged; the zoom level is derived from “just fit this trip”, not set by hand.',
-  'rt.mapWhole': 'Whole trip',
-  'rt.mapEmpty': 'Nothing to draw yet: plan a route first.',
-  'rt.mapGeo': 'Geometry source: {src}',
-  'rt.mapGeoSimplified': 'OSRM simplified geometry',
-  'rt.mapGeoNone': 'no geometry',
-  'rt.mapLoad': 'Fetch geometry for this part (simplified, 1 request)',
-  'rt.mapFetching': 'Fetching geometry…',
-  'rt.mapGeoFail': 'Could not get the geometry: {msg}',
-  'rt.mapSchematic': '★This is a **schematic straight line** (start to end), not the real path — without geometry it must never be drawn as a solid line.',
-  'rt.mapNoFit': 'This trip spans too much: it fell back to the minimum zoom and may not fit entirely.',
-  'rt.mapNoCoord': 'not located',
-
-  // ---------- Road trip: on-the-ground log (T05) ----------
-  'rt.recordTitle': 'Log',
-  'rt.recordHint': 'Adopted candidates and hand-written check-ins land here; entries without coordinates are listed, never plotted.',
-  'rt.recordEmpty': 'No check-ins yet',
-  'rt.deviationTitle': 'Re-plan when off by',
-  'rt.deviationOpt': '{km} km',
-  'rt.deviationBtn': 'Check for detour',
-  'rt.deviationChecking': 'Locating…',
-  'rt.deviationHint': 'One check per tap: this app has no background location, so nothing is recorded while the screen is locked or you switch away (iOS has no background location either).',
-  'rt.deviationNoGps': 'No location this time — cannot judge (a default location is never substituted).',
-  'rt.deviationUnknown': 'No planned stop to compare against, cannot judge.',
-  'rt.deviationResult': 'Straight-line distance to the nearest planned stop: {km} km (threshold {thr} km). This is straight-line distance, not how far you still have to drive.',
-  'rt.deviationOk': 'Within the threshold — stick to the plan.',
-  'rt.deviationOver': 'Past the threshold — the planned stops no longer match where you actually are.',
-  'rt.deviationReplan': 'Re-plan from here',
-  'rt.deviationCurrentPlace': 'Current location',
-  'rt.recordItem': '{name}{addr}',
-  'rt.recordNoLocated': '{n} not located (not plotted)',
-
-  // ---------- Road trip: moving between devices (export / import, T05) ----------
-  'rt.moveTitle': 'Move to another device',
-  'rt.moveHint': 'Export to a standalone file (no geometry) and import it elsewhere. It contains the places you went — do not post it publicly.',
-  'rt.exportBtn': 'Export all trips',
-  'rt.exportOk': 'Exported {n}: {file}',
-  'rt.exportEmpty': 'No trips to export',
-  'rt.importBtn': 'Choose a trip file',
-  'rt.importPreview': 'Will import {n} ({d} skipped)',
-  'rt.importApply': 'Confirm import',
-  'rt.importOk': 'Imported {n}',
-  'rt.importFail': 'No trips could be read from this file: {msg}',
-
-  // ---------- Road trip: trip import failure reasons ----------
-  // core/roadtrip.js and core/tripstore.js return only reasonKey / reasonParams
-  // (core may not import i18n); the UI translates them.
-  'trip.badJson': 'not valid JSON',
-  'trip.notObject': 'the trip body is not a JSON object',
-  'trip.badSchema': 'unsupported trip file schema version (schema={schema})',
-  'trip.newerSchema': 'this trip was created by a newer version (schema={schema}); please upgrade before opening it',
-  'trip.notRoadtrip': 'not a WayScope road-trip file',
-  'trip.noTrips': 'the file has no trips array',
-  'trip.planNoTrips': 'the import plan has no trips array (call inspectTripFile first)',
-  'trip.notFound': 'this trip does not exist',
 
   // ---------- Backup import failure reasons ----------
   // core/backup.js returns only reasonKey / reasonParams (core may not import i18n);

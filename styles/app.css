@@ -799,26 +799,11 @@ body[data-page="compare"] {
   color: var(--c-text-3);
 }
 
-/* ---------------- 自驾页筛选条件 ---------------- */
+/* ---------------- 数据源自检页 ---------------- */
 
-/*
- * 三类条件各一个 <details> 折叠块。★为什么只用这三个类、不画新配色：折叠块里塞的是
- *   既有控件（.btn / .card-note / checkbox），配色一律走 tokens.css 的变量 ——
- *   app.css 不许写死颜色，任何一处写死都会在换主题时变成一块看不见的方块。
- */
-
-/* 标题行整行可点，且够得着真机最小点按尺寸（--touch-min = 44px）。 */
-.filt-sum {
-  cursor: pointer;
-  min-height: var(--touch-min);
-}
-
-/* 条件行缩进一点，视觉上归到它所属的那一类下面。 */
-.filt-body {
-  padding-left: var(--sp-2);
-}
-
-.filt + .filt { margin-top: var(--sp-2); }
+/* ★2026-10-17：原「自驾页筛选条件」段（.filt / .filt-sum / .filt-body）已整段删除 ——
+   它只服务于已下线的路线规划页筛选器，全仓 grep 零引用，留着就是死样式。
+   那段注释里「不画新配色、配色一律走 tokens.css 变量」的规矩仍然有效，见本文件顶部。 */
 
 .sc-section {
   max-width: 640px;

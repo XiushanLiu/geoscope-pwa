@@ -150,9 +150,10 @@ export function makeError(code, sourceId, extra = {}) {
  *
  * @param {string} code 错误码（业务桶建议用 'BUSINESS'；未配置凭据用 'NOKEY'）。
  * @param {string} sourceId 源 id。
- * @param {string} messageKey 要上屏的文案键（当年自驾用的一类是 `rt.amap.invalidKey`；
- *   该示例所属模块已下线，现在**没有**调用方在用本函数的业务桶分支 —— 保留它是因为
- *   契约属于 core 层，将来接任何「HTTP 200 包业务失败」的源都要走这一条）。
+ * @param {string} messageKey 要上屏的文案键（业务桶那一类，形如 `<prefix>.invalidKey`；
+ *   ★2026-10-17：原本写在注释里的那个具体示例所属模块已下线，现在**没有**调用方在用
+ *   本函数的业务桶分支 —— 保留它是因为契约属于 core 层，将来接任何
+ *   「HTTP 200 包业务失败」的源都要走这一条）。
  * @param {{httpStatus?:number|null, params?:Object}} [extra] 附加信息。
  * @returns {{code:string, messageKey:string, messageParams:Object,
  *            httpStatus:number|null, sourceId:string, retriable:boolean}} SourceError。
