@@ -31,6 +31,7 @@ const compass = await import('../src/ui/compass.js');
 const { WMM_MODEL } = await import('../src/data/wmm2025.js');
 const { normalizeSignedAngle } = await import('../src/core/mag.js');
 const { t } = await import('../src/i18n/index.js');
+const fmt = await import('../src/core/format.js');
 
 /** 北京天安门（WGS84），与 geo.js 的 DEFAULT_PLACE 一致。 */
 const BEIJING = { lat: 39.9087, lon: 116.3975 };
@@ -309,6 +310,26 @@ test('模型卡显示版本 / 历元 / 有效期 / 来源，且不谎报精度',
   assert.ok(txt.includes('2025.0'), '必须显示历元与有效期');
   assert.ok(txt.includes(WMM_MODEL.source), '必须显示来源');
   assert.ok(!/误差|±/.test(txt), '界面上不得出现任何精度/误差字样');
+});
+
+test('★模型卡最后一行：标签必须是「计算时刻（小数年）」，不许再借「地磁要素」', () => {
+  // 真机缺陷原样：模型卡最后一行显示「地磁要素    2026.82」——
+  // 标签借的是 `card.magnetic`（地磁要素 = D/I/F/H 那几个量），值却是小数年。
+  // 变异验证：把 compass.js 的 t('compass.modelAt') 改回 t('card.magnetic')，这条会红。
+  const root = dom.document.createElement('div');
+  const snapshot = snapshotAt(AT_2025);
+  compass.renderModelCard(root, snapshot);
+
+  const rows = root.querySelector('#card-model').querySelectorAll('.kv-item');
+  assert.ok(rows.length >= 6, `模型卡至少 6 行键值，实际 ${rows.length}`);
+  const last = rows[rows.length - 1];
+  const k = text(last.querySelector('.kv-k'));
+  const v = text(last.querySelector('.kv-v'));
+
+  assert.equal(k, t('compass.modelAt'), `最后一行标签必须是「计算时刻」，实际：${k}`);
+  assert.notEqual(k, t('card.magnetic'), '★不许再借「地磁要素」当这一行的标签（值不是地磁要素）');
+  assert.equal(v, fmt.num(snapshot.mag.decimalYear, 2), `值必须是小数年本身，实际：${v}`);
+  assert.notEqual(t('compass.modelAt'), t('card.magnetic'), '两条键不许合并：合并了这条断言就永远绿');
 });
 
 /* ------------------------------------------------------------------ */

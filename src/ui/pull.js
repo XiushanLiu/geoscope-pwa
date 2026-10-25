@@ -53,13 +53,22 @@ export async function pullSource(snapshot, sourceId, ctx, apply, opts = {}) {
 
   // res.stale 是显式标记：ok=false 时 data 可能是陈旧兜底值，不能当成功数据用
   const state = res.stale ? 'stale' : 'fresh';
+  // ★2026-10 真机缺陷：fresh 缓存命中时 `core/http.js` 根本**没发请求**，
+  //   它把 `meta.latencyMs` 置 0（见 http.js「fresh 缓存命中：不发请求」那一支）。
+  //   0 ms 上屏会被读成「从网络取回耗时 0 毫秒」——那是把「没测」说成「测到 0」，
+  //   正是本项目最忌讳的一类表述。所以这里分两件事：
+  //   - `fromCache`：明说这一条是缓存命中；
+  //   - `latencyMs` 在命中时置 **null**（`format.latency(null)` 出「—」= 没测），
+  //     ★不许再写回 0 —— 0 是数字，会被当成实测值一路渲染出去。
+  const fromCache = !!(res.meta && res.meta.fromCache === true);
   if (res.data !== null && res.data !== undefined) {
     apply(res.data);
     snapshot.provenance.push({
       sourceId,
       label: spec ? spec.label : sourceId,
       url: res.meta.requestUrl,
-      latencyMs: res.meta.latencyMs,
+      latencyMs: fromCache ? null : res.meta ? res.meta.latencyMs : null,
+      fromCache,
       fetchedAt: res.meta.finishedAt,
       state,
       attribution: spec ? spec.attribution : '',

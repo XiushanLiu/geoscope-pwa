@@ -13,6 +13,7 @@
 import { test, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import {
   installFetch,
   installNavigator,
@@ -43,6 +44,8 @@ const root = dom.byId.app;
 
 const tiles = await import('../src/data/tiles.js');
 const map = await import('../src/ui/map.js');
+const i18nModule = await import('../src/i18n/index.js');
+const { t } = i18nModule;
 
 /** 北京天安门（WGS84），与 geo.js 的 DEFAULT_PLACE 一致。 */
 const ctx = { lat: 39.9087, lon: 116.3975 };
@@ -292,4 +295,64 @@ test('缩放控件在边界处禁用（不给出无效按钮）', () => {
   assert.equal(btns.length, 2, '放大 / 缩小两个按钮');
   assert.ok(btns[0].attrs.has('disabled'), '已在最大层级 → 放大按钮必须禁用');
   assert.ok(!btns[1].attrs.has('disabled'), '缩小按钮仍可用');
+});
+
+/* ------------------------------------------------------------------ */
+/* 7. 瓦片进度尾缀（2026-10 真机缺陷：终态没词，说成「瓦片加载中」）      */
+/* ------------------------------------------------------------------ */
+
+test('★瓦片进度尾缀四态：全部分块取回成功必须说「已加载」，不许掉回「瓦片加载中」', () => {
+  // 真机缺陷原样：9/9 块 · 9 ms · 瓦片加载中 —— 都加载完了还在说加载中。
+  // 根因是终态没有自己的词，两条分支（状态标记 / 坐标行）都兜底成 loading。
+  assert.equal(map.tileTail({ total: 9, ok: 9, fail: 0, cacheHit: 0 }, 'map.tailBlank'), t('map.loaded'));
+  // 发起了一块都没回来：仍是加载中（少这条就会在刚发起时说「已加载」，同一个谎换个方向）
+  assert.equal(map.tileTail({ total: 9, ok: 0, fail: 0, cacheHit: 0 }, 'map.tailBlank'), t('map.loading'));
+  // 一块都还没发起
+  assert.equal(map.tileTail({ total: 0, ok: 0, fail: 0, cacheHit: 0 }, 'map.tailBlank'), t('map.loading'));
+  assert.equal(map.tileTail(undefined, 'map.tailBlank'), t('map.loading'), 'stats 缺失也不许崩');
+  // 有失败 → 用调用方给的失败键（坐标行说「留白」）
+  assert.equal(map.tileTail({ total: 9, ok: 7, fail: 2, cacheHit: 0 }, 'map.tailBlank'), t('map.tailBlank', { n: 2 }));
+  // 有缓存命中 → 缓存命中（优先级在「已加载」之前：命中里有几块是新拉的也算命中）
+  assert.equal(map.tileTail({ total: 9, ok: 9, fail: 0, cacheHit: 5 }, 'map.tailBlank'), t('map.cacheHit'));
+  // 失败优先于命中：既失败又命中时，必须先说失败（说成命中就藏了失败）
+  assert.equal(map.tileTail({ total: 9, ok: 8, fail: 1, cacheHit: 3 }, 'map.tailBlank'), t('map.tailBlank', { n: 1 }));
+});
+
+test('★两个失败态文案键必须真的在两张表里（判定收成一份后 check 扫不到，这里补上）', () => {
+  // ★如实记录一处覆盖搬家：`tileTail(stats, failKey)` 把失败态的键当**字符串参数**传，
+  //   `t(failKey, …)` 是动态键 —— tools/check.mjs 那条「t('字面量') 必须在中英两表
+  //   都存在」是按字面量扫的，扫不到动态键，于是 map.tailFailed / map.tailBlank 从此
+  //   不再被它覆盖（这是本次把两份分支收成一份的代价，check 通过数 −4 条即出于此）。
+  //   这里在测试层把这 4 条（2 键 × 2 表）补回来，并额外钉住占位符真的被替换。
+  for (const key of ['map.tailFailed', 'map.tailBlank']) {
+    const got = t(key, { n: 2 });
+    assert.notEqual(got, key, `${key} 必须在中文表里存在（缺失时 t() 会原样返回键名）`);
+    assert.ok(got.includes('2'), `${key} 的 {n} 占位符必须被替换，实际：${got}`);
+    assert.notEqual(got, '', `${key} 不许是空串`);
+  }
+  // 英文表一并钉（默认 locale 是 zh，这里显式切 en 再切回，避免污染其它用例）
+  const i18n = i18nModule;
+  i18n.setLocale('en');
+  try {
+    for (const key of ['map.tailFailed', 'map.tailBlank', 'map.loaded']) {
+      assert.notEqual(t(key, { n: 2 }), key, `${key} 必须在英文表里存在`);
+    }
+  } finally {
+    i18n.setLocale('zh');
+  }
+});
+
+test('★「已加载」必须有自己的词：不许借用 loading，也不许借用 cacheHit', () => {
+  assert.notEqual(t('map.loaded'), t('map.loading'), '借 loading 就等于自相矛盾（加载完了还说加载中）');
+  assert.notEqual(t('map.loaded'), t('map.cacheHit'), '借 cacheHit 等于把新拉的块说成缓存');
+  assert.notEqual(t('map.loaded'), '', '不许是空串（空串会被当成没渲染出来，静默消失）');
+});
+
+test('★尾缀判定只许有一份：状态标记与坐标行都走 tileTail，不许各写一份分支', () => {
+  // 变异验证：把 _statusText 或 _coordRow 改回内联的三元分支，这条会红。
+  const src = readFileSync(new URL('../src/ui/map.js', import.meta.url), 'utf8');
+  const calls = src.match(/tileTail\(/g) || [];
+  assert.equal(calls.length, 3, `map.js 里 tileTail 应出现 3 次（1 处定义 + 2 处调用），实际 ${calls.length}`);
+  assert.ok(/tileTail\(stats, 'map\.tailFailed'\)/.test(src), '状态标记必须走共享判定（失败说「失败」）');
+  assert.ok(/tileTail\(stats, 'map\.tailBlank'\)/.test(src), '坐标行必须走共享判定（失败说「留白」）');
 });

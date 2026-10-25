@@ -611,6 +611,26 @@ test('now.js 渲染对残缺快照不抛异常（缺 weather / air / coord 都�
   assert.ok(text(root.querySelector('#card-weather')).includes('暂无'), '无天气数据时应显示占位文案');
 });
 
+test('★溯源气泡：缓存命中必须显示「缓存命中」，不许显示 0 ms（没发请求 ≠ 耗时 0）', () => {
+  // ★为什么在渲染层再钉一次（pull.test.mjs 已经钉了字段）：字段对了但**没人读**一样
+  //   会显示 0 ms。这条钉的是「渲染层真的按 fromCache 分支说话」——
+  //   变异验证：把 now.js 的 `p.fromCache === true ? …` 改回 `fmt.latency(p.latencyMs)`，
+  //   这条立刻红（出「—」而不是「缓存命中」），而 pull.test.mjs 那两条仍是绿的。
+  const root = document.createElement('div');
+  now.renderSkeleton(root);
+  now.renderProvenance(root, {
+    provenance: [
+      // 命中那一条：pull.js 给的 latencyMs 是 null（忠实复制 http.js 的 0 也行，见下）
+      { sourceId: 'elevation', label: '海拔', url: 'https://example.test/elev', latencyMs: null, fromCache: true, fetchedAt: Date.now(), state: 'fresh', attribution: '' },
+      { sourceId: 'weather', label: '天气', url: 'https://example.test/w', latencyMs: 137, fromCache: false, fetchedAt: Date.now(), state: 'fresh', attribution: '' },
+    ],
+  });
+  const box = text(root.querySelector('#card-prov'));
+  assert.ok(box.includes('缓存命中'), `命中那条必须说「缓存命中」，实际：${box}`);
+  assert.ok(!/\b0 ms\b/.test(box), `命中不许显示「0 ms」（那是把没发请求说成耗时 0），实际：${box}`);
+  assert.ok(box.includes('137 ms'), `未命中那条要显示实测时延，实际：${box}`);
+});
+
 test('now.js：缺失字段必须显示占位符「—」而不是 0（与 format  regressions 对齐）', () => {
   const root = document.createElement('div');
   now.renderSkeleton(root);

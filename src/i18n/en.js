@@ -129,6 +129,8 @@ export const EN = {
   'card.air': 'Air',
   'card.place': 'Place',
   'card.provenance': 'Sources',
+  // "No request was sent" — must never render as 0 ms. Own key, not borrowed from map.cacheHit.
+  'prov.cacheHit': 'Cache hit',
   'card.forecast': 'Today & next days',
 
   'w.temp': 'Temperature',
@@ -291,6 +293,8 @@ export const EN = {
   'compass.modelEpoch': 'Epoch',
   'compass.modelRangeLabel': 'Valid for',
   'compass.modelSource': 'Source',
+  // Value here is `decimalYear`; it used to borrow `card.magnetic` (screen read "Magnetic elements 2026.82").
+  'compass.modelAt': 'Computed for (decimal year)',
   'compass.modelDoi': 'DOI',
   'compass.modelRange': '{from} – {until}',
   'compass.modelOk': 'Within validity',
@@ -331,6 +335,8 @@ export const EN = {
   'map.untrusted': 'Not trusted',
   'map.cacheHit': 'Cache hit',
   'map.loading': 'Loading tiles',
+  // Terminal state "every tile fetched" — it used to fall through to "Loading tiles". Never borrows loading / cacheHit.
+  'map.loaded': 'Loaded',
   'map.blocks': '{ok}/{total} tiles',
   'map.detail': '{blocks} · {elapsed} · {tail}',
   'map.tailBlank': '{n} blank',

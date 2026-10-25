@@ -1025,7 +1025,12 @@ export function renderProvenance(root, snapshot) {
     h('span', { class: 'prov-item', title: `${p.label} · ${p.attribution}` }, [
       h('span', { class: `badge badge--${p.state === 'stale' ? 'stale' : 'ok'}` }),
       h('span', { text: p.label }),
-      h('span', { class: 'num', text: fmt.latency(p.latencyMs) }),
+      // ★命中缓存那一路 latencyMs 是 0（没发请求），显示成 0 ms 就是把「没测」说成「测到 0」；
+      //   命中说「缓存命中」，未命中才给实测时延（命中时 pull.js 已置 null，null 出「—」）。
+      h('span', {
+        class: 'num',
+        text: p.fromCache === true ? t('prov.cacheHit') : fmt.latency(p.latencyMs),
+      }),
       h('span', { class: 'prov-url', text: _shortUrl(p.url) }),
     ])
   );

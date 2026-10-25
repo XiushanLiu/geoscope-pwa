@@ -25,8 +25,24 @@ const pull = await import('../src/ui/pull.js');
 const health = await import('../src/data/health.js');
 const sources = await import('../src/data/sources.js');
 
-/** 溯源气泡里那七项的**顺序**（渲染层按这个顺序读，改了要连带改 `now.js`）。 */
-const PROVENANCE_KEYS = ['sourceId', 'label', 'url', 'latencyMs', 'fetchedAt', 'state', 'attribution'];
+/**
+ * 溯源气泡里那八项的**顺序**（渲染层按这个顺序读，改了要连带改 `now.js`）。
+ *
+ * ★2026-10 真机缺陷补的 `fromCache`：缓存命中那一路上屏显示「0 ms」，等于把
+ *   「没测」说成「测到 0」。所以字段契约改成两条 —— `fromCache` 明说命中，
+ *   `latencyMs` 在命中时是 **null**（不是 0）。**渲染侧必须读 `fromCache`**，
+ *   见 tests/ui.test.mjs 的「溯源气泡：缓存命中不许显示 0 ms」，两条一处改。
+ */
+const PROVENANCE_KEYS = [
+  'sourceId',
+  'label',
+  'url',
+  'latencyMs',
+  'fromCache',
+  'fetchedAt',
+  'state',
+  'attribution',
+];
 
 /**
  * 造一个假的取数函数（注入 `opts.fetch`，避开真网络与 `http.js` 的全局串行队列）。
@@ -80,6 +96,56 @@ test('★成功一路：data 写回 + 溯源气泡记一条 fresh + 健康台账
   assert.equal(snap.provenance[0].state, 'fresh', '非陈旧必须记 fresh');
   // ★变异验证的落点：删掉 pullSource() 里的 recordResult(res)，这一条会红（attempts 变 0）
   assert.equal(health.getHealth('elevation').attempts, 1, '每一路都必须记账（overallMode 靠它判降级）');
+});
+
+test('★缓存命中：fromCache=true 且 latencyMs 必须是 null（不许把「没发请求」记成「测到 0 ms」）', async () => {
+  const snap = blank();
+  // 假数据忠实复刻 `core/http.js` 的 fresh 命中分支：fromCache=true、latencyMs=0。
+  // ★不许把这里的 latencyMs 直接写成 null —— 那就是替实现把活干了，断言会永远绿。
+  await pull.pullSource(
+    snap,
+    'elevation',
+    { lat: 1, lon: 2 },
+    (data) => {
+      snap.elevationM = data.elevationM;
+    },
+    {
+      fetch: fetchOf('elevation', {
+        ok: true,
+        data: { elevationM: 44 },
+        meta: { requestUrl: 'u', latencyMs: 0, finishedAt: 4, fromCache: true },
+      }),
+    }
+  );
+
+  assert.deepEqual(Object.keys(snap.provenance[0]), PROVENANCE_KEYS, '命中这路的字段集合与顺序同样不许变');
+  assert.equal(snap.provenance[0].fromCache, true, '★命中必须显式记 true，渲染层靠它决定说什么');
+  // ★变异验证的落点：把 pull.js 里的 `fromCache ? null : …` 改回 `res.meta.latencyMs`，
+  //   这一条立刻红（拿到 0），而「字段集合」那条仍是绿的 —— 正是它单独存在的理由。
+  assert.equal(snap.provenance[0].latencyMs, null, '★命中时 latencyMs 必须是 null（null 出「—」= 没测）');
+});
+
+test('★未命中（真发请求）时 fromCache=false 且 latencyMs 保留实测值（不许一律置 null）', async () => {
+  const snap = blank();
+  await pull.pullSource(
+    snap,
+    'elevation',
+    { lat: 1, lon: 2 },
+    (data) => {
+      snap.elevationM = data.elevationM;
+    },
+    {
+      // 没有 fromCache 字段（真实 `http.js` 未命中时就是这样），也不能被当成命中
+      fetch: fetchOf('elevation', {
+        ok: true,
+        data: { elevationM: 44 },
+        meta: { requestUrl: 'u', latencyMs: 137, finishedAt: 5 },
+      }),
+    }
+  );
+
+  assert.equal(snap.provenance[0].fromCache, false, '未命中必须是 false');
+  assert.equal(snap.provenance[0].latencyMs, 137, '真发了请求就该保留实测时延');
 });
 
 test('★陈旧兜底：ok=false 但 stale=true 时 data 照常写回，state 必须是 stale（不许冒充 fresh）', async () => {

@@ -419,6 +419,43 @@ function _styleChips(onChange) {
 /* ------------------------------------------------------------------ */
 
 /**
+ * 瓦片进度的**尾缀**（「已加载」/「N 块失败」/「缓存命中」/「瓦片加载中」）。
+ *
+ * ★2026-10 真机缺陷：原来 `_statusText()` 与 `_coordRow()` 各写一份分支，且**终态没有
+ *   自己的词** —— 9 块全部从网络取回成功后两个分支都掉进 `map.loading`，界面读到的是
+ *   「9/9 块 · 9 ms · 瓦片加载中」（都加载完了还在说加载中）。修的时候顺手把两份分支
+ *   收成一个函数：同一段判定抄两遍，将来只改一处就会再咬一次（见 `ui/pull.js` 文件头）。
+ *
+ * 四态边界（**顺序不许调**）：
+ *   1) 一块都还没发起（`total === 0`）→ 加载中；
+ *   2) 有失败 → `failKey`（两张卡用词不同：坐标行说「留白」、状态标记说「失败」）；
+ *   3) 发起了但一块都还没回来（`ok === 0`）→ **仍是加载中** ——
+ *      ★少这一条就会在「刚发起、还没回来」时说「已加载」，是同一个谎言换个方向；
+ *   4) 有缓存命中 → 缓存命中；
+ *   5) 其余（全部成功且非缓存）→ **已加载**。
+ *
+ * ★入参一律先过 `Number(...) || 0`：stats 缺失或字段是 undefined 时，直接比大小会
+ *   全走「否则」分支而说成「已加载」（undefined > 0 是 false）—— 又是拿终态的话
+ *   去描述「还没开始」，与本次要修的缺陷是同一个谎。没数据就该说「加载中」。
+ *
+ * @param {Object} stats 瓦片统计。
+ * @param {'map.tailBlank'|'map.tailFailed'} failKey 失败态用的文案键。
+ * @returns {string} 尾缀文案。
+ */
+export function tileTail(stats, failKey) {
+  const s = stats || {};
+  const total = Number(s.total) || 0;
+  const ok = Number(s.ok) || 0;
+  const fail = Number(s.fail) || 0;
+  const cacheHit = Number(s.cacheHit) || 0;
+
+  if (total === 0) return t('map.loading');
+  if (fail > 0) return t(failKey, { n: fail });
+  if (ok === 0) return t('map.loading');
+  return cacheHit > 0 ? t('map.cacheHit') : t('map.loaded');
+}
+
+/**
  * 状态标记（S57 `17:4`）：「z12 · 已授信 · 缓存命中」。
  *
  * @param {Object} stats 瓦片统计。
@@ -426,12 +463,7 @@ function _styleChips(onChange) {
  */
 function _statusText(stats) {
   const trust = isStyleTrusted(_view.styleId) ? t('map.trusted') : t('map.untrusted');
-  let tail;
-  if (stats.total === 0) tail = t('map.loading');
-  else if (stats.fail > 0) tail = t('map.tailFailed', { n: stats.fail });
-  else if (stats.ok === 0) tail = t('map.loading');
-  else tail = stats.cacheHit > 0 ? t('map.cacheHit') : t('map.loading');
-  return `${t('map.zoom', { zoom: _view.zoom })} · ${trust} · ${tail}`;
+  return `${t('map.zoom', { zoom: _view.zoom })} · ${trust} · ${tileTail(stats, 'map.tailFailed')}`;
 }
 
 /**
@@ -443,12 +475,8 @@ function _statusText(stats) {
  */
 function _coordRow(coord, stats) {
   const blocks = t('map.blocks', { ok: stats.ok, total: stats.total });
-  const tail =
-    stats.fail > 0
-      ? t('map.tailBlank', { n: stats.fail })
-      : stats.cacheHit > 0
-        ? t('map.cacheHit')
-        : t('map.loading');
+  // 与状态标记同一份判定（见 tileTail 的注释），只是失败态的用词不同
+  const tail = tileTail(stats, 'map.tailBlank');
   return h('div', { class: 'map-coord' }, [
     h('span', {
       class: 'map-coord-v',

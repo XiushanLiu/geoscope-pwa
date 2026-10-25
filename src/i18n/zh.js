@@ -130,6 +130,8 @@ export const ZH = {
   'card.air': '空气',
   'card.place': '位置',
   'card.provenance': '数据来源',
+  // ★「这一路命中了本地缓存」：没发请求，不许显示 0 ms。与 map.cacheHit 各用各的键，故意不互借。
+  'prov.cacheHit': '缓存命中',
   'card.forecast': '今日与未来',
 
   'w.temp': '气温',
@@ -288,6 +290,8 @@ export const ZH = {
   'compass.modelEpoch': '历元',
   'compass.modelRangeLabel': '有效期',
   'compass.modelSource': '来源',
+  // ★这一行的值是小数年，原借 `card.magnetic`（地磁要素）当标签，界面读到「地磁要素 2026.82」。
+  'compass.modelAt': '计算时刻（小数年）',
   'compass.modelDoi': 'DOI',
   'compass.modelRange': '{from} – {until}',
   'compass.modelOk': '在有效期内',
@@ -327,6 +331,8 @@ export const ZH = {
   'map.untrusted': '未授信',
   'map.cacheHit': '缓存命中',
   'map.loading': '瓦片加载中',
+  // ★终态「全部取回成功」，原先无词可说被兜底成「瓦片加载中」（读到「9/9 块 · 瓦片加载中」）。不许借 loading / cacheHit。
+  'map.loaded': '已加载',
   'map.blocks': '{ok}/{total} 块',
   'map.detail': '{blocks} · {elapsed} · {tail}',
   'map.tailBlank': '{n} 块留白',
