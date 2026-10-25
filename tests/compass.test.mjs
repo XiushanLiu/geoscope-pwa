@@ -677,26 +677,3 @@ test('★依赖方向：底图卡只准由地理页 import（now.js import map.j
   // 环的另一半：map.js 确实依赖 now.js
   assert.ok(/from\s+['"]\.\/now\.js['"]/.test(map), 'map.js 依赖 now.js 的 h()（这条是上面那条反向钉的前提）');
 });
-
-test('★两份 _pull 的溯源字段集合必须一致（app.js 与 compass.js 是同一份逻辑的两处副本）', () => {
-  /**
-   * 取出每个 `snapshot.provenance.push({...})` 里写的字段名。
-   *
-   * @param {string} src 源码。
-   * @returns {string[]} 逗号连接的字段名列表（每个 push 一条）。
-   */
-  const pushKeys = (src) =>
-    [...src.matchAll(/provenance\.push\(\{([\s\S]*?)\n\s*\}\);/g)].map((m) =>
-      [...m[1].matchAll(/^\s+(\w+):/gm)].map((k) => k[1]).join(',')
-    );
-
-  const app = pushKeys(srcOf('src/ui/app.js'));
-  const geo = pushKeys(srcOf('src/ui/compass.js'));
-  assert.equal(app.length, 1, `app.js 里应只有一处溯源 push，实际 ${app.length} 处`);
-  assert.equal(geo.length, 1, `compass.js 里应只有一处溯源 push，实际 ${geo.length} 处`);
-  assert.equal(
-    geo[0],
-    app[0],
-    `两份 _pull 写的溯源字段必须逐字一致（改一处就得改另一处），app=[${app[0]}] geo=[${geo[0]}]`
-  );
-});

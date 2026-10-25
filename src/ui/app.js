@@ -36,7 +36,8 @@ import { getCurrentPosition, parsePlaceParam, resolveCoord } from '../core/geo.j
 import { getWithState } from '../core/cache.js';
 import { request, isOnline } from '../core/http.js';
 import { getSource } from '../data/sources.js';
-import { recordResult, overallMode, resetHealth } from '../data/health.js';
+// recordResult 不再由本模块直接调用：它活在 `ui/pull.js` 的 pullSource() 里（唯一实现）。
+import { overallMode, resetHealth } from '../data/health.js';
 // ★probeTileBatch / TILE_PROBE_COUNT / TILE_PROBE_BUDGET_MS 2026-10-17 从本模块迁到
 //   data/tiles.js（同一条理由：地理页也要用，且它本来就是瓦片层的事）。
 import {
@@ -62,6 +63,9 @@ import {
   renderClimateCard,
   applyI18n,
 } from './now.js';
+// ★「取数 → 记账 → 溯源」的唯一实现：与地理页 `compass.js` 共用，不许在这里再抄一份
+//   （2026-10-17 之前这两页各有一份副本，靠测试钉不住行为，见 ui/pull.js 文件头）。
+import { pullSource, safePull } from './pull.js';
 import { applyThemeMode, applyFontScale } from './theme.js';
 // 错误文案（把 core/http.js 的 messageKey 翻成人话）：气候常态卡要用它显示失败原因。
 import { errorText } from './errtext.js';
@@ -122,69 +126,6 @@ function _blankSnapshot(coord) {
     air: null,
     provenance: [],
   };
-}
-
-/**
- * 拉取一路源并写回快照（记录健康 + 溯源气泡）。
- *
- * @param {Object} snapshot NowSnapshot（原地修改）。
- * @param {string} sourceId 源 id。
- * @param {Object} ctx 上下文。
- * @param {(data:*) => void} apply 解析结果写回函数。
- * @returns {Promise<Object>} SourceResult。
- */
-async function _pull(snapshot, sourceId, ctx, apply) {
-  const spec = getSource(sourceId);
-  const res = await request(sourceId, ctx);
-  recordResult(res);
-
-  // res.stale 是显式标记：ok=false 时 data 可能是陈旧兜底值，不能当成功数据用
-  const state = res.stale ? 'stale' : 'fresh';
-  const usedData = res.data;
-  if (usedData !== null && usedData !== undefined) {
-    apply(usedData);
-    snapshot.provenance.push({
-      sourceId,
-      label: spec ? spec.label : sourceId,
-      url: res.meta.requestUrl,
-      latencyMs: res.meta.latencyMs,
-      fetchedAt: res.meta.finishedAt,
-      state,
-      attribution: spec ? spec.attribution : '',
-    });
-  }
-  return res;
-}
-
-/**
- * 带兜底的拉取：单路源抛异常时只废掉自己那张卡，不打断后续源。
- *
- * @param {Object} snapshot NowSnapshot。
- * @param {string} sourceId 源 id。
- * @param {Object} ctx 上下文。
- * @param {(data:*) => void} apply 写回函数。
- * @param {(res:Object|null) => void} render 渲染回调（成功/失败都调一次）。
- * @returns {Promise<Object|null>} SourceResult；抛错时为 null。
- */
-async function _safePull(snapshot, sourceId, ctx, apply, render) {
-  try {
-    const res = await _pull(snapshot, sourceId, ctx, apply);
-    try {
-      render(res);
-    } catch (renderErr) {
-      log(`${sourceId} render failed`, renderErr && renderErr.message);
-    }
-    return res;
-  } catch (err) {
-    // 解析或 DOM 抛错：记录日志（debug 关闭时静默），继续跑下一路
-    log(`${sourceId} pull failed`, err && err.message);
-    try {
-      render(null);
-    } catch (renderErr) {
-      /* 渲染兜底也失败时不再抛出，保证后续源继续 */
-    }
-    return null;
-  }
 }
 
 /**
@@ -371,7 +312,7 @@ async function _loadClimate(root, snapshot) {
 async function _background(snapshot, root, bannerEl, isDefaultPlace, epoch) {
   // 1) 逆地理反查：失败不影响首屏
   try {
-    await _pull(snapshot, 'reverse', { lat: snapshot.coord.lat, lon: snapshot.coord.lon }, (data) => {
+    await pullSource(snapshot, 'reverse', { lat: snapshot.coord.lat, lon: snapshot.coord.lon }, (data) => {
       if (data && data.placeName) {
         snapshot.placeName = data.placeName;
       }
@@ -519,7 +460,7 @@ export async function boot() {
 
   // ---- 首屏串行：weather → air → elevation，出一张渲染一张 ----
   // 每路都独立 try/catch：任一源抛错只废自己那张卡，绝不留下永久骨架屏。
-  await _safePull(
+  await safePull(
     snapshot,
     'weather',
     ctx,
@@ -544,7 +485,7 @@ export async function boot() {
   );
   if (epoch !== _epoch) return;
 
-  await _safePull(
+  await safePull(
     snapshot,
     'air',
     ctx,
@@ -558,7 +499,7 @@ export async function boot() {
   );
   if (epoch !== _epoch) return;
 
-  await _safePull(
+  await safePull(
     snapshot,
     'elevation',
     ctx,

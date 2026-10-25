@@ -52,9 +52,10 @@ import {
   log,
 } from '../core/store.js';
 import { getCurrentPosition, parsePlaceParam, resolveCoord } from '../core/geo.js';
-import { request, isOnline } from '../core/http.js';
-import { getSource } from '../data/sources.js';
-import { recordResult, overallMode, resetHealth } from '../data/health.js';
+import { isOnline } from '../core/http.js';
+// getSource / recordResult / request 都不再由本模块直接用：它们活在 `ui/pull.js`
+// 的 pullSource() 里（气候页与地理页共用的唯一实现），本页只留 overallMode / resetHealth。
+import { overallMode, resetHealth } from '../data/health.js';
 import { computeGeomagnetic, WMM_MODEL } from '../data/wmm2025.js';
 import {
   sampleTiles,
@@ -96,6 +97,9 @@ export { declinationText };
 import { applyThemeMode, applyFontScale } from './theme.js';
 // 底图卡：只由本页 import（气候页已不再显示底图，now.js 也不许 import 它，见文件头）。
 import { renderMapCard, renderMapSkeleton } from './map.js';
+// ★「取数 → 记账 → 溯源」的唯一实现：与气候页 `app.js` 共用，不许再抄一份副本
+//   （副本最坏的地方是「两处一致」这类用例钉得住字段名、钉不住行为）。
+import { pullSource, safePull } from './pull.js';
 // 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
 // （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
 import { applyLocale, placeDisplayName } from './locale.js';
@@ -830,77 +834,11 @@ export function createSnapshot(coord, opts = {}) {
     atMs: Number(opts.atMs) || Date.now(),
     // 地名由逆地理反查补（后台）；没有就是 null，页头退回显示坐标
     placeName: typeof opts.placeName === 'string' && opts.placeName ? opts.placeName : null,
-    // 溯源气泡：本页只消费 elevation 与 reverse 两路，条目由 `_pull()` 追加
+    // 溯源气泡：本页只消费 elevation 与 reverse 两路，条目由 `pullSource()` 追加
     provenance: [],
     mag: null,
     error: null,
   };
-}
-
-/**
- * 拉取一路源并写回快照（记录健康 + 溯源气泡）。
- *
- * ★与 `app.js` 的 `_pull()` 是**同一份逻辑的两处副本**：气候页入口 `app.js` 是入口模块
- *   （顶层有三处 DOM 引导副作用），本页不能 import 它，否则整个气候页闭包（含
- *   `data/climate.js`）会被拖进地理页。零新增文件原则下没有第三个落点，所以这里是副本，
- *   改一处必须改另一处 —— `tests/compass.test.mjs` 有一条用例钉住两处字段集合一致。
- *
- * @param {Object} snapshot 地理屏状态（原地修改）。
- * @param {string} sourceId 源 id。
- * @param {Object} ctx 上下文（lat/lon）。
- * @param {(data:*) => void} apply 解析结果写回函数。
- * @returns {Promise<Object>} SourceResult。
- */
-async function _pull(snapshot, sourceId, ctx, apply) {
-  const spec = getSource(sourceId);
-  const res = await request(sourceId, ctx);
-  recordResult(res);
-
-  // res.stale 是显式标记：ok=false 时 data 可能是陈旧兜底值，不能当成功数据用
-  const state = res.stale ? 'stale' : 'fresh';
-  if (res.data !== null && res.data !== undefined) {
-    apply(res.data);
-    snapshot.provenance.push({
-      sourceId,
-      label: spec ? spec.label : sourceId,
-      url: res.meta.requestUrl,
-      latencyMs: res.meta.latencyMs,
-      fetchedAt: res.meta.finishedAt,
-      state,
-      attribution: spec ? spec.attribution : '',
-    });
-  }
-  return res;
-}
-
-/**
- * 带兜底的拉取：单路源抛异常时只废掉自己那张卡，不打断后续源。
- *
- * @param {Object} snapshot 地理屏状态。
- * @param {string} sourceId 源 id。
- * @param {Object} ctx 上下文。
- * @param {(data:*) => void} apply 写回函数。
- * @param {(ok:boolean) => void} render 渲染回调（成功/失败都调一次）。
- * @returns {Promise<Object|null>} SourceResult；抛错时为 null。
- */
-async function _safePull(snapshot, sourceId, ctx, apply, render) {
-  try {
-    const res = await _pull(snapshot, sourceId, ctx, apply);
-    try {
-      render(res.ok === true);
-    } catch (renderErr) {
-      log(`${sourceId} render failed`, renderErr && renderErr.message);
-    }
-    return res;
-  } catch (err) {
-    log(`${sourceId} pull failed`, err && err.message);
-    try {
-      render(false);
-    } catch (renderErr) {
-      /* 渲染兜底也失败时不再抛出，保证后续源继续 */
-    }
-    return null;
-  }
 }
 
 /**
@@ -1069,7 +1007,7 @@ export async function boot() {
   const ctx = { lat: snapshot.coord.lat, lon: snapshot.coord.lon };
 
   // ⑥ 海拔：地点卡的主体之一，失败只废这一行（卡里其余两行照常显示）
-  await _safePull(
+  await safePull(
     snapshot,
     'elevation',
     ctx,
@@ -1083,7 +1021,7 @@ export async function boot() {
   if (epoch !== _epoch) return;
 
   // ⑦ 逆地理反查：地名进页头与地点卡，失败不影响其余内容
-  await _safePull(
+  await safePull(
     snapshot,
     'reverse',
     ctx,
