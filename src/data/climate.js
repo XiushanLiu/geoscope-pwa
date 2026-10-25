@@ -4,7 +4,9 @@
  * 职责：只做两件事 —— 构造 archive-api 的 30 年逐日请求（RequestSpec），以及把
  * 逐日响应**就地聚合成 12 个月的月平均**（只留聚合结果）。不发请求（统一由
  * `core/http.js` 出口）、不读缓存（统一由 `core/cache.js` 管理）、不渲染。
- * 分工与 `data/roadsources.js` 一致：本模块只提供 build/parse。
+ * 分工与其它 data 层源模块一致：本模块只提供 build/parse
+ * （★2026-10-17：这里原本写的是「与 data/roadsources.js 一致」，那个模块已随
+ *   自驾下线删除，改成泛指其它源模块）。
  *
  * ★为什么是「ERA5 再分析自算月平均」而不是官方气候常态（改这里之前先读）：
  *   提问是「只有『此刻』，年/月平均数据在哪里？」，而三条看起来更「官方」的路都已被
@@ -356,7 +358,8 @@ export const CLIMATE_SOURCES = {
     labelKey: 'source.climate',
     // ★惰性 getter：模块级常量里若把翻译结果直接写死（在模块求值那一刻就调 t()），
     //   源名会永远中文 —— import 先于调用方 body 求值，applyLocale 来不及生效。
-    //   照抄 data/roadsources.js 的写法。
+    //   （★2026-10-17：这里原本写「照抄 data/roadsources.js 的写法」，那个模块已随
+    //    自驾下线删除；惰性 getter 这条规矩本身不变，见 data/sources.js 文件头。）
     get label() { return t(this.labelKey); },
     host: CLIMATE_HOST,
     // ★★timeoutMs 10000：怎么来的必须写清，因为它**不是**由样本严格推出的（见 ②）。

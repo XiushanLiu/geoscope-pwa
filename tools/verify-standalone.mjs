@@ -104,8 +104,10 @@ try {
   const api = src.apiSources();
   // ★比成员，不比条数：条数断言拦不住「条数没变、成员被换掉」这类改动 ——
   //   六条还是六条，但其中一路被顶替了，长度断言照样绿。改成比对 id 集合才能抓住。
-  //   自驾两路（osrmRoute / amapPoi）进的是 SOURCE_TABLE 而不是 SOURCE_LIST，
-  //   所以这两条断言盯的是「自检页那六路的集合没被动过」。
+  //   ★2026-10-17 自驾下线：这里原本写的是「自驾两路进的是 SOURCE_TABLE 而不是
+  //   SOURCE_LIST」，那两路已删除；现在进 SOURCE_TABLE 而不进 SOURCE_LIST 的是
+  //   **气候常态**（决定 C：本次发布带上它）。这两条断言盯的仍是
+  //   「自检页那六路的集合没被动过」—— 气候常态加不加都不该动它。
   const EXPECT_LIST = ['weather', 'air', 'geocode', 'elevation', 'reverse', 'tile'];
   const EXPECT_API = ['weather', 'air', 'geocode', 'elevation', 'reverse'];
   const idsOf = (arr) => (Array.isArray(arr) ? arr.map((s) => s && s.id) : []);

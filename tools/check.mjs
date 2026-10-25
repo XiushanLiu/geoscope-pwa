@@ -2165,16 +2165,17 @@ async function main() {
   //   本节**故意不重复它们**，只抓注释里那一类。
   //
   // ★覆盖面边界（不进判定的，一律放过；机器分不清「缩写」和「写错」）：
-  //   1. **缩写 / 相对 / 裸文件名**：`core/cache.js`（指 `src/core/cache.js`）、`./amap.js`、
+  //   1. **缩写 / 相对 / 裸文件名**：`core/cache.js`（指 `src/core/cache.js`）、
   //      `../core/geo.js`、`app.css`、`now.js` —— 这类占绝大多数（实测 404 / 475）。
-  //   2. **glob 与模板名**：`ui/*.js`、`geoscope-roadtrip-*.json`。
+  //   2. **glob 与模板名**：`ui/*.js`、`geoscope-*.json` 这类备份文件名模板。
   //   3. **import / export 行**：交给 build-standalone 与第 3 节，本节不重复。
   //   4. 只认**完整仓库相对路径**（`src/` `tests/` `tools/` `styles/` `docs/` 开头）。
   //   ⚠️ 上面 2、3 两条**今天各排除 0 条**（src 里的 import 一律用 `./` `../` 说明符，
   //   本来就被第 4 条卡掉了）—— 它们是保险费，**今天不可观测**，不假装自己有牙。
   {
     // ⚠️ 段内必须允许点号：第一版正则把段写成 `[A-Za-z0-9_-]+`，结果
-    //    `tests/roadtrip-sources.test.mjs` 这类多段点号文件名被整条漏掉（实测少判 8 条）。
+    //    `tests/climate.test.mjs` 这类多段点号文件名被整条漏掉（实测少判 8 条）。
+    //    （举例用的那个文件原本是自驾的测试，已随自驾删除，换成同样形态的存活文件。）
     const ANY_PATH_RE =
       /(?<![A-Za-z0-9_.\/-])((?:\.{1,2}\/)?[A-Za-z0-9_*.-]+(?:\/[A-Za-z0-9_*.-]+)*\.(?:js|mjs|html|css|json|md|txt))/g;
     const FULL_PREFIX = /^(src|tests|tools|styles|docs)\//;
@@ -2223,7 +2224,7 @@ async function main() {
     );
     process.stdout.write(
       `  ℹ 不进判定的 ${pathTokens - judgedPaths} 条：缩写（\`core/cache.js\` 指 \`src/core/cache.js\`）/\n` +
-        `    \`./amap.js\` / \`../core/geo.js\` / 裸文件名（\`app.css\`）—— 分不清「缩写」与「写错」，一律放过。\n` +
+        `    \`../core/geo.js\` / 裸文件名（\`app.css\`）—— 分不清「缩写」与「写错」，一律放过。\n` +
         `  ℹ 本次按规则排除：glob 与模板名 ${skippedGlob} 条、import/export 行 ${skippedImport} 条\n` +
         `    （两者今天都是 0：src 的 import 一律用 \`./\`、\`../\` 说明符，本就进不了判定）。\n`
     );
@@ -2231,7 +2232,7 @@ async function main() {
 
   /* ---------- 22. 壳资产指纹 ---------- */
   //
-  // ★背景（真事故，不是假想）：改了 `src/ui/map.js` / `src/ui/roadmap.js` 而 sw.js 一个
+  // ★背景（真事故，不是假想）：改了 `src/ui/map.js` 那类壳资产而 sw.js 一个
   //   字节没变 → 浏览器判定「SW 没更新」→ 真机继续从旧壳缓存拿旧文件 → 新功能不生效，
   //   **而且页面不报错**。这类失效既不会进控制台也不会进测试，只能靠人记得跑
   //   `node tools/bump-shell.mjs`。本节把「记得」变成「门禁会红」。

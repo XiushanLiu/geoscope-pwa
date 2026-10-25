@@ -1,6 +1,29 @@
 # 地候 GeoScope · 自驾模块增量架构设计（第 4/5/6 项）
 
-> 作者：高见远（架构师） · 状态：**待 team-lead 拍板 §10 待确认事项**
+# ★★ 本文档已归档（2026-10-17）：自驾功能已下线，本文只作历史留档
+
+> **不要再按本文档施工。** 用户拍板「自驾功能远未达预期，去掉吧」，自驾模块已于
+> 2026-10-17 从本仓库**彻底删除**（零死代码，git 历史可恢复）：
+> - 页面 `roadtrip.html`；源码 `src/ui/{roadtrip,poilist,roadmap}.js`、
+>   `src/core/{roadtrip,tripstore,apikeys}.js`、`src/data/{osrm,amap,roadsources}.js`；
+> - 测试 8 个 `tests/roadtrip-*.test.mjs`、夹具 3 个 `tests/fixtures/osrm-*.json`。
+>
+> **本文档继续保留，是因为 `tools/check.mjs` 第 18 节把它的章节号定为跨组契约**：
+> 4 个**未被删除**的存活文件仍挂着本文档的 `§N` 引用 ——
+> `src/core/geo.js`（§2.2）、`src/data/sources.js`（§3.2）、
+> `src/ui/app.js`（§4.1）、`src/ui/map.js`（§7）。
+> 删掉本文档会让那一节直接读文件失败。要真删它，必须先迁走这 4 处引用
+> （迁到 `docs/stage1-architecture.md` 的对应小节，且要先确认那一侧真有对应编号）。
+>
+> 本文档里「自驾两路进 `SOURCE_TABLE`」「路线规划源 / POI 候选源宿主在白名单内」等
+> 表述均已**失效**：`SOURCE_TABLE` 现在是**七路**（自检六路 + 气候常态一路），
+> 那两个宿主也已从 `tools/check.mjs` 的 `ALLOWED_HOSTS` 与
+> `tests/sources.test.mjs` 的白名单删除。
+> 新的导航与页面结构见 `docs/nav-restructure-architecture.md`。
+
+---
+
+> 作者：高见远（架构师） · 状态：**待 team-lead 拍板 §10 待确认事项**（★已归档，见上）
 > 本文档只做增量设计，**未改动任何代码文件**。
 > 所有「可达性 / 时延 / 体积」结论均为本次在沙箱环境实测所得，未经实测的一律标注 **【待实测】**。
 

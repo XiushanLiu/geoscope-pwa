@@ -137,9 +137,10 @@ export function makeError(code, sourceId, extra = {}) {
  * 构造一个**自带文案键**的 SourceError。
  *
  * 为什么需要它：`makeError()` 的 messageKey 恒为 `error.<code>`，只能表达「传输层出了
- * 什么错」。可有一类失败是 **HTTP 200 包着业务失败**（本项目新增的高德就是：
- * `{"status":"0","info":"INVALID_USER_KEY","infocode":"10001"}`），此时「超时 / HTTP /
- * 解析失败」这些码一个都不适用，真正要上屏的是「Key 无效」「配额用尽」这类**业务桶**。
+ * 什么错」。可有一类失败是 **HTTP 200 包着业务失败**（当年自驾模块接的那个国内 POI 源
+ * 就是：`{"status":"0","info":"INVALID_USER_KEY","infocode":"10001"}`），此时
+ * 「超时 / HTTP / 解析失败」这些码一个都不适用，真正要上屏的是「Key 无效」「配额用尽」
+ * 这类**业务桶**。
  * data 层的 `parse()` 于是抛一个带 `messageKey` 的错误，由本模块的 parse 兜底分支
  * （见 `request()`）把它原样提升成 SourceError —— 否则业务桶会被压成一句 `error.PARSE`，
  * 用户只能看到「解析失败」，而真正的原因（配额没了）被吞掉。
@@ -149,7 +150,9 @@ export function makeError(code, sourceId, extra = {}) {
  *
  * @param {string} code 错误码（业务桶建议用 'BUSINESS'；未配置凭据用 'NOKEY'）。
  * @param {string} sourceId 源 id。
- * @param {string} messageKey 要上屏的文案键（如 'rt.amap.invalidKey'）。
+ * @param {string} messageKey 要上屏的文案键（当年自驾用的一类是 `rt.amap.invalidKey`；
+ *   该示例所属模块已下线，现在**没有**调用方在用本函数的业务桶分支 —— 保留它是因为
+ *   契约属于 core 层，将来接任何「HTTP 200 包业务失败」的源都要走这一条）。
  * @param {{httpStatus?:number|null, params?:Object}} [extra] 附加信息。
  * @returns {{code:string, messageKey:string, messageParams:Object,
  *            httpStatus:number|null, sourceId:string, retriable:boolean}} SourceError。
@@ -505,8 +508,8 @@ export async function request(sourceId, ctx = {}, opts = {}) {
       } catch (err) {
         // ★parse 抛的错要分两类看：
         //   ① 普通解析异常（JSON 结构与预期不符）→ 老口径，压成 error.PARSE；
-        //   ② data 层**主动**抛的、带 messageKey 的业务态失败（如高德 status:"0" →
-        //      rt.amap.invalidKey）→ 原样提升，保住那个具体的桶。
+        //   ② data 层**主动**抛的、带 messageKey 的业务态失败（当年自驾那路的
+        //      status:"0" → 无效凭据 / 配额用尽那种桶）→ 原样提升，保住那个具体的桶。
         //   不加这个分支的话，② 会被 ① 吞掉：用户看到「解析失败」，而真正的原因
         //   （Key 无效 / 配额用尽 / 限频）永远不上屏 —— 这正是「假成功源」那类坑的反面：
         //   失败是看得见了，但看错了地方。
