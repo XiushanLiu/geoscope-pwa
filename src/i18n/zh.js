@@ -312,8 +312,12 @@ export const ZH = {
   'compass.convertUnavailable': '磁偏角暂不可用，换算不可进行',
 
   'compass.sensorUnsupported': '本机无方向传感器 · 仅显示计算值与手动换算',
-  'compass.sensorDenied': '方向传感器未授权 · 仅显示计算值与手动换算',
-  'compass.sensorIdle': '未启用方向传感器 · 仅显示计算值与手动换算',
+  // ★「未授权」这句要能真的帮到人：WebKit 会把拒绝决定按站点记住，之后不再询问，
+  //   所以必须告诉用户去哪儿改回来（只说「未授权」等于把人卡死）。
+  'compass.sensorDenied': '方向传感器未授权 · 仅显示计算值与手动换算；若曾点过「不允许」，需到浏览器的站点设置里改回',
+  // ★不说「iPhone」：所有 iOS 浏览器都走 WebKit，且未来的 Chrome 安卓也会要授权 ——
+  //   写死平台名，那条未来一到来就是错的（用「本浏览器」这类不指名平台的说法）。
+  'compass.sensorIdle': '本浏览器要求点击后才授权读取方向传感器 · 未授权前仅显示计算值与手动换算',
   'compass.sensorWaiting': '已启用，正在等待方向数据…',
   'compass.sensorEnable': '启用方向传感器',
   'compass.headingMag': '当前朝向（磁）{deg}°',

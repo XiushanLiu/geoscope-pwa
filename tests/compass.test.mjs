@@ -30,7 +30,8 @@ dom.document.readyState = 'loading';
 const compass = await import('../src/ui/compass.js');
 const { WMM_MODEL } = await import('../src/data/wmm2025.js');
 const { normalizeSignedAngle } = await import('../src/core/mag.js');
-const { t } = await import('../src/i18n/index.js');
+const i18n = await import('../src/i18n/index.js');
+const { t } = i18n;
 const fmt = await import('../src/core/format.js');
 
 /** 北京天安门（WGS84），与 geo.js 的 DEFAULT_PLACE 一致。 */
@@ -353,6 +354,9 @@ test('★模型卡最后一行：标签必须是「计算时刻（小数年）�
  */
 function installSensorWindow(opts = {}) {
   const listeners = new Map();
+  // ★`attached` 记**每一次** addEventListener（listeners 是 Map，同名会覆盖，
+  //   数不出「重复挂了几次」）—— 有了它才能钉住「rerender 连调多次只许挂一次」。
+  const attached = [];
   const Ctor = function DeviceOrientationEvent() {};
   // iOS 13+ 形态：构造函数上挂着 requestPermission()，必须由用户手势调用
   if (opts.needsPermission) {
@@ -360,10 +364,13 @@ function installSensorWindow(opts = {}) {
   }
   globalThis.window = {
     DeviceOrientationEvent: Ctor,
-    addEventListener: (type, fn) => listeners.set(String(type), fn),
+    addEventListener: (type, fn) => {
+      attached.push(String(type));
+      listeners.set(String(type), fn);
+    },
     removeEventListener: () => {},
   };
-  return { listeners };
+  return { listeners, attached };
 }
 
 /**
@@ -404,10 +411,13 @@ const compassSlot = () => dom.byId.app.querySelector('#card-compass');
 /** 取槽位里所有 button 后代（假 DOM 的 querySelectorAll 只认 #id / .class）。 */
 const buttonsIn = (box) => box.descendants().filter((n) => n.tagName === 'BUTTON');
 
-test('★按钮接线：boot() 渲染出来的「启用方向传感器」点了必须真的变（不只是函数被调用）', async () => {
-  const { listeners } = installSensorWindow();
+test('★按钮接线（iOS / needs-permission）：boot() 渲染出来的「启用方向传感器」点了必须真的变', async () => {
+  // ★2026-10-26：这条原来用的是 `available`（安卓）替身 —— 安卓已改成自动启用、不再画按钮，
+  //   所以按钮接线必须改挂到 **iOS** 形态上，否则这条用例会因为「找不到按钮」而失去意义
+  //   （★不是删掉它：原 bug「onChange 是空函数 → 点了零重渲染」只能靠这条守住）。
+  const { listeners } = installSensorWindow({ needsPermission: true, permission: 'granted' });
   try {
-    assert.equal(compass.sensorSupport(), 'available', '这个 window 替身应被判为有传感器');
+    assert.equal(compass.sensorSupport(), 'needs-permission', '这个 window 替身应被判为需授权');
     compass.resetSensor();
 
     // 走真实入口：它渲染出来的卡片必须自带可用回调。
@@ -421,6 +431,7 @@ test('★按钮接线：boot() 渲染出来的「启用方向传感器」点了�
     assert.equal(btns.length, 1, '未启用态必须给出「启用方向传感器」按钮');
 
     btns[0].click();
+    await flushMicrotasks();
 
     const after = slot.textContent;
     assert.notEqual(
@@ -438,6 +449,122 @@ test('★按钮接线：boot() 渲染出来的「启用方向传感器」点了�
     compass.resetSensor(); // 同时清掉 SENSOR_WAIT_MS 那个降级定时器，别拖着事件循环
     delete globalThis.window;
   }
+});
+
+test('★安卓（available）不需要那次点击：渲染即自动启用、不画按钮、直接进等待态', () => {
+  // 真机问题「罗盘为什么要点一次按钮才能显示」的答案：iOS 上那颗按钮物理上去不掉
+  // （requestPermission 必须在点击里调），安卓上那次点击是多余的 —— 所以这条钉的是
+  // 「available 这一档不许再让用户点」。
+  //
+  // ★为什么这里不用 boot()：boot() 在测试里要跑十几秒，而 `_attachSensor()` 那个
+  //   SENSOR_WAIT_MS（2.5 s）降级定时器会先到 —— 没人派发事件时它会**正确地**判成
+  //   「本机无方向传感器」，那就测不到「自动启用」了（真机上事件几十毫秒就来）。
+  //   所以走 boot 用的那条渲染路径 `createCompassRenderer().rerender()`，同步、不受定时器干扰。
+  const { listeners } = installSensorWindow();
+  try {
+    assert.equal(compass.sensorSupport(), 'available', '这个 window 替身应被判为有传感器');
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+
+    compass.createCompassRenderer(dom.byId.app, snapshot).rerender();
+    const slot = compassSlot();
+
+    assert.equal(
+      buttonsIn(slot).length,
+      0,
+      `available 这一档不许再画「启用方向传感器」按钮（点了也白点），实际：${String(slot.textContent).slice(0, 120)}`
+    );
+    assert.ok(
+      slot.textContent.includes(t('compass.sensorWaiting')),
+      `★自动启用后必须显示「正在等待方向数据」，实际：${String(slot.textContent).slice(0, 120)}`
+    );
+    assert.equal(compass.sensorState().state, 'waiting', '自动启用 = 真的挂上了监听');
+    assert.ok(listeners.get('deviceorientation'), '必须真的挂上 deviceorientation 监听');
+  } finally {
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
+
+test('★安卓自动启用后等满仍无数据：降级为「无传感器」，且不许摆一颗没用的重试按钮', () => {
+  // ★这条同时压住两件事：
+  //   1) 降级是真的发生了（state → 'unsupported'，不是一直停在「等待中」）；
+  //   2) **降级后不许再给「启用」按钮** —— 已经在无干扰的情况下等满一整轮，再摆一颗
+  //      按钮等于「让人以为点一下就有」，正好和 sensorUnsupported 那句文案的用意相反。
+  //   ★变异验证：把 canAsk 改回 `support !== 'unsupported' && ...`，只有这条会红
+  //     （「available 不画按钮」那条因为在 waiting 态下两种写法都不画，抓不出来）。
+  const { listeners } = installSensorWindow();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    assert.equal(compass.sensorSupport(), 'available');
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+    compass.createCompassRenderer(dom.byId.app, snapshot).rerender();
+    assert.equal(compass.sensorState().state, 'waiting', '自动启用后先进等待态');
+
+    mock.timers.tick(3000); // 一条事件都不派发 —— 桌面内核 / 真无传感器的设备就是这样
+
+    assert.equal(compass.sensorState().state, 'unsupported', '等满仍无数据必须判定为无传感器');
+    const slot = compassSlot();
+    assert.ok(
+      slot.textContent.includes(t('compass.sensorUnsupported')),
+      `★降级后必须重画成「本机无方向传感器」，实际：${String(slot.textContent).slice(0, 120)}`
+    );
+    assert.equal(
+      buttonsIn(slot).length,
+      0,
+      '★降级后不许再给「启用方向传感器」按钮（点了也不会有传感器）'
+    );
+    assert.ok(listeners.get('deviceorientation'), '降级前挂上的监听是真实存在的（这条是上面两条的前提）');
+  } finally {
+    mock.timers.reset();
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
+
+test('★自动启用只许挂一次：rerender 连调多次（boot 首屏就是这么调的）不许重复挂监听', () => {
+  const { attached } = installSensorWindow();
+  try {
+    assert.equal(compass.sensorSupport(), 'available');
+    compass.resetSensor();
+    const snapshot = snapshotAt(AT_2025);
+
+    compass.renderSnapshot(dom.byId.app, snapshot);
+    compass.renderSnapshot(dom.byId.app, snapshot);
+    compass.renderSnapshot(dom.byId.app, snapshot);
+
+    // ★变异验证：把 renderCompassCard 里自动启用的 `_sensor.state === 'idle'` 闸门去掉，
+    //   这条会红（3 次）。真实后果是同一张卡挂三个监听 = 一次朝向变化重画三次。
+    assert.equal(attached.length, 1, `★三次重渲染只许挂一次监听，实际 ${attached.length} 次`);
+    assert.equal(compass.sensorState().state, 'waiting');
+  } finally {
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
+
+test('★「未启用 / 未授权」两行必须说清为什么要点，且不指名平台', () => {
+  // 光说「未启用」用户看到的是一颗莫名其妙的按钮。两行都得给原因/出路。
+  // ★「不许写死 iPhone」：所有 iOS 浏览器都走 WebKit，且 Chrome 152+ 起在安卓也提供
+  //   requestPermission（计划把默认从 allow 改成 ask）—— 写死平台名，那天一到就是错的。
+  const platformNames = /iPhone|iPad|iOS|苹果|Android|安卓|Chrome|Safari/;
+  for (const locale of ['zh', 'en']) {
+    i18n.setLocale(locale);
+    const idle = t('compass.sensorIdle');
+    const denied = t('compass.sensorDenied');
+    assert.ok(
+      /点击|轻点|授权|tap|grant/i.test(idle),
+      `★[${locale}] 未启用这行必须说清「要点击授权」，实际：${idle}`
+    );
+    assert.ok(!platformNames.test(idle), `★[${locale}] 不许写死平台名，实际：${idle}`);
+    assert.ok(
+      /站点设置|设置|settings/i.test(denied),
+      `★[${locale}] 被拒这行必须告诉用户去哪儿改回来（WebKit 按站点记住拒绝），实际：${denied}`
+    );
+    assert.ok(!platformNames.test(denied), `★[${locale}] 不许写死平台名，实际：${denied}`);
+  }
+  i18n.setLocale('zh');
 });
 
 test('★传感器回调只重画罗盘卡，且高频触发被合并（不许接整屏重渲染）', () => {

@@ -733,6 +733,27 @@ export function renderCompassCard(root, snapshot, opts = {}) {
   // 先看「有没有」再看「开没开」：本机压根没有方向传感器时（含 Node 侧与桌面内核），
   // 直接说「本机无方向传感器」，而不是「未启用」—— 后者会让人以为点一下就有。
   const support = sensorSupport();
+
+  // ★2026-10 真机问题「罗盘为什么要点一次按钮才能显示」——答案是**一半能去掉**：
+  //   - iOS 13+（至今如此）：`DeviceOrientationEvent.requestPermission()` 必须在**一次
+  //     点击里**调用，页面加载时调会被拒（NotAllowedError），事件永不触发。iOS 上所有
+  //     浏览器都走 WebKit，无一例外 —— 那颗按钮物理上去不掉，去掉 = 指针永远不出现。
+  //   - 安卓等没有 requestPermission 的内核：挂上监听就出指针，**那次点击是多余的**。
+  //   所以只有 `available` 这一档自动启用；`needs-permission` 照旧画按钮。
+  //   ★不要为「未来的 Chrome」写任何平台判断：Chrome 152+ 开始提供 requestPermission()
+  //   且计划把默认从 allow 改成 ask，改完它会自动落到 `needs-permission` 这一档 ——
+  //   `sensorSupport()` 按「有没有 requestPermission 这个方法」判，本来就自动适配。
+  //
+  //   ★闸门为什么用 `_sensor.state === 'idle'` 就够：`_attachSensor()` 会**同步**把状态
+  //   置成 'waiting'（不是等数据回来才改），所以 `rerender()` 在首屏里连着调好几次、
+  //   以及传感器回调重画罗盘卡，都只会真正挂一次监听；同时用户拒过（'denied'）或已判定
+  //   无传感器（'unsupported'）后也不会再自动重试 —— 拒绝过就别再烦他。
+  if (support === 'available' && _sensor.state === 'idle') {
+    enableSensor(onChange);
+  }
+
+  // ★顺序：先启用再读状态。`_attachSensor()` 同步置 'waiting'，先调后读才能显示
+  //   「已启用，正在等待方向数据…」而不是「未启用」—— 反过来说就成了刚启用却说没启用。
   const noteText =
     support === 'unsupported'
       ? t('compass.sensorUnsupported')
@@ -745,7 +766,12 @@ export function renderCompassCard(root, snapshot, opts = {}) {
             : t('compass.sensorIdle');
 
   const nodes = [title, h('p', { class: 'card-note', text: noteText })];
-  const canAsk = support !== 'unsupported' && _sensor.state !== 'waiting';
+  // ★按钮只在「必须由用户手势授权」时才出现。原来不管哪一档都画，安卓上那一次点击
+  //   是纯多余的；`available` 走上面的自动启用，这里只剩 iOS（以及未来的安卓 Chrome）。
+  //   ★一处有意的取舍：`available` 下若等满 SENSOR_WAIT_MS 仍无数据会判成 'unsupported'，
+  //   此时**不再给重试按钮** —— 已经在无干扰的情况下等满一整轮，再摆一颗按钮等于
+  //   「让人以为点一下就有」，正好和上面 `sensorUnsupported` 那句文案的用意相反。
+  const canAsk = support === 'needs-permission' && _sensor.state !== 'waiting';
   if (canAsk) {
     const btn = h('button', { class: 'btn btn--primary', type: 'button', text: t('compass.sensorEnable') });
     // 授权必须由用户手势触发（iOS 13+ 的硬要求），所以只能挂在点击回调里

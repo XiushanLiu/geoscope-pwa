@@ -316,8 +316,11 @@ export const EN = {
   'compass.convertUnavailable': 'Declination unavailable, conversion cannot run',
 
   'compass.sensorUnsupported': 'No orientation sensor on this device · showing computed values and manual conversion only',
-  'compass.sensorDenied': 'Orientation sensor not permitted · showing computed values and manual conversion only',
-  'compass.sensorIdle': 'Orientation sensor off · showing computed values and manual conversion only',
+  // WebKit remembers the refusal per site and never asks again — say where to undo it.
+  'compass.sensorDenied': 'Orientation sensor not permitted · showing computed values and manual conversion only; if you tapped "Don\'t allow", turn it back on in the browser\'s settings for this site',
+  // Deliberately not naming iPhone: every iOS browser is WebKit, and Chrome on Android may
+  // require the same gesture in future. "This browser" stays true either way.
+  'compass.sensorIdle': 'This browser only grants access to the orientation sensor after a tap · until then, computed values and manual conversion only',
   'compass.sensorWaiting': 'Sensor enabled, waiting for a reading…',
   'compass.sensorEnable': 'Enable orientation sensor',
   'compass.headingMag': 'Heading (magnetic) {deg}°',
