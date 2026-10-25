@@ -30,23 +30,30 @@ import {
   getLocale,
   log,
 } from '../core/store.js';
-import { getCurrentPosition } from '../core/geo.js';
+// ★parsePlaceParam / resolveCoord 2026-10-17 从本模块迁到 core/geo.js（地理页 compass.js
+//   要用同一套严格解析，留在 ui 层就得让一个 ui 模块 import 另一个 ui 模块）。
+import { getCurrentPosition, parsePlaceParam, resolveCoord } from '../core/geo.js';
 import { getWithState } from '../core/cache.js';
 import { request, isOnline } from '../core/http.js';
 import { getSource } from '../data/sources.js';
 import { recordResult, overallMode, resetHealth } from '../data/health.js';
-import { probeTile, sampleTiles, setNoMapMode, degradeMapMode, mapMode, MAP_MODE } from '../data/tiles.js';
-// ★WMM 只在本页（此刻）入口 import，不许进 `ui/now.js` —— 详见 now.js 文件头的闭包红线：
-//   now.js 在「数据源自检页」单文件产物闭包内，把 mag.js（26.6 KB）+ wmm2025.js（9.5 KB）
-//   拽进去，那个从不显示磁偏角的诊断页就白胖 36 KB。
-import { declinationDegAt } from '../data/wmm2025.js';
+// ★probeTileBatch / TILE_PROBE_COUNT / TILE_PROBE_BUDGET_MS 2026-10-17 从本模块迁到
+//   data/tiles.js（同一条理由：地理页也要用，且它本来就是瓦片层的事）。
+import {
+  sampleTiles,
+  setNoMapMode,
+  degradeMapMode,
+  mapMode,
+  MAP_MODE,
+  probeTileBatch,
+  TILE_PROBE_COUNT,
+  TILE_PROBE_BUDGET_MS,
+} from '../data/tiles.js';
 import {
   renderSkeleton,
   renderHeader,
   renderWeatherCard,
   renderAirCard,
-  renderPlaceCard,
-  renderBearingCard,
   renderProvenance,
   renderBanner,
   renderEmptyState,
@@ -55,7 +62,6 @@ import {
   renderClimateCard,
   applyI18n,
 } from './now.js';
-import { renderMapCard, renderMapSkeleton } from './map.js';
 import { applyThemeMode, applyFontScale } from './theme.js';
 // 错误文案（把 core/http.js 的 messageKey 翻成人话）：气候常态卡要用它显示失败原因。
 import { errorText } from './errtext.js';
@@ -76,42 +82,6 @@ applyLocale(getLocale());
 
 /** 定位超时（毫秒）。 */
 const GEO_TIMEOUT_MS = 8000;
-
-/**
- * 后台瓦片探测块数。
- *
- * ★必须 ≥ 2：`degradeMapMode()` 的 grid 分支是「0 < 成功数 < 总数」，
- * 只喂一块时该区间是空集 → grid 永远不可达 → 「一次慢请求就把整张地图打没」这个
- * 本轮要消除的行为会原封不动留着，而三态契约、i18n 文案、裁决函数又都写齐了，
- * 形成「已修复」的假象。取 3 与 `sampleTiles()` 的取样数一致（真机中位 693 ms，
- * 第二轮起命中缓存接近零成本）。
- */
-export const TILE_PROBE_COUNT = 3;
-
-/**
- * 整批瓦片探测的**时间预算**（毫秒）。
- *
- * 背景：三块是逐块串行、每块超时 `TILE_TIMEOUT_MS`（6 s），而且全部走 `http.js` 的
- * 全局串行队列（并发恒为 1）。最坏情况 3 × 6 s = **18 s 占用队列** —— 这段时间里用户
- * 手动刷新，新请求会排在探测后面干等。真机实测瓦片中位 693 ms、峰值 3198 ms，
- * 峰值确实能到秒级，弱网下这条路径会碰到。
- *
- * 取值 8000：真机峰值 3198 ms，8 s 足够三块在正常情况跑完（3 × 693 ≈ 2.1 s，
- * 即使三块都走到峰值也 9.6 s —— 个别块被收紧超时而失败是可接受的代价）；同时把
- * 最坏占用从 18 s 砍到 8 s。**每块的超时按剩余预算收紧**，见 `probeTileBatch()`。
- *
- * 为什么不做旁路队列或队列让步点：全局并发 1 是当初为弱网稳定刻意定的，旁路等于拆掉它；
- * 让步点要改 `http.js` 的队列实现，风险都大于收益。
- */
-export const TILE_PROBE_BUDGET_MS = 8000;
-
-/**
- * 剩余预算低于这个值就不再发起新块（毫秒）。
- *
- * 瓦片中位 693 ms，剩几百毫秒发起的块注定超时 —— 白占队列，还多喂一条必然失败的样本
- * 去污染 `degradeMapMode()` 的裁决（成功率是唯一的判决依据）。
- */
-const TILE_PROBE_MIN_SLOT_MS = 300;
 
 /**
  * 轮次号：每次 boot() 自增。
@@ -279,7 +249,7 @@ function _renderOffline(root, bannerEl, snapshot, isDefaultPlace) {
 
   // 1) 缓存里有任何一路 → 直接渲染（有旧数据绝不显示空白）
   if (weather || air || elevation || reverse) {
-    renderSnapshot(root, snapshot, { isDefaultPlace, declinationDeg: _declinationDeg(snapshot) });
+    renderSnapshot(root, snapshot, { isDefaultPlace });
     renderBanner(bannerEl, 'offline', { staleAgeMs: maxStaleAge });
     // 离线也把气候常态卡画成 idle：按钮在，点了会拿到「设备离线，未发起请求」——
     // 比整张卡缺席诚实（离线不是「这个地点没有气候常态」）。
@@ -291,7 +261,7 @@ function _renderOffline(root, bannerEl, snapshot, isDefaultPlace) {
   const cached = getLastSnapshot();
   if (cached && cached.weather) {
     const merged = { ...snapshot, ...cached };
-    renderSnapshot(root, merged, { isDefaultPlace, declinationDeg: _declinationDeg(merged) });
+    renderSnapshot(root, merged, { isDefaultPlace });
     renderBanner(bannerEl, 'offline', { staleAgeMs: Date.now() - (cached.atMs || Date.now()) });
     _renderClimate(root, merged);
     return;
@@ -301,72 +271,6 @@ function _renderOffline(root, bannerEl, snapshot, isDefaultPlace) {
   renderBanner(bannerEl, 'offline');
   renderEmptyState(root, t('mode.offline'), () => {
     if (typeof window !== 'undefined' && window.location) window.location.reload();
-  });
-}
-
-/**
- * 在**整批时间预算**内逐块探测瓦片。
- *
- * 为什么要有预算：三块串行、每块 6 s 超时，且全部走 `http.js` 的全局串行队列（并发 1），
- * 最坏情况会占住队列 18 s。预算把这个上限压到 `TILE_PROBE_BUDGET_MS`（8 s）。
- *
- * 怎么压：**每一块的超时按剩余预算收紧** —— `timeout_i = min(单块超时, 预算 - 已耗时)`，
- * 而不是每块都给满 6 s。`probeTile()` 内部还会再钳一次（只能收紧，不能放松）。
- *
- * 三条已确认的行为**不许回退**：
- *   1) `shouldStop()` 在每一块之后都检查（epoch 竞态守卫留在循环内）；
- *   2) 单块抛异常只记该块失败，不中断整批；
- *   3) 探几块仍由 `count` 决定（默认 `TILE_PROBE_COUNT = 3`），不为了省时间降到 2 ——
- *      2 只是 grid 可达的下限，3 才是「区分一块慢和普遍慢」的下限。
- *
- * 预算耗尽后**不再发起新块**，已拿到的结果照常返回，由调用方喂给 `degradeMapMode()`。
- *
- * @param {string} styleId 样式 id。
- * @param {Array<{z:number,x:number,y:number}>} tiles 候选瓦片坐标。
- * @param {{count?:number, budgetMs?:number, shouldStop?:()=>boolean}} [opts] 选项。
- * @returns {Promise<Array<Object>>} 探测结果（可能少于 count：预算耗尽或 shouldStop 时提前结束）。
- */
-export async function probeTileBatch(styleId, tiles, opts = {}) {
-  const count = Number.isFinite(Number(opts.count)) ? Number(opts.count) : TILE_PROBE_COUNT;
-  const budgetMs = Number.isFinite(Number(opts.budgetMs)) ? Number(opts.budgetMs) : TILE_PROBE_BUDGET_MS;
-  const shouldStop = typeof opts.shouldStop === 'function' ? opts.shouldStop : () => false;
-  const list = Array.isArray(tiles) ? tiles.slice(0, count) : [];
-
-  const startedAt = Date.now();
-  const probes = [];
-
-  for (const tile of list) {
-    const remainMs = budgetMs - (Date.now() - startedAt);
-    // 剩余预算连一块都跑不完（瓦片中位 693 ms）：发起也只是白占队列 + 多喂一条必然失败的样本
-    if (remainMs < TILE_PROBE_MIN_SLOT_MS) {
-      log(`tile probe budget out (${remainMs}ms left), ${probes.length}/${list.length} done`);
-      break;
-    }
-    // 单块抛异常只记这一块失败，不让整批裁决失去证据（成功率是这轮唯一的判决依据）
-    probes.push(
-      await probeTile(styleId, tile, { timeoutMs: remainMs }).catch(() => ({ ok: false, styleId }))
-    );
-    if (shouldStop()) break; // 已被新一轮覆盖，停止继续占用队列
-  }
-
-  return probes;
-}
-
-/**
- * 本机 WMM2025 算磁偏角（度，东偏为正）。
- *
- * ★不联网、不用传感器：三处（此刻页方位卡 / 罗盘页 / 设置页）共用 data 层的
- *   `declinationDegAt()` —— 米→千米换算、decimalYear、异常兜底都在那一层收口，
- *   这里只把快照里的字段递过去。算不出来返回 null，由 now.js 显示「暂不可用」。
- *
- * @param {Object} snapshot NowSnapshot。
- * @returns {number|null} 磁偏角（度），算不出返回 null。
- */
-function _declinationDeg(snapshot) {
-  if (!snapshot || !snapshot.coord) return null;
-  return declinationDegAt(snapshot.coord, {
-    altitudeM: snapshot.elevationM,
-    atMs: snapshot.atMs,
   });
 }
 
@@ -473,8 +377,8 @@ async function _background(snapshot, root, bannerEl, isDefaultPlace, epoch) {
       }
     });
     if (epoch !== _epoch) return; // 已被新一轮覆盖，丢弃结果
+    // 地名进页头（气候页没有地点卡了）
     renderHeader(root, snapshot, { isDefaultPlace });
-    renderPlaceCard(root, snapshot);
   } catch (err) {
     log('reverse failed', err && err.message);
   }
@@ -501,7 +405,9 @@ async function _background(snapshot, root, bannerEl, isDefaultPlace, epoch) {
     } else {
       log('tile probes too few to judge', String(probes.length));
     }
-    renderPlaceCard(root, snapshot);
+    // ★2026-10-17：气候页自己不再显示底图，所以探测完**不重画任何卡片**
+    //   （原来这里会重画地点卡）。探测结论仍喂给 degradeMapMode()，
+    //   由横幅与地理页共用同一份三态。
   } catch (err) {
     if (epoch !== _epoch) return;
     // 探测本身抛异常（无 probe 结果可裁决）→ 直接判无地图
@@ -562,110 +468,6 @@ function _maxStaleAge(snapshot) {
 }
 
 /**
- * 十进制数字字面量：`-?整数(.小数)?`。
- *
- * 只认这一种形态 —— 十六进制（'0x10'）、'Infinity' / 'NaN'、科学计数法（'1e2'）、
- * 前导 '+'、省略整数位的 '.5'、尾随小数点的 '31.' 一律不收。先过这道正则再
- * Number()，才能挡住 `Number()` 那些「看着像数字其实不是本意」的宽容转换。
- *
- * **取舍：不收科学计数法。** 本项目唯一的 URL 生产者是 settings.js 的 _favHref()
- * （`String(number)`），在纬度 ±90 / 经度 ±180 这个量级上永远不会产出指数形式
- * （JS 只在 |v| < 1e-6 时才切指数，那已是亚厘米级、不是真实地点）。收下 '1e2'
- * 等于重新开一个「长得像数字但不是本意」的口子，与严格解析的承诺冲突，故不收。
- *
- * 收下的形态里必须包含 '0' / '-0' / '0.0000'：0,0（几内亚湾）是真实地点。
- */
-const DECIMAL_LITERAL_RE = /^-?\d+(\.\d+)?$/;
-
-/**
- * 从 URL 查询串解析「指定地点」（跨页传参：收藏列表 / 地点搜索 → 此刻页）。
- *
- * 为什么必须有它：本项目**无 SPA 路由**，四个 HTML 页靠 `<nav class="tabbar">` 的
- * `<a href>` 整页跳转，页面间没有任何共享内存（每次导航都是全新的 JS 环境）。
- * 收藏列表要点一下就跳到那个地点、搜索结果点一下就切过去，只能把坐标写在 URL 上。
- *
- * ★`source` 为什么叫 'explicit' 而不是 'favorite'：这条通路现在承载**两种**来源
- * （收藏跳转 + 地点搜索结果），写死 'favorite' 就是假话 —— 搜索出来的城市从来没被
- * 收藏过。'explicit' 的含义是「用户显式指定的地点」，两种来源都成立。
- * 判断「是不是默认地点」仍只看 `source === 'default'`（见 resolveCoord）。
- *
- * 严格十进制解析（不做 Number() 宽容转换）：空串 / 空白 / 非十进制字面量一律判为非法。
- * 理由与 store.js 的 _normPlace() 同一条 —— `Number('')` 与 `Number(null)` 都是 0，
- * 宽容解析会把「参数坏了」静默变成「几内亚湾 0,0」这个真实存在的地点，
- * 用户会看到一片陌生的天气却毫无提示。
- *
- * 更进一步，`Number()` 还会接受**非十进制字面量**：`Number('0x10') === 16`、
- * `Number('Infinity') === Infinity`、`Number('1e2') === 100`。所以不能只靠
- * `Number.isFinite()` 把关，必须先用 DECIMAL_LITERAL_RE 卡字面量形态。
- *
- * 参数非法 / 缺失一律返回 null，调用方退回原有的定位流程，行为不变。
- *
- * @param {string} [search] 查询串（可带或不带前导 '?'）；缺省读 location.search。
- * @returns {{lat:number, lon:number, name:string, source:'explicit'}|null} 解析结果；非法时 null。
- */
-export function parsePlaceParam(search) {
-  let raw = '';
-  if (typeof search === 'string') raw = search;
-  else if (typeof location !== 'undefined' && location && typeof location.search === 'string') raw = location.search;
-
-  let params = null;
-  try {
-    params = new URLSearchParams(raw.replace(/^\?/, ''));
-  } catch (err) {
-    return null;
-  }
-
-  const rawLat = params.get('lat');
-  const rawLon = params.get('lon');
-  // 缺任一参数 → null（「只有 lat 没有 lon」是非法，不是「lon 取 0」）
-  if (rawLat === null || rawLon === null) return null;
-  const sLat = String(rawLat).trim();
-  const sLon = String(rawLon).trim();
-  // 先卡字面量形态，再 Number()：空串 / 空白 / 十六进制（0x10）/ Infinity / NaN /
-  // 科学计数法（1e2）/ 前导 '+' / 省略整数位的 '.5' / 尾随小数点的 '31.' 全部拦下
-  // （见上方 JSDoc 与 DECIMAL_LITERAL_RE 的取舍说明）。
-  // ★但 '0' 与 '-0' 必须放行：0,0（几内亚湾）是个真实地点，不能因为「像空值」被误杀。
-  if (!DECIMAL_LITERAL_RE.test(sLat) || !DECIMAL_LITERAL_RE.test(sLon)) return null;
-  const lat = Number(sLat);
-  const lon = Number(sLon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-
-  // name 可有可无；中文名由 encodeURIComponent 编过，解不出来（乱码）也只是名字难看，
-  // 坐标与天气照常工作 —— 所以这里退化成空串，绝不因为它抛异常。
-  let name = '';
-  try {
-    name = String(params.get('name') || '');
-  } catch (err) {
-    name = '';
-  }
-  return { lat, lon, name, source: 'explicit' };
-}
-
-/**
- * 由 coord 解析出 base 坐标与「是否默认地点」。
- *
- * ★`isDefaultPlace` 只认 `source === 'default'`（真正走了 geo.js 兜底），
- * 不能写成 `base.source !== 'gps'`：收藏跳转与搜索结果带的是 `source:'explicit'`，
- * 按旧写法会被判成「默认地点」，于是用户明明点的是自己收藏的上海或刚搜到的北京，
- * 界面却写着「未取得定位，正在显示默认地点」—— 一句彻头彻尾的假话。
- * 抽成函数是为了让这条语义能被单测直接钉死（见 tests/favorites.test.mjs）。
- *
- * @param {{lat:number, lon:number, source:string, name?:string|null}} coord 定位结果。
- * @returns {{base:{lat:number, lon:number, source:string, name?:string|null}, isDefaultPlace:boolean}} 解析结果。
- */
-export function resolveCoord(coord) {
-  const src = coord && typeof coord === 'object' ? coord : {};
-  const fallback = src.source === 'default' ? getDefaultPlace() : null;
-  // 默认地点的名字是**地名**，界面上跟着语言走（英文界面写 "Beijing · Tian'anmen"）。
-  // core/geo.js 存的是中文那一版原文（要写进备份），翻译在这一层补。
-  const base = src.source === 'default' && fallback
-    ? { lat: fallback.lat, lon: fallback.lon, source: 'default', name: placeDisplayName(fallback.name) }
-    : src;
-  return { base, isDefaultPlace: base.source === 'default' };
-}
-
-/**
  * 此刻屏启动流程。
  *
  * @returns {Promise<void>}
@@ -685,10 +487,10 @@ export async function boot() {
   resetHealth();
 
   // 骨架屏立即上屏（不转圈等待定位与网络）
+  // ★2026-10-17 导航重构：底图卡已随「地点卡」一起搬到地理页（compass.js），
+  //   气候页的骨架只剩 search→weather→air→climate→prov→legend，不再建 map 槽、
+  //   也不再有 renderMapSkeleton() 这一步。
   renderSkeleton(root);
-  // 底图骨架：槽位已在 renderSkeleton 里建好（位置卡之后、溯源之前），这里只填内容。
-  // 瓦片比三路 API 慢得多（真机中位 693 ms、峰值 3198 ms），先出骨架再等字节。
-  renderMapSkeleton(root);
 
   // ① URL 指定地点（从收藏列表跳过来）优先：用户已经明确选了这个地点，
   //    再去要一次系统定位既慢（最多 8 s）又是和用户意图对着干 —— 直接跳过 geo.js。
@@ -709,9 +511,6 @@ export async function boot() {
   // 离线：不发任何请求
   if (!isOnline()) {
     _renderOffline(root, bannerEl, snapshot, isDefaultPlace);
-    // 离线也把底图卡渲出来：瓦片取不到会逐块留白 + ×（GRID 呈现），
-    // 比让骨架屏永久挂着诚实 —— 用户至少看得到坐标与「底图这次没取到」。
-    renderMapCard(root, { coord: snapshot.coord });
     return;
   }
 
@@ -766,9 +565,11 @@ export async function boot() {
     (data) => {
       snapshot.elevationM = data && data.elevationM !== undefined ? data.elevationM : null;
     },
-    (res) => {
-      if (res === null) renderSlotEmpty(root, 'place', t('app.na'), () => refresh());
-      else renderPlaceCard(root, snapshot);
+    () => {
+      // ★2026-10-17：地点卡搬去了地理页，气候页不再有 place 槽。
+      //   海拔改为**页头**显示（设计文档 §4.2 的表：elevationM 在气候页走页头），
+      //   所以无论成功失败都要重画一次页头 —— 失败时那一行就不出现，也不谎报数字。
+      renderHeader(root, snapshot, { isDefaultPlace });
     }
   );
   if (epoch !== _epoch) return;
@@ -776,11 +577,6 @@ export async function boot() {
   // 首屏完成：落一份本机快照，供离线冷启动降级
   setLastSnapshot(snapshot);
   renderBanner(bannerEl, _bannerMode(), { staleAgeMs: _maxStaleAge(snapshot) });
-  // ★方位卡必须在这里显式渲染一次：在线路径是「出一张渲染一张」的增量流，不走
-  //   renderSnapshot()，而方位槽位在 renderSkeleton() 里就已经建好 —— 漏了这一句，
-  //   在线时那张卡会**永远停在骨架**，只有离线路径（renderSnapshot）才画得出来。
-  //   放在海拔之后：磁偏角要用椭球高，此时 elevationM 才有值。
-  renderBearingCard(root, snapshot, _declinationDeg(snapshot));
   renderProvenance(root, snapshot);
 
   // ---- 后台补齐 ----
@@ -793,10 +589,6 @@ export async function boot() {
     log('background failed', err && err.message);
   }
   if (epoch !== _epoch) return;
-  // ★底图卡放在瓦片探测**之后**渲染：三态（map / grid / no-map）由 degradeMapMode()
-  //   在 _background 里按整批裁决完，此时读 mapMode() 才是本轮真实结论，
-  //   而不是上一轮的残留 —— 否则会渲染出与横幅互相矛盾的地图。
-  renderMapCard(root, { coord: snapshot.coord });
   setLastSnapshot(snapshot);
 }
 

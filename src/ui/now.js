@@ -176,27 +176,26 @@ export function renderSkeleton(root) {
       h('div', { class: 'hd-time', text: t('app.loading') }),
     ])
   );
-  // ★搜索槽必须在 weather / air / place / map / prov **之前**建：槽位顺序由首次创建
+  // ★搜索槽必须在 weather / air / climate / prov **之前**建：槽位顺序由首次创建
   //   那一刻决定（appendChild 的先后），建晚了搜索面板会掉到页面最底下。
   root.appendChild(_slot(root, 'search'));
   root.appendChild(_slot(root, 'weather')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'air')).appendChild(h('div', { class: 'sk' }));
-  root.appendChild(_slot(root, 'place')).appendChild(h('div', { class: 'sk' }));
-  // 气候常态槽（1991–2020 月平均）：**紧跟 place 之后、map 之前**建。
-  //   理由一（为什么跟在地点卡后面）：气候常态是「这个地点 30 年的属性」，跟在地点卡
-  //   后面才讲得通 —— 它回答的是「这儿通常什么样」，不是「此刻什么样」。
-  //   理由二（为什么不插在实时数据卡之间）：它是**查阅物**（要点按钮才取 303 KB 的
-  //   30 年再分析），不是首屏数据，插进 weather / air 之间会把首屏撑长、还让「实时」
-  //   与「常态」两类数字挨在一起被误读成同一时刻的值。
+  // 气候常态槽（1991–2020 月平均）：紧跟 air 之后。
+  //   理由（为什么不插在实时数据卡之间 / 为什么不放在最后）：它是**查阅物**
+  //   （要点按钮才取 303 KB 的 30 年再分析），不是首屏数据；但它又是「这个地点 30 年的
+  //   属性」，跟着地点与实时数据一起看才讲得通，压到页面最底下会让人以为它是附录。
   // ★顺序由首次创建那一刻决定（appendChild 的先后），建错位置就再也挪不回去。
+  //
+  // ★2026-10-17 导航重构：本骨架是**气候页**（index.html）的骨架，槽位从
+  //   `search→weather→air→place→climate→map→bearing→prov→legend` 瘦身为
+  //   `search→weather→air→climate→prov→legend` —— place / map / bearing 三块随
+  //   「地理」主 tab 一起搬到 `ui/compass.js` 的骨架里（那里是
+  //   `header→search→place→map→bearing→declination→model→convert→compass→prov`）。
+  //   ⚠️ `renderPlaceCard` / `renderBearingCard` 两个导出**仍在**（地理页要 import），
+  //   只是本骨架不再给它们建槽 —— 调用方必须先建槽（`compass.js` 自己建），
+  //   否则渲染会静默落到页面末尾。
   root.appendChild(_slot(root, 'climate'));
-  // 底图槽：这里**只建槽不填内容**，由 ui/map.js 的 renderMapSkeleton / renderMapCard 填充
-  // （now.js 不 import map.js —— map.js 要用 now.js 的 h()，反方向依赖会成环）。
-  // ★顺序必须在 prov 之前建：槽位顺序由首次创建那一刻决定，建错位置就再也挪不回去。
-  root.appendChild(_slot(root, 'map'));
-  // 方位卡槽（2026-10-16：方位页撤出底部 tabbar，此刻页只留「磁偏角一个数 + 进完整罗盘的入口」）。
-  // ★顺序：底图之后、来源说明之前 —— 槽位顺序由首次创建那一刻决定，建错位置就再也挪不回去。
-  root.appendChild(_slot(root, 'bearing')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'prov'));
   // 指标释义入口放**最后**（页面底部）：它是查阅物，不该插在数据卡之间把首屏撑长。
   // 槽位顺序由首次创建那一刻决定，建在 prov 之后就再也挪不回去了。
@@ -560,6 +559,13 @@ export function renderHeader(root, snapshot, opts = {}) {
         _searchButton(root),
       ]),
       h('p', { class: 'hd-coord num', text: snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.dash') }),
+      // ★海拔进页头（2026-10-17）：地点卡搬去地理页之后，气候页不再有 place 槽，
+      //   但海拔这个数不该凭空消失 —— 设计文档 §4.2 把 elevationM 在气候页的去处
+      //   定成「页头显示」，所以这里补一行。
+      //   ★只有真正拿到数字才显示：拿不到就整行缺席，绝不写 0 或占位符冒充实测值。
+      Number.isFinite(Number(snapshot.elevationM))
+        ? h('p', { class: 'hd-coord num', text: `${t('w.elevation')} ${fmt.elevationM(snapshot.elevationM)}` })
+        : null,
       opts.isDefaultPlace ? h('p', { class: 'hd-coord', text: t('now.defaultPlaceNotice') }) : null,
       // 收藏的是**当前显示的地点**：坐标取 snapshot.coord，名字优先用反查出来的地名
       // （coord 自带的 name 只在收藏跳转 / 默认地点这类已知名字的场景下存在）。
@@ -1069,8 +1075,9 @@ export function renderSlotEmpty(root, slotId, text, onRetry) {
  *
  * @param {HTMLElement} root 根容器。
  * @param {Object} snapshot NowSnapshot。
- * @param {{isDefaultPlace?:boolean, staleAgeMs?:number, declinationDeg?:number|null}} [opts] 选项。
- *   `declinationDeg` 由调用方（`app.js`）用本机 WMM2025 算好；不传就显示「暂不可用」。
+ * @param {{isDefaultPlace?:boolean, staleAgeMs?:number}} [opts] 选项。
+ *   ★2026-10-17：`declinationDeg` 参数已移除 —— 气候页不再显示磁偏角，
+ *   磁偏角归地理页（`ui/compass.js`）独有，调用方不用再传。
  * @returns {void}
  */
 export function renderSnapshot(root, snapshot, opts = {}) {
@@ -1078,9 +1085,8 @@ export function renderSnapshot(root, snapshot, opts = {}) {
   renderHeader(root, snapshot, opts);
   renderWeatherCard(root, snapshot);
   renderAirCard(root, snapshot);
-  renderPlaceCard(root, snapshot);
-  // 方位卡夹在「地点」与「来源」之间：磁偏角是地点的属性，跟在地点后面才讲得通；
-  // 来源说明压在整页最后（它是这一屏数据的出处，收尾最合适）。
-  renderBearingCard(root, snapshot, opts.declinationDeg);
+  // ★2026-10-17 导航重构：地点卡与方位卡都不再在气候页渲染 —— 它们随「地理」主 tab
+  //   搬到了 `ui/compass.js`（那里有 place / bearing 两个槽，由它的骨架建好）。
+  //   两个渲染函数本身**保留导出**，由地理页 import；这里删掉的只是调用。
   renderProvenance(root, snapshot);
 }

@@ -82,6 +82,8 @@ const store = await import('../src/core/store.js');
 const now = await import('../src/ui/now.js');
 const settings = await import('../src/ui/settings.js');
 const app = await import('../src/ui/app.js');
+// ★2026-10-17 导航重构：parsePlaceParam / resolveCoord 已从 ui/app.js 迁到 core/geo.js。
+const geo = await import('../src/core/geo.js');
 
 /** 上海人民广场。 */
 const SH = { lat: 31.2304, lon: 121.4737, name: '上海 · 人民广场' };
@@ -165,7 +167,7 @@ test('isFavorite 与 addFavorite 去重口径一致（精确 lat+lon）', () => 
 /* ------------------------------------------------------------------ */
 
 test('URL 参数合法：解析出坐标与中文名，source 标记为 explicit', () => {
-  const got = app.parsePlaceParam('?lat=31.2304&lon=121.4737&name=' + encodeURIComponent('上海 · 人民广场'));
+  const got = geo.parsePlaceParam('?lat=31.2304&lon=121.4737&name=' + encodeURIComponent('上海 · 人民广场'));
   assert.notEqual(got, null, '合法参数必须解析出结果');
   assert.equal(got.lat, 31.2304);
   assert.equal(got.lon, 121.4737);
@@ -174,56 +176,56 @@ test('URL 参数合法：解析出坐标与中文名，source 标记为 explicit
 });
 
 test('URL 参数：没有 name 时退化为空串，不崩', () => {
-  const got = app.parsePlaceParam('?lat=31.2304&lon=121.4737');
+  const got = geo.parsePlaceParam('?lat=31.2304&lon=121.4737');
   assert.notEqual(got, null, 'name 是可选的，缺了也要能跳');
   assert.equal(got.name, '', '缺 name 必须退化成空串');
   assert.equal(got.source, 'explicit');
 });
 
 test('URL 参数非法：缺参 / 只有 lat / 越界 / 非数字 / 空串 全部返回 null', () => {
-  assert.equal(app.parsePlaceParam('?lat=31.2304'), null, '只有 lat 没有 lon → null');
-  assert.equal(app.parsePlaceParam('?lon=121.4737'), null, '只有 lon 没有 lat → null');
-  assert.equal(app.parsePlaceParam(''), null, '空查询串 → null');
-  assert.equal(app.parsePlaceParam('?debug=1'), null, '没有坐标参数 → null（不能把 debug 当成地点）');
-  assert.equal(app.parsePlaceParam('?lat=91&lon=121'), null, '纬度 91° 越界 → null');
-  assert.equal(app.parsePlaceParam('?lat=-91&lon=121'), null, '纬度 -91° 越界 → null');
-  assert.equal(app.parsePlaceParam('?lat=31&lon=181'), null, '经度 181° 越界 → null');
-  assert.equal(app.parsePlaceParam('?lat=31&lon=-181'), null, '经度 -181° 越界 → null');
-  assert.equal(app.parsePlaceParam('?lat=abc&lon=121'), null, '非数字 → null');
-  assert.equal(app.parsePlaceParam('?lat=31&lon=abc'), null, '非数字 → null');
+  assert.equal(geo.parsePlaceParam('?lat=31.2304'), null, '只有 lat 没有 lon → null');
+  assert.equal(geo.parsePlaceParam('?lon=121.4737'), null, '只有 lon 没有 lat → null');
+  assert.equal(geo.parsePlaceParam(''), null, '空查询串 → null');
+  assert.equal(geo.parsePlaceParam('?debug=1'), null, '没有坐标参数 → null（不能把 debug 当成地点）');
+  assert.equal(geo.parsePlaceParam('?lat=91&lon=121'), null, '纬度 91° 越界 → null');
+  assert.equal(geo.parsePlaceParam('?lat=-91&lon=121'), null, '纬度 -91° 越界 → null');
+  assert.equal(geo.parsePlaceParam('?lat=31&lon=181'), null, '经度 181° 越界 → null');
+  assert.equal(geo.parsePlaceParam('?lat=31&lon=-181'), null, '经度 -181° 越界 → null');
+  assert.equal(geo.parsePlaceParam('?lat=abc&lon=121'), null, '非数字 → null');
+  assert.equal(geo.parsePlaceParam('?lat=31&lon=abc'), null, '非数字 → null');
   // ★空串绝不能被 Number('')===0 兜成「几内亚湾 0,0」这个真实存在的地点
-  assert.equal(app.parsePlaceParam('?lat=&lon='), null, '空串 → null');
-  assert.equal(app.parsePlaceParam('?lat=%20&lon=121'), null, '纯空格 → null');
-  assert.equal(app.parsePlaceParam('?lat=Infinity&lon=121'), null, 'Infinity → null');
+  assert.equal(geo.parsePlaceParam('?lat=&lon='), null, '空串 → null');
+  assert.equal(geo.parsePlaceParam('?lat=%20&lon=121'), null, '纯空格 → null');
+  assert.equal(geo.parsePlaceParam('?lat=Infinity&lon=121'), null, 'Infinity → null');
 });
 
 test('URL 参数：边界值 ±90 / ±180 视为合法', () => {
-  assert.notEqual(app.parsePlaceParam('?lat=90&lon=180'), null, '90/180 是合法边界');
-  assert.notEqual(app.parsePlaceParam('?lat=-90&lon=-180'), null, '-90/-180 是合法边界');
+  assert.notEqual(geo.parsePlaceParam('?lat=90&lon=180'), null, '90/180 是合法边界');
+  assert.notEqual(geo.parsePlaceParam('?lat=-90&lon=-180'), null, '-90/-180 是合法边界');
 });
 
 test('★URL 参数只收十进制字面量：十六进制 / 科学计数法 / 前导 + 号一律不收，0,0 必须收', () => {
   // Number() 会接受非十进制字面量 —— 0x10 → 16，旧实现正是被它兜成 16,16
-  assert.equal(app.parsePlaceParam('?lat=0x10&lon=0x10'), null, '十六进制 0x10 不得被 Number() 兜成 16');
-  assert.equal(app.parsePlaceParam('?lat=0x0&lon=0x0'), null, '十六进制 0x0 也不收');
-  assert.equal(app.parsePlaceParam('?lat=1e2&lon=1e2'), null, '科学计数法 1e2 不收（见 app.js 的取舍说明）');
-  assert.equal(app.parsePlaceParam('?lat=%2B31&lon=121'), null, '前导 + 号不收');
-  assert.equal(app.parsePlaceParam('?lat=.5&lon=121'), null, '省略整数位的「.5」不收');
-  assert.equal(app.parsePlaceParam('?lat=31.&lon=121'), null, '尾随小数点的「31.」不收');
-  assert.equal(app.parsePlaceParam('?lat=-Infinity&lon=121'), null, '-Infinity 不收');
+  assert.equal(geo.parsePlaceParam('?lat=0x10&lon=0x10'), null, '十六进制 0x10 不得被 Number() 兜成 16');
+  assert.equal(geo.parsePlaceParam('?lat=0x0&lon=0x0'), null, '十六进制 0x0 也不收');
+  assert.equal(geo.parsePlaceParam('?lat=1e2&lon=1e2'), null, '科学计数法 1e2 不收（见 core/geo.js 的取舍说明）');
+  assert.equal(geo.parsePlaceParam('?lat=%2B31&lon=121'), null, '前导 + 号不收');
+  assert.equal(geo.parsePlaceParam('?lat=.5&lon=121'), null, '省略整数位的「.5」不收');
+  assert.equal(geo.parsePlaceParam('?lat=31.&lon=121'), null, '尾随小数点的「31.」不收');
+  assert.equal(geo.parsePlaceParam('?lat=-Infinity&lon=121'), null, '-Infinity 不收');
 
   // ★真实的零点必须保持合法：0,0（几内亚湾）是个真实地点，不能被「像空值」误杀
-  const zero = app.parsePlaceParam('?lat=0&lon=0');
+  const zero = geo.parsePlaceParam('?lat=0&lon=0');
   assert.notEqual(zero, null, '0,0 是真实地点，必须解析成功');
   assert.equal(zero.lat, 0, 'lat 必须是数字 0');
   assert.equal(zero.lon, 0, 'lon 必须是数字 0');
 
   // 小数与负数照常放行
-  const dec = app.parsePlaceParam('?lat=-31.2304&lon=121.4737');
+  const dec = geo.parsePlaceParam('?lat=-31.2304&lon=121.4737');
   assert.notEqual(dec, null, '负小数必须合法');
   assert.equal(dec.lat, -31.2304);
   assert.equal(dec.lon, 121.4737);
-  assert.notEqual(app.parsePlaceParam('?lat=0.0000&lon=-0.0000'), null, '带小数的零点也合法');
+  assert.notEqual(geo.parsePlaceParam('?lat=0.0000&lon=-0.0000'), null, '带小数的零点也合法');
 });
 
 /* ------------------------------------------------------------------ */
@@ -231,7 +233,7 @@ test('★URL 参数只收十进制字面量：十六进制 / 科学计数法 / �
 /* ------------------------------------------------------------------ */
 
 test('★source=explicit 时 isDefaultPlace 必须为 false（旧写法 !== "gps" 会判成 true）', () => {
-  const r = app.resolveCoord({ lat: SH.lat, lon: SH.lon, name: SH.name, source: 'explicit' });
+  const r = geo.resolveCoord({ lat: SH.lat, lon: SH.lon, name: SH.name, source: 'explicit' });
   assert.equal(r.isDefaultPlace, false, '从收藏 / 搜索跳过去绝不能显示「未取得定位，正在显示默认地点」');
   assert.equal(r.base.source, 'explicit');
   assert.equal(r.base.lat, SH.lat);
@@ -239,9 +241,9 @@ test('★source=explicit 时 isDefaultPlace 必须为 false（旧写法 !== "gps
 });
 
 test('resolveCoord：default 为真、gps 为假，三条来源互斥', () => {
-  assert.equal(app.resolveCoord({ lat: 1, lon: 2, source: 'default' }).isDefaultPlace, true, '兜底地点才算默认地点');
-  assert.equal(app.resolveCoord({ lat: 1, lon: 2, source: 'gps' }).isDefaultPlace, false, 'GPS 定位不是默认地点');
-  assert.equal(app.resolveCoord({ lat: 1, lon: 2, source: 'explicit' }).isDefaultPlace, false, '用户显式指定的地点不是默认地点');
+  assert.equal(geo.resolveCoord({ lat: 1, lon: 2, source: 'default' }).isDefaultPlace, true, '兜底地点才算默认地点');
+  assert.equal(geo.resolveCoord({ lat: 1, lon: 2, source: 'gps' }).isDefaultPlace, false, 'GPS 定位不是默认地点');
+  assert.equal(geo.resolveCoord({ lat: 1, lon: 2, source: 'explicit' }).isDefaultPlace, false, '用户显式指定的地点不是默认地点');
 });
 
 test('★boot 带收藏参数：跳过定位、渲染该地点，且不出现「未取得定位」提示', async () => {

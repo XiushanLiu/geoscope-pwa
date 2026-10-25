@@ -41,6 +41,8 @@
 
 import { requestRaw } from '../core/http.js';
 import { makeKey, get as cacheGet, set as cacheSet, clearPrefix as cacheClearPrefix } from '../core/cache.js';
+// log() 供 probeTileBatch() 写「预算耗尽」诊断（2026-10-17 随该函数从 ui/app.js 迁来）。
+import { log } from '../core/store.js';
 import { t } from '../i18n/index.js';
 
 /** 瓦片基址（三种样式共用）。 */
@@ -665,6 +667,97 @@ export function setNoMapMode(on) {
  */
 export function isNoMapMode() {
   return _mapMode === MAP_MODE.NO_MAP;
+}
+
+/**
+ * 后台瓦片探测块数。
+ *
+ * ★必须 ≥ 2：`degradeMapMode()` 的 grid 分支是「0 < 成功数 < 总数」，
+ * 只喂一块时该区间是空集 → grid 永远不可达 → 「一次慢请求就把整张地图打没」这个
+ * 本轮要消除的行为会原封不动留着，而三态契约、i18n 文案、裁决函数又都写齐了，
+ * 形成「已修复」的假象。取 3 与 `sampleTiles()` 的取样数一致（真机中位 693 ms，
+ * 第二轮起命中缓存接近零成本）。
+ *
+ * ★2026-10-17 导航重构：本常量连同 `probeTileBatch()` 从 `src/ui/app.js` 迁来 ——
+ *   地理页（compass.js）接管底图卡之后也要用同一条探测逻辑，留在 app.js 就得让
+ *   一个 ui 模块去 import 另一个 ui 模块。迁到 data 层后 app.js 与 compass.js
+ *   各自 import `data/tiles.js`，零新增文件、零新增登记点。
+ */
+export const TILE_PROBE_COUNT = 3;
+
+/**
+ * 整批瓦片探测的**时间预算**（毫秒）。
+ *
+ * 背景：三块是逐块串行、每块超时 `TILE_TIMEOUT_MS`（6 s），而且全部走 `http.js` 的
+ * 全局串行队列（并发恒为 1）。最坏情况 3 × 6 s = **18 s 占用队列** —— 这段时间里用户
+ * 手动刷新，新请求会排在探测后面干等。真机实测瓦片中位 693 ms、峰值 3198 ms，
+ * 峰值确实能到秒级，弱网下这条路径会碰到。
+ *
+ * 取值 8000：真机峰值 3198 ms，8 s 足够三块在正常情况跑完（3 × 693 ≈ 2.1 s，
+ * 即使三块都走到峰值也 9.6 s —— 个别块被收紧超时而失败是可接受的代价）；同时把
+ * 最坏占用从 18 s 砍到 8 s。**每块的超时按剩余预算收紧**，见 `probeTileBatch()`。
+ *
+ * 为什么不做旁路队列或队列让步点：全局并发 1 是当初为弱网稳定刻意定的，旁路等于拆掉它；
+ * 让步点要改 `http.js` 的队列实现，风险都大于收益。
+ */
+export const TILE_PROBE_BUDGET_MS = 8000;
+
+/**
+ * 剩余预算低于这个值就不再发起新块（毫秒）。
+ *
+ * 瓦片中位 693 ms，剩几百毫秒发起的块注定超时 —— 白占队列，还多喂一条必然失败的样本
+ * 去污染 `degradeMapMode()` 的裁决（成功率是唯一的判决依据）。
+ */
+const TILE_PROBE_MIN_SLOT_MS = 300;
+
+/**
+ * 在**整批时间预算**内逐块探测瓦片。
+ *
+ * 为什么要有预算：三块串行、每块 6 s 超时，且全部走 `http.js` 的全局串行队列（并发 1），
+ * 最坏情况会占住队列 18 s。预算把这个上限压到 `TILE_PROBE_BUDGET_MS`（8 s）。
+ *
+ * 怎么压：**每一块的超时按剩余预算收紧** —— `timeout_i = min(单块超时, 预算 - 已耗时)`，
+ * 而不是每块都给满 6 s。`probeTile()` 内部还会再钳一次（只能收紧，不能放松）。
+ *
+ * 三条已确认的行为**不许回退**：
+ *   1) `shouldStop()` 在每一块之后都检查（epoch 竞态守卫留在循环内）；
+ *   2) 单块抛异常只记该块失败，不中断整批；
+ *   3) 探几块仍由 `count` 决定（默认 `TILE_PROBE_COUNT = 3`），不为了省时间降到 2 ——
+ *      2 只是 grid 可达的下限，3 才是「区分一块慢和普遍慢」的下限。
+ *
+ * 预算耗尽后**不再发起新块**，已拿到的结果照常返回，由调用方喂给 `degradeMapMode()`。
+ *
+ * ★日志：`log()` 来自 core/store.js（data 层可以 import core，方向合法）。
+ *
+ * @param {string} styleId 样式 id。
+ * @param {Array<{z:number,x:number,y:number}>} tiles 候选瓦片坐标。
+ * @param {{count?:number, budgetMs?:number, shouldStop?:()=>boolean}} [opts] 选项。
+ * @returns {Promise<Array<Object>>} 探测结果（可能少于 count：预算耗尽或 shouldStop 时提前结束）。
+ */
+export async function probeTileBatch(styleId, tiles, opts = {}) {
+  const count = Number.isFinite(Number(opts.count)) ? Number(opts.count) : TILE_PROBE_COUNT;
+  const budgetMs = Number.isFinite(Number(opts.budgetMs)) ? Number(opts.budgetMs) : TILE_PROBE_BUDGET_MS;
+  const shouldStop = typeof opts.shouldStop === 'function' ? opts.shouldStop : () => false;
+  const list = Array.isArray(tiles) ? tiles.slice(0, count) : [];
+
+  const startedAt = Date.now();
+  const probes = [];
+
+  for (const tile of list) {
+    const remainMs = budgetMs - (Date.now() - startedAt);
+    // 剩余预算连一块都跑不完（瓦片中位 693 ms）：发起也只是白占队列 + 多喂一条必然失败的样本
+    if (remainMs < TILE_PROBE_MIN_SLOT_MS) {
+      log(`tile probe budget out (${remainMs}ms left), ${probes.length}/${list.length} done`);
+      break;
+    }
+    // 单块抛异常只记这一块失败，不让整批裁决失去证据（成功率是这轮唯一的判决依据）
+    probes.push(
+      await probeTile(styleId, tile, { timeoutMs: remainMs }).catch(() => ({ ok: false, styleId }))
+    );
+    if (shouldStop()) break; // 已被新一轮覆盖，停止继续占用队列
+  }
+
+  return probes;
 }
 
 /**

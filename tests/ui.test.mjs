@@ -182,19 +182,26 @@ test('方位卡：磁偏角缺失（null / 非数）时显示「暂不可用」�
   assert.ok(!/东偏|西偏/.test(card), '没坐标时不许编一个方向出来');
 });
 
-test('★此刻页方位卡必须真的被渲染出来：走真实 boot，不许停在骨架或「暂不可用」', async () => {
-  // 为什么必须走 boot：在线路径是「出一张渲染一张」的增量流，**不走 renderSnapshot()，
-  // 而方位槽位在 renderSkeleton() 里就已建好 —— 漏掉 app.js 里那一句 renderBearingCard()，
-  // 在线时那张卡会永远停在骨架，而直接调 renderBearingCard 的单元测试照样全绿。
-  // 这是「自己手接回调 / 自己调渲染函数」绕开接线断点的同类盲区。
+test('★2026-10-17 导航重构：气候页不再有方位槽 / 地点槽 / 底图槽（都归地理页）', async () => {
+  // 为什么必须走 boot（而不是只看源码）：在线路径是「出一张渲染一张」的增量流，
+  // 不走 renderSnapshot()，判断「气候页到底画了哪几张卡」只能看真实 boot 的结果。
+  // ★这条取代了原来的「此刻页方位卡必须真的被渲染出来」—— 方位卡没被删，
+  //   是**搬到了地理页**（compass.js）。它的渲染函数 renderBearingCard 仍是 now.js 的
+  //   导出，上面的「磁偏角缺失显示暂不可用」与「有坐标给出方向」两条用例照旧覆盖它。
+  //   这里反向钉住：气候页不许再出现这三个槽，否则搬迁等于没搬。
   routeFixture();
   await app.boot();
-  const box = dom.byId['app'].querySelector('#card-bearing');
-  assert.ok(box, '此刻页必须存在方位槽位');
-  const card = text(box);
-  assert.ok(!card.includes('sk'), `方位卡不许停在骨架，实际：${card}`);
-  assert.ok(!card.includes('暂不可用'), `有坐标就必须算出磁偏角，实际：${card}`);
-  assert.ok(/东偏|西偏|正北/.test(card), `boot 后方位卡必须给出磁偏角方向，实际：${card}`);
+  for (const gone of ['bearing', 'place', 'map']) {
+    assert.equal(
+      dom.byId['app'].querySelector(`#card-${gone}`),
+      null,
+      `气候页不许再有 #card-${gone} 槽（已随地理页搬走）`
+    );
+  }
+  // 反向钉的另一半：气候页该有的槽一个都不能少
+  for (const keep of ['weather', 'air', 'climate', 'prov', 'search']) {
+    assert.ok(dom.byId['app'].querySelector(`#card-${keep}`), `气候页必须有 #card-${keep} 槽`);
+  }
 });
 
 test('★自检页产物不许被 WMM 拖胖：now.js 不得 import mag.js / wmm2025.js', async () => {
@@ -270,11 +277,14 @@ test('此刻屏冷启动：定位被拒（无 geolocation）也能渲染，走�
   assert.equal(dom.byId['banner'].hidden, true, '全绿时不得显示降级横幅');
 });
 
-test('DOM 挂载点稳定：天气/空气/位置/溯源四个 slot 都存在且唯一', async () => {
+test('DOM 挂载点稳定：天气/空气/气候常态/溯源四个 slot 都存在且唯一', async () => {
+  // ★2026-10-17 导航重构：原来的第四个是 `card-place`（地点卡）。地点卡搬去了地理页，
+  //   气候页的槽位变成 `search→weather→air→climate→prov→legend`，
+  //   所以这里改成钉 `card-climate`（决定 C：本次发布带上气候常态，它必须在）。
   routeFixture();
   await app.boot();
   const appEl = dom.byId['app'];
-  for (const id of ['card-weather', 'card-air', 'card-place', 'card-prov']) {
+  for (const id of ['card-weather', 'card-air', 'card-climate', 'card-prov']) {
     const hits = appEl.querySelectorAll(`#${id}`);
     assert.equal(hits.length, 1, `#${id} 必须恰好存在 1 个，实际 ${hits.length} 个`);
   }
@@ -408,12 +418,14 @@ test('网络恢复后重新开始一轮，若瓦片探测成功则必须退出�
   setNoMapMode(false);
 });
 
-test('瓦片探测失败 → 进入无地图纯坐标模式，位置卡仍显示坐标（不重试）', async () => {
+test('瓦片探测失败 → 进入无地图纯坐标模式，气候页页头仍显示坐标（不重试）', async () => {
   routeFixture({ tile: null });
   const before = fetchMock.count;
   await app.boot();
   await new Promise((r) => setTimeout(r, 30)); // 瓦片探测在后台补齐阶段（boot 不 await）
-  const placeText = text(dom.byId['app'].querySelector('#card-place'));
+  // ★2026-10-17：地点卡搬到地理页了，气候页的「纯坐标」改由**页头**承载
+  //   （renderHeader 里那行 .hd-coord），所以这里看的是 .hd 而不是 #card-place。
+  const placeText = text(dom.byId['app'].querySelector('.hd'));
   assert.ok(placeText.includes('39.9087°N, 116.3975°E'), `无地图模式必须显示坐标，实际：${placeText}`);
   // 「不重试」的准确含义：每块瓦片各请求一次，**不得对同一块重复请求**。
   // 主页面现在探 TILE_PROBE_COUNT 个不同位置（只探一块时 grid 态数学上不可达），

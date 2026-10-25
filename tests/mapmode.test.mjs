@@ -64,18 +64,28 @@ test('三块探测下 grid 可达（原「grid 数学上不可达」缺陷已修
   assert.notEqual(degradeMapMode([{ ok: false }]), 'grid');
 });
 
-test('app.js 探测多块瓦片并把整批结果交给 degradeMapMode（源码级确认）', () => {
-  const src = readFileSync(join(SRC, 'ui', 'app.js'), 'utf8');
+test('探测多块瓦片并把整批结果交给 degradeMapMode（源码级确认）', () => {
+  // ★2026-10-17 导航重构：`probeTileBatch()` 连同 `TILE_PROBE_COUNT` /
+  //   `TILE_PROBE_BUDGET_MS` 已从 `ui/app.js` 迁到 `data/tiles.js`（地理页 compass.js
+  //   要用同一条探测逻辑）。所以**整批探测的形状**改锁 tiles.js，
+  //   而「调用方确实把整批结果喂给 degradeMapMode」这条接线仍锁 app.js。
+  const tilesSrc = readFileSync(join(SRC, 'data', 'tiles.js'), 'utf8');
+  const appSrc = readFileSync(join(SRC, 'ui', 'app.js'), 'utf8');
 
-  assert.doesNotMatch(src, /tiles\[0\]/, '不得再只取 tiles[0] 单块探测');
-  assert.doesNotMatch(src, /degradeMapMode\(\[probe\]\)/, '不得再把单元素数组喂给裁决函数');
+  for (const src of [tilesSrc, appSrc]) {
+    assert.doesNotMatch(src, /tiles\[0\]/, '不得再只取 tiles[0] 单块探测');
+    assert.doesNotMatch(src, /degradeMapMode\(\[probe\]\)/, '不得再把单元素数组喂给裁决函数');
+  }
   // 探测循环搬进了 probeTileBatch()：整批时间预算要「逐块按剩余预算收紧超时」，
   // 循环因此必须留在一个能拿到整批起点的函数里。锁的是新形状，意图不变。
-  assert.match(src, /probeTileBatch\('street', tiles, \{/, '应调用整批探测函数并传入取样坐标');
-  assert.match(src, /count: TILE_PROBE_COUNT/, '整批探测的块数必须由 TILE_PROBE_COUNT 决定');
-  assert.match(src, /tiles\.slice\(0, count\)/, '整批探测内部应遍历取样坐标逐块探测');
-  assert.match(src, /degradeMapMode\(probes\)/, '应把整批结果交给裁决函数');
-  assert.match(src, /TILE_PROBE_COUNT = 3/, '探测块数必须 ≥ 2，否则 grid 区间为空集');
+  assert.match(tilesSrc, /export async function probeTileBatch\(/, '整批探测函数必须在 data/tiles.js 里');
+  assert.match(tilesSrc, /tiles\.slice\(0, count\)/, '整批探测内部应遍历取样坐标逐块探测');
+  assert.match(tilesSrc, /TILE_PROBE_COUNT = 3/, '探测块数必须 ≥ 2，否则 grid 区间为空集');
+  assert.match(tilesSrc, /TILE_PROBE_BUDGET_MS = 8000/, '整批预算必须仍是 8 s');
+  // 接线：气候页（app.js）仍然探多块，并把整批结果交给裁决函数
+  assert.match(appSrc, /probeTileBatch\('street', tiles, \{/, '应调用整批探测函数并传入取样坐标');
+  assert.match(appSrc, /count: TILE_PROBE_COUNT/, '整批探测的块数必须由 TILE_PROBE_COUNT 决定');
+  assert.match(appSrc, /degradeMapMode\(probes\)/, '应把整批结果交给裁决函数');
 });
 
 test('grid 态在健康层可见：overallMode() 返回 partial 而不是 live', () => {

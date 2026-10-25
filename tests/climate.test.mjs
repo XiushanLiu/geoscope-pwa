@@ -534,11 +534,34 @@ test('⑨ now.js 不许发请求、不许 import data 层（自检页单文件�
   const src = readFileSync(join(ROOT, 'src/ui/now.js'), 'utf8');
   assert.equal(/from\s+['"]\.\.\/data\//.test(src), false, 'now.js 不许 import src/data/ 下任何模块');
   assert.equal(/\brequest\s*\(/.test(src), false, 'now.js 不许发起请求');
-  // 气候槽必须在 place 之后、map 之前建（顺序由首次 appendChild 那一刻决定）
-  const iPlace = src.indexOf("_slot(root, 'place')");
+  // ★2026-10-17 导航重构：now.js 的骨架瘦身成
+  //   `search→weather→air→climate→prov→legend`（place / map / bearing 三块随「地理」
+  //   主 tab 搬到 ui/compass.js 的骨架里）。所以 climate 槽的相对位置改成
+  //   「在 air 之后、prov 之前」—— 判据变了，但「顺序由首次 appendChild 那一刻决定」
+  //   这条硬约束没变，仍然必须机器钉住。
+  const iAir = src.indexOf("_slot(root, 'air')");
   const iClimate = src.indexOf("_slot(root, 'climate')");
-  const iMap = src.indexOf("_slot(root, 'map')");
-  assert.ok(iPlace > 0 && iClimate > iPlace && iMap > iClimate, 'climate 槽必须在 place 之后、map 之前');
+  const iProv = src.indexOf("_slot(root, 'prov')");
+  assert.ok(iAir > 0 && iClimate > iAir && iProv > iClimate, 'climate 槽必须在 air 之后、prov 之前');
+
+  // 反向钉：**骨架函数体里**不许再有 place / map / bearing 三槽（它们归地理页）。
+  // ⚠️ 必须只扫 renderSkeleton 的函数体，不能扫整个 now.js ——
+  //    `_slot(root, 'place')` 在 renderPlaceCard 里**仍然存在且必须存在**
+  //    （地理页建好槽之后再调它）。扫全文件会把合法代码判成违规。
+  const skStart = src.indexOf('export function renderSkeleton(root) {');
+  const skEnd = src.indexOf('/* 降级横幅', skStart);
+  assert.ok(skStart > 0 && skEnd > skStart, '应能定位 renderSkeleton 的函数体');
+  const skeletonBody = src.slice(skStart, skEnd);
+  for (const gone of ['place', 'map', 'bearing']) {
+    assert.equal(
+      skeletonBody.includes(`_slot(root, '${gone}')`),
+      false,
+      `renderSkeleton 里不许再建 ${gone} 槽（已随地理页搬走）`
+    );
+  }
+  // 顺带钉住：renderPlaceCard / renderBearingCard 两个导出必须还在（地理页要 import）
+  assert.match(src, /export function renderPlaceCard\(/, 'renderPlaceCard 必须保留导出（地理页要用）');
+  assert.match(src, /export function renderBearingCard\(/, 'renderBearingCard 必须保留导出（地理页要用）');
 });
 
 test('⑨b climate.* / source.climate 中英成对且非空（不许简写红线文案）', () => {

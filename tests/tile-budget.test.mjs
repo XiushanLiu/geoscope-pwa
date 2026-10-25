@@ -27,13 +27,12 @@ const fetchMock = installFetch();
 const dom = createFakeDom([{ id: 'app' }, { id: 'banner' }]);
 dom.document.readyState = 'loading';
 
-const app = await import('../src/ui/app.js');
+// ★2026-10-17 导航重构：probeTileBatch / TILE_PROBE_* 已从 ui/app.js 迁到 data/tiles.js
+//   （地理页 compass.js 也要用同一条探测逻辑），所以这里直接从 tiles.js 取。
 const {
   probeTileBatch,
   TILE_PROBE_COUNT,
   TILE_PROBE_BUDGET_MS,
-} = app;
-const {
   sampleTiles,
   tileUrl,
   clearTileCache,
@@ -170,6 +169,7 @@ test('队列让步点：app 层已免费实现，http.js 无需改动（源码�
   //   ③ 循环每块之后检查 shouldStop()，于是刷新一发生，第 2/3 块根本不会入队。
   // 剩下唯一「抢不掉」的是已在飞的那块：它已经在 fetch 中，且强杀它会丢样本（可能跌破
   // 2 块门槛 → 本轮不裁决）或逼我们伪造 ok:false（谎报一次没发生过的请求）。所以不做。
+  // ★队列让步点锁的是 boot() 的接线，boot 仍在 ui/app.js —— 这里读的还是 app.js 源码。
   const src = readFileSync(new URL('../src/ui/app.js', import.meta.url), 'utf8');
 
   assert.match(src, /export function refresh\(\)\s*\{\s*return boot\(\);/, 'refresh 必须落到 boot');

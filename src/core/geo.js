@@ -17,10 +17,16 @@
  * 算法说明（不是本仓库自创）：GCJ-02 加偏使用官方公布的克拉索夫斯基椭球参数与三角级数，
  * 反解（GCJ-02 → WGS84）用 **5 次定常迭代反演** —— 偏移量本身只有几百米、梯度平缓，
  * 迭代 5 次后往返残差已远小于 1 m。
- * ★2026-10-17 自驾下线：这里原本钉着「往返残差」的 6 个样本断言，它们住在自驾那批
- *   测试里、随自驾一起删除了。删除后这两个函数今天**没有自动化断言**守着（唯一在用的
- *   调用方是 data/tiles.js），属于已知覆盖缺口 —— 不假装有人守。
- *   要补就在 core 自己的测试里补，别靠一个已删除的测试假装它还在。
+ *
+ * ★断言在哪：往返残差 < 1 m 的 6 个境内样本，连同境外原样返回、`isInOffsetZone`
+ *   边界、非数字入参三组用例，都钉在 `tests/geo-coord.test.mjs`。这批断言原本挂在自驾
+ *   那批测试里，自驾下线时被一并删掉 —— 那是**删除造成的回归**，现已一字未改迁回，
+ *   并做过变异验证：把任一方向改成恒等映射、或把 `GCJ_INVERSE_ITERATIONS` 从 5 降到 1，
+ *   该测试都会红。
+ *
+ * ★但「有断言」不等于「有活调用方」：这两个导出目前没有活调用方（原调用方是已删除的
+ *   自驾 POI 模块）。`data/tiles.js` 里出现过这两个函数名，但**只在注释里**，
+ *   `tests/geo-coord.test.mjs` 第 ⑤ 条把这条反向钉住了。本文件守的只是**算法契约**。
  *
  * 红线：内部坐标一律 WGS84；绝不上传用户坐标到数据源以外的任何地方。
  */
@@ -324,4 +330,117 @@ export function gcj02ToWgs84(lat, lon) {
     guessLon += lo - gcj.lon;
   }
   return { lat: guessLat, lon: guessLon };
+}
+
+/**
+ * 十进制数字字面量：`-?整数(.小数)?`。
+ *
+ * 只认这一种形态 —— 十六进制（'0x10'）、'Infinity' / 'NaN'、科学计数法（'1e2'）、
+ * 前导 '+'、省略整数位的 '.5'、尾随小数点的 '31.' 一律不收。先过这道正则再
+ * Number()，才能挡住 `Number()` 那些「看着像数字其实不是本意」的宽容转换
+ * （`Number('0x10') === 16`、`Number('Infinity') === Infinity`）。
+ *
+ * **取舍：不收科学计数法。** 本项目唯一的 URL 生产者是 `ui/settings.js` 的 _favHref()
+ * （`String(number)`），在纬度 ±90 / 经度 ±180 这个量级上永远不会产出指数形式。
+ * ★收下的形态里必须包含 '0' / '-0' / '0.0000'：0,0（几内亚湾）是真实地点。
+ */
+const DECIMAL_LITERAL_RE = /^-?\d+(\.\d+)?$/;
+
+/**
+ * 从 URL 查询串解析「指定地点」（跨页传参：收藏列表 / 地点搜索 → 气候页 / 地理页）。
+ *
+ * 为什么必须有它：本项目**无 SPA 路由**，多个 HTML 页靠 `<nav class="tabbar">` 的
+ * `<a href>` 整页跳转，页面间没有任何共享内存（每次导航都是全新的 JS 环境）。
+ * 收藏列表要点一下就跳到那个地点、搜索结果点一下就切过去，只能把坐标写在 URL 上。
+ *
+ * ★`source` 为什么叫 'explicit' 而不是 'favorite'：这条通路现在承载**两种**来源
+ * （收藏跳转 + 地点搜索结果），写死 'favorite' 就是假话 —— 搜索出来的城市从来没被
+ * 收藏过。判断「是不是默认地点」仍只看 `source === 'default'`（见 resolveCoord）。
+ *
+ * 严格十进制解析（不做 Number() 宽容转换）：空串 / 空白 / 非十进制字面量一律判为非法 ——
+ * `Number('')` 与 `Number(null)` 都是 0，宽容解析会把「参数坏了」静默变成
+ * 「几内亚湾 0,0」这个真实存在的地点，用户会看到一片陌生的天气却毫无提示。
+ * 参数非法 / 缺失一律返回 null，调用方退回原有的定位流程，行为不变。
+ *
+ * ★2026-10-17 导航重构：本函数从 `src/ui/app.js` 迁来 —— 地理页（compass.js）
+ *   与气候页（app.js）都要用同一套严格解析，留在 app.js 就得让一个 ui 模块去
+ *   import 另一个 ui 模块。
+ *
+ * @param {string} [search] 查询串（可带或不带前导 '?'）；缺省读 location.search。
+ * @returns {{lat:number, lon:number, name:string, source:'explicit'}|null} 解析结果；非法时 null。
+ */
+export function parsePlaceParam(search) {
+  let raw = '';
+  if (typeof search === 'string') raw = search;
+  else if (typeof location !== 'undefined' && location && typeof location.search === 'string') raw = location.search;
+
+  let params = null;
+  try {
+    params = new URLSearchParams(raw.replace(/^\?/, ''));
+  } catch (err) {
+    return null;
+  }
+
+  const rawLat = params.get('lat');
+  const rawLon = params.get('lon');
+  // 缺任一参数 → null（「只有 lat 没有 lon」是非法，不是「lon 取 0」）
+  if (rawLat === null || rawLon === null) return null;
+  const sLat = String(rawLat).trim();
+  const sLon = String(rawLon).trim();
+  // 先卡字面量形态，再 Number()：空串 / 空白 / 十六进制（0x10）/ Infinity / NaN /
+  // 科学计数法（1e2）/ 前导 '+' / 省略整数位的 '.5' / 尾随小数点的 '31.' 全部拦下
+  // （见上方 JSDoc 与 DECIMAL_LITERAL_RE 的取舍说明）。
+  // ★但 '0' 与 '-0' 必须放行：0,0（几内亚湾）是个真实地点，不能因为「像空值」被误杀。
+  if (!DECIMAL_LITERAL_RE.test(sLat) || !DECIMAL_LITERAL_RE.test(sLon)) return null;
+  const lat = Number(sLat);
+  const lon = Number(sLon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+
+  // name 可有可无；中文名由 encodeURIComponent 编过，解不出来（乱码）也只是名字难看，
+  // 坐标与天气照常工作 —— 所以这里退化成空串，绝不因为它抛异常。
+  let name = '';
+  try {
+    name = String(params.get('name') || '');
+  } catch (err) {
+    name = '';
+  }
+  return { lat, lon, name, source: 'explicit' };
+}
+
+/**
+ * 由 coord 解析出 base 坐标与「是否默认地点」。
+ *
+ * ★`isDefaultPlace` 只认 `source === 'default'`（真正走了本模块的定位兜底），
+ * 不能写成 `base.source !== 'gps'`：收藏跳转与搜索结果带的是 `source:'explicit'`，
+ * 按旧写法会被判成「默认地点」，于是用户明明点的是自己收藏的上海或刚搜到的北京，
+ * 界面却写着「未取得定位，正在显示默认地点」—— 一句彻头彻尾的假话。
+ * 抽成函数是为了让这条语义能被单测直接钉死（见 tests/favorites.test.mjs）。
+ *
+ * ★默认地点的名字是**地名**，界面上跟着语言走（英文界面写 "Beijing · Tian'anmen"）。
+ *   core/geo.js 存的是中文那一版原文（要写进备份），翻译由 `ui/locale.js` 的
+ *   `placeDisplayName()` 在这一层补 —— 所以调用方必须把它们作为 `opts` 传进来
+ *   （core 层不许 import `src/i18n/`，也不许 import `ui/locale.js`；
+ *    也不许 import `core/store.js` 去读「用户改过的默认地点」——
+ *    那是 UI 的策略，不是坐标算法的职责）。
+ *
+ * ★2026-10-17 导航重构：本函数从 `src/ui/app.js` 迁来（理由同 parsePlaceParam）。
+ *   迁移时把两处**外部依赖**改成入参，行为由调用方决定，不是由 core 层替它决定：
+ *   - `opts.defaultPlace`：兜底地点。app.js 传 `store.getDefaultPlace()`
+ *     （用户在「我的」页改过的那份），不传则退回本模块的出厂 `DEFAULT_PLACE`；
+ *   - `opts.displayName`：地名翻译函数（`ui/locale.js` 的 `placeDisplayName`）。
+ *
+ * @param {{lat:number, lon:number, source:string, name?:string|null}} coord 定位结果。
+ * @param {{defaultPlace?:{lat:number, lon:number, name?:string|null}|null,
+ *          displayName?:(name:string|null) => string}} [opts] 选项（见上）。
+ * @returns {{base:{lat:number, lon:number, source:string, name?:string|null}, isDefaultPlace:boolean}} 解析结果。
+ */
+export function resolveCoord(coord, opts = {}) {
+  const src = coord && typeof coord === 'object' ? coord : {};
+  const fallback = src.source === 'default' ? opts.defaultPlace || DEFAULT_PLACE : null;
+  const nameOf = typeof opts.displayName === 'function' ? opts.displayName : (n) => n;
+  const base = src.source === 'default' && fallback
+    ? { lat: fallback.lat, lon: fallback.lon, source: 'default', name: nameOf(fallback.name) }
+    : src;
+  return { base, isDefaultPlace: base.source === 'default' };
 }

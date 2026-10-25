@@ -41,6 +41,8 @@ const ps = await import('../src/ui/placesearch.js');
 const zh = await import('../src/i18n/index.js');
 const now = await import('../src/ui/now.js');
 const app = await import('../src/ui/app.js');
+// ★2026-10-17 导航重构：parsePlaceParam / resolveCoord 已从 ui/app.js 迁到 core/geo.js。
+const geo = await import('../src/core/geo.js');
 
 /** 等待指定毫秒（防抖窗口 + 余量）。 */
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -290,7 +292,7 @@ test('pick() 把选中的地点交给 onPick，且链接含编码后的中文名
 /* ------------------------------------------------------------------ */
 
 test('★source=explicit 时 isDefaultPlace 必须是 false', () => {
-  const r = app.resolveCoord({ lat: 31.2304, lon: 121.4737, name: '上海', source: 'explicit' });
+  const r = geo.resolveCoord({ lat: 31.2304, lon: 121.4737, name: '上海', source: 'explicit' });
   assert.equal(r.isDefaultPlace, false, '搜索 / 收藏跳过去绝不能显示「未取得定位，正在显示默认地点」');
   assert.equal(r.base.source, 'explicit');
   assert.equal(r.base.lat, 31.2304);
