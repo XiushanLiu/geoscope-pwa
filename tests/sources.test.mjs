@@ -108,7 +108,8 @@ test('隐私红线：全仓库不得出现 six 数据源以外的域名、http:/
     // 气候常态：ERA5 逐日再分析归档（1991–2020 月平均，本地聚合），见 src/data/climate.js
     'archive-api.open-meteo.com',
     'photon.komoot.io', 'server.arcgisonline.com',
-    'router.project-osrm.org', 'restapi.amap.com',
+    // ★2026-10-17 自驾下线：原「自驾两路」宿主（OSRM 公共实例 / 高德 Web 服务）
+    //   已从这张表删除 —— 那两路数据源随整个自驾功能一起下线了。
   ];
   const forbidden = ['nominatim.openstreetmap.org', 'basemaps.cartocdn.com', 'tile.openstreetmap.org', 'overpass-api.de', 'googleapis', 'gstatic', 'cdn.', 'fonts.googleapis', 'jsdelivr', 'unpkg'];
   const externalRe = /https?:\/\/([a-zA-Z0-9.-]+)/g;
@@ -173,10 +174,8 @@ test('i18n：所有 t() 字面量 key 与模板 key 的枚举都必须存在于�
     //   ★注意 ['zh','en'] 这两个选项名**故意不翻译**（中文界面写着 English），
     //   所以这里查的是「两张表里都有这两条 key」，不是「英文表里写的是 English」。
     'settings.lang.': ['zh', 'en'],
-    // ★自驾候选三类：与 src/core/roadtrip.js 的 CHECKIN_TYPES 一一对应
-    //   （ui/poilist.js 与 ui/roadtrip.js 都用 `rt.type.${type}` 这类模板 key 取文案，
-    //    少一类就有一张卡显示成键名本身）。
-    'rt.type.': ['stay', 'sight', 'food'],
+    // ★2026-10-17 自驾下线：原「自驾候选三类」`rt.type.`（stay / sight / food）已删除 ——
+    //   它对应的是已下线模块的 CHECKIN_TYPES，留着会让缺 key 测试去查一批不存在的键。
     // ★气候常态的 12 个月份名：与 src/ui/now.js 的 `t(\`climate.m${month}\`)` 一一对应，
     //   少一个月那一行就显示成键名本身（界面上会出现 'climate.m7' 这种裸键）。
     'climate.m': ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],

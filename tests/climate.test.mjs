@@ -398,11 +398,21 @@ test('⑥ getSource("climate") 可解析；SOURCE_LIST 仍是六路且未被污�
     SOURCE_LIST.map((x) => x.id),
     ['weather', 'air', 'geocode', 'elevation', 'reverse', 'tile']
   );
-  // 全量表是九路：六路 + 自驾两路 + 气候常态
-  assert.equal(Object.keys(SOURCE_TABLE).length, 9);
+  // ★全量表是七路：六路 + 气候常态。
+  //   2026-10-17 自驾下线：原「自驾两路」（osrmRoute / amapPoi）已随 src/data/roadsources.js
+  //   一并删除，九路 → 七路。★这个 7 是本次删除后唯一的「成员数」硬钉点 —— 原来钉九路的
+  //   那条断言在 tests/roadtrip-sources.test.mjs 里，该测试已随自驾删除，数字由这里接管。
+  //   ⚠️ 气候常态（决定 C）跟着本次一起发布，所以这 1 路不能摘；摘了就成了 6。
+  assert.equal(Object.keys(SOURCE_TABLE).length, 7);
   assert.ok(SOURCE_TABLE.climate);
-  assert.ok(SOURCE_TABLE.osrmRoute);
-  assert.ok(SOURCE_TABLE.amapPoi);
+  // 反向钉：自驾两路不许以任何形式回来（键名也不许留残影）
+  assert.equal(SOURCE_TABLE.osrmRoute, undefined, '自驾路线源已下线，全量表里不许再出现 osrmRoute');
+  assert.equal(SOURCE_TABLE.amapPoi, undefined, '高德 POI 源已下线，全量表里不许再出现 amapPoi');
+  assert.deepEqual(
+    Object.keys(SOURCE_TABLE).sort(),
+    ['air', 'climate', 'elevation', 'geocode', 'reverse', 'tile', 'weather'],
+    '全量表必须恰好是「自检六路 + 气候常态」七路'
+  );
 });
 
 /* ------------------------------------------------------------------ */

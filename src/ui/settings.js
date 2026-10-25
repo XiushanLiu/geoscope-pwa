@@ -54,15 +54,11 @@ import { applyThemeMode, applyFontScale } from './theme.js';
 import { applyLocale, switchLocale } from './locale.js';
 // 地点显示名（出厂默认地点那个地名要跟着语言走，见 locale.js 的 JSDoc）
 import { placeDisplayName } from './locale.js';
-// 高德 Key 的「孤儿存储」：只依赖 core/cache.js，与 store 的 prefs 平级、互不影响。
-// ★三条红线：不硬编码、不进 git、不写进 store 的 prefs（也就不会被备份文件带出去）。
-import { getAmapKey, hasAmapKey, setAmapKey, clearAmapKey, maskKey, KEY_MAX_LEN } from '../core/apikeys.js';
-// 自驾两路源：校验 Key 要真的发一次 POI 搜索 —— 不发请求证明不了「这个 Key 可用」，
-// 而高德的业务失败是 HTTP 200 包着 status:"0"，只看网络通不通会得出假结论。
-import { requestRoadSource } from '../data/roadsources.js';
 // ★必须 import 源注册表（哪怕本页一个符号都不用它）：setSourceResolver() 是
-//   data/sources.js 在**自己加载时**调用的，漏掉这一行 requestRoadSource() 会拿到
+//   data/sources.js 在**自己加载时**调用的，漏掉这一行任何按 id 取源的调用都会拿到
 //   UNSUPPORTED —— 不发任何请求、按钮点了没反应（compare.js:40 有同一条注释）。
+//   ★2026-10-17 自驾下线：这一行原本还兼着「给第三方 Key 校验用的源解析器」这个职责，
+//   现在 Key 卡与自驾入口卡一起删除，它只剩纯粹的副作用导入用途。
 import '../data/sources.js';
 
 /** 主题模式选项（顺序即界面顺序）。 */
@@ -102,26 +98,6 @@ let _compareCountBox = null;
 
 /** @type {HTMLElement|null} 对比卡的「先收藏地点」提示行。 */
 let _compareNeedBox = null;
-
-/** @type {HTMLElement|null} Key 卡的「当前值」那一行（存了就显示掩码，没存就写明未填）。 */
-let _keyCurrentBox = null;
-
-/** @type {HTMLElement|null} Key 卡的操作结果那一行。 */
-let _keyResultBox = null;
-
-/** @type {HTMLElement|null} Key 卡的「校验」按钮（没填 Key 时禁用 —— 发一次必然 10001 的请求是白花配额）。 */
-let _keyCheckBtn = null;
-
-/**
- * 校验 Key 用的搜索圆心（WGS84）。
- *
- * 只是一个**固定取样点**：校验的目的是「这个 Key 能不能用」，不是「那里有什么好吃的」，
- * 所以坐标写死、类别走 amap.js 的默认值。lat/lon 进 buildPoiRequest 后由 data 层转
- * GCJ-02（高德是 GCJ-02，本仓对外一律 WGS84）。
- *
- * @type {{lat:number, lon:number}}
- */
-export const KEY_CHECK_ANCHOR = { lat: 39.9042, lon: 116.4074 };
 
 /**
  * 取 DOM 元素（缺失返回 null，不抛）。
@@ -617,28 +593,13 @@ function _renderPreview(plan, fileName) {
 }
 
 /**
- * 渲染「自驾」入口卡。
- *
- * 只是一条跳 roadtrip.html 的链接（不是按钮 + JS 跳转）：本仓没有 SPA 路由，
- * 页面之间一律 `<a href>`，这样离线时 SW 也能直接命中预缓存的页面。
- *
- * @returns {HTMLElement} 卡片节点。
- */
-function _renderRoadtripCard() {
-  return h('div', { class: 'card' }, [
-    h('p', { class: 'card-title', text: t('rt.entry') }),
-    h('p', { class: 'card-note', text: t('rt.entryHint') }),
-    h('div', { class: 'field field--row' }, [
-      h('a', { class: 'btn btn--primary', href: 'roadtrip.html', text: t('rt.entryBtn') }),
-    ]),
-  ]);
-}
-
-/**
  * 渲染「数据源自检」入口卡。
  *
  * 2026-10-16 导航重构：自检**从底部 tabbar 移进「我的」页**（主导航砍到三个：
- * 此刻 / 自驾 / 我的）。它不是日常要看的东西，占一个 tab 位不划算；
+ * 此刻 / 自驾 / 我的）。2026-10-17 自驾下线后三个主 tab 是地理 / 气候 / 我的，
+ * 自检仍是「我的」页里的入口，位置不变。
+ *
+ * 它不是日常要看的东西，占一个 tab 位不划算；
  * 但它的价值不只在调试 —— **换网络环境**（出境、换运营商）时要靠它看清
  * 哪一路还通，**数据看着不对**时也要靠它判断是上游挂了还是 App 的问题。
  * 所以入口必须留着，只是从常驻挪到了收纳处。
@@ -658,138 +619,14 @@ function _renderSelfcheckCard() {
 }
 
 /**
- * 渲染「高德 Key」卡（输入 + 保存 / 清除 / 校验 + 当前值）。
- *
- * ★两个刻意的取舍：
- *   1) **回显只给掩码**。整串回显等于把密钥摆在一块可能被截图、被投屏的屏幕上；
- *      而完全不显示，用户又无从知道自己填的是哪一个。maskKey() 首尾各留 4 位。
- *   2) **「校验」按钮明写消耗 1 次配额**。个人实名认证有免费额度，但额度是限量的，
- *      用户要在按下去之前就知道这一下的代价。
- *
- * @returns {HTMLElement} 卡片节点。
- */
-function _renderAmapKeyCard() {
-  const input = h('input', {
-    class: 'btn',
-    type: 'password',
-    id: 'input-amap-key',
-    placeholder: t('rt.keyPlaceholder'),
-    autocomplete: 'off',
-    spellcheck: 'false',
-  });
-
-  const current = h('p', { class: 'card-note', id: 'key-current' });
-  const result = h('p', { class: 'card-note', id: 'key-result' });
-  const checkBtn = h('button', {
-    class: 'btn',
-    type: 'button',
-    id: 'btn-key-check',
-    disabled: !hasAmapKey(),
-    text: t('rt.keyCheck'),
-  });
-
-  _keyCurrentBox = current;
-  _keyResultBox = result;
-  _keyCheckBtn = checkBtn;
-
-  return h('div', { class: 'card' }, [
-    h('p', { class: 'card-title', text: t('rt.keyTitle') }),
-    h('p', { class: 'card-note', text: t('rt.keyHint') }),
-    input,
-    current,
-    h('div', { class: 'field field--row' }, [
-      h('button', { class: 'btn btn--primary', type: 'button', id: 'btn-key-save', text: t('rt.keySave') }),
-      h('button', { class: 'btn', type: 'button', id: 'btn-key-clear', text: t('rt.keyClear') }),
-      checkBtn,
-    ]),
-    // 代价说明**常驻**在按钮下方：配额是限量的，用户要在按下去之前就知道。
-    // ★不写「1 次」—— amapPoi 的 retry = 1，超时会重试，最坏 2 次。
-    h('p', { class: 'card-note', text: t('rt.keyCheckHint') }),
-    result,
-    // 隐私说明**常驻**：与导出备份那张卡同一个道理 —— 用户在填之前就该知道 Key 去哪了
-    h('p', { class: 'card-note', text: t('rt.keyStored') }),
-  ]);
-}
-
-/**
- * 刷新 Key 卡的「当前值」与「校验」按钮可用性。
- *
- * @returns {void}
- */
-function _refreshKeyState() {
-  if (_keyCurrentBox) {
-    _keyCurrentBox.textContent = hasAmapKey()
-      ? t('rt.keyCurrent', { mask: maskKey(getAmapKey()) })
-      : t('rt.keyNone');
-  }
-  if (_keyCheckBtn) _keyCheckBtn.disabled = !hasAmapKey();
-}
-
-/**
- * 保存 Key。
- *
- * ★失败必须是看得见的：setAmapKey() 返回 false 就原样报出来，不许静默当成功
- * （core/apikeys.js 文件头对这条有交代）。
- *
- * @returns {void}
- */
-function _onKeySave() {
-  const input = _el('input-amap-key');
-  const ok = setAmapKey(input ? input.value : '');
-  if (!ok) {
-    _setStatus('key-result', t('rt.keyBad', { max: KEY_MAX_LEN }));
-    return;
-  }
-  // 存进去之后把输入框清空：框里再留着明文，等于把刚藏起来的密钥又摊开一次。
-  if (input) input.value = '';
-  _refreshKeyState();
-  _setStatus('key-result', t('rt.keySaved', { mask: maskKey(getAmapKey()) }));
-}
-
-/**
- * 清除 Key。
- *
- * @returns {void}
- */
-function _onKeyClear() {
-  const ok = clearAmapKey();
-  _refreshKeyState();
-  _setStatus('key-result', ok ? t('rt.keyCleared') : t('rt.keyClearFail'));
-}
-
-/**
- * 校验 Key：真的发一次 POI 搜索。
- *
- * 用 `force: true` 绕开缓存 —— 命中缓存的「成功」证明不了这个 Key 现在可用。
- * 失败文案不自己编：走 errorText()，它会把 `rt.amap.invalidKey`（10001）／
- * `rt.amap.quota`（10003）这类**具体桶**原样上屏，用户才知道该换 Key 还是等明天。
- *
- * @returns {Promise<void>}
- */
-async function _onKeyCheck() {
-  if (_keyCheckBtn) _keyCheckBtn.disabled = true;
-  _setStatus('key-result', t('rt.keyChecking'));
-  let res;
-  try {
-    res = await requestRoadSource('amapPoi', KEY_CHECK_ANCHOR, { force: true });
-  } catch (err) {
-    // requestRoadSource 已经把 build/parse 的抛错收敛成 SourceResult，这里只兜
-    // 「它自己也没兜住」的极端情况 —— 不能让一个未处理的 Promise 异常变成点了没反应。
-    _setStatus('key-result', errorText(err));
-    if (_keyCheckBtn) _keyCheckBtn.disabled = false;
-    return;
-  }
-  if (_keyCheckBtn) _keyCheckBtn.disabled = !hasAmapKey();
-  if (!res || !res.ok) {
-    _setStatus('key-result', errorText(res ? res.error : null));
-    return;
-  }
-  const count = res.data && Array.isArray(res.data.items) ? res.data.items.length : 0;
-  _setStatus('key-result', count > 0 ? t('rt.keyOk', { count }) : t('rt.keyOkZero'));
-}
-
-/**
  * 渲染整页（替换 #app 里的骨架内容）。
+ *
+ * ★2026-10-17 自驾下线：原「自驾入口卡」与「第三方 Key 卡」已整块删除（连同
+ *   core/apikeys.js 与 data/roadsources.js 两个模块，它们也一并下线了）。
+ *   删 Key 卡不是顺手 —— 它存的那个 Key 是自驾 POI 搜索的凭据，自驾没了它就没有
+ *   存在理由；留着只会让用户填一串永远不会被使用的密钥。
+ *   注：本段刻意用「缩写路径」写，不写完整仓库相对路径 —— `tools/check.mjs` 第 21 节
+ *   会校验注释里的完整路径是否指向真实文件，那两个文件已不存在。
  *
  * @returns {void}
  */
@@ -812,10 +649,8 @@ function _renderPage() {
   // (a2) 多地点对比入口（紧跟收藏卡：对比的对象就是收藏，挨着才看得出先后关系）
   app.appendChild(_renderCompareCard());
 
-  // (a3) 自驾入口 + 高德 Key（两张卡必须挨着：Key 是自驾的候选搜索凭据，
-  //      分开摆用户会不知道那串 Key 填了是给谁用的）
-  app.appendChild(_renderRoadtripCard());
-  app.appendChild(_renderAmapKeyCard());
+  // (a3) 2026-10-17 自驾下线：原「自驾入口卡 + 第三方 Key 卡」占用的位置已移除。
+  //      收藏 → 对比 → 备份，是一条「先有数据、再带出去」的完整动线，不再被 Key 打断。
 
   // (b) 备份导出
   app.appendChild(
@@ -869,9 +704,6 @@ function _renderPage() {
   // 收藏列表内容最后填：卡片刚建好时 _favBox / _favCountBox 才指向真实节点，
   // 这一步顺带把导出卡的 {count} 也算对。
   _refreshFavorites();
-
-  // Key 卡的当前值同上：_keyCurrentBox / _keyCheckBtn 也是刚建的引用，得等重画之后填。
-  _refreshKeyState();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1079,16 +911,6 @@ function _bindControls() {
 
   const confirmBtn = _el('btn-confirm');
   if (confirmBtn) confirmBtn.addEventListener('click', _onConfirm);
-
-  // 高德 Key 卡的三个按钮。★重画之后全是新节点，这里要重新装一遍（理由见本函数 JSDoc）。
-  const keySaveBtn = _el('btn-key-save');
-  if (keySaveBtn) keySaveBtn.addEventListener('click', _onKeySave);
-
-  const keyClearBtn = _el('btn-key-clear');
-  if (keyClearBtn) keyClearBtn.addEventListener('click', _onKeyClear);
-
-  const keyCheckBtn = _el('btn-key-check');
-  if (keyCheckBtn) keyCheckBtn.addEventListener('click', _onKeyCheck);
 
   _bindSeg('theme-mode', (v) => {
     setThemeMode(v);

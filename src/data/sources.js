@@ -8,13 +8,16 @@
  * ★两张表，别搞混（架构 §3.2）：
  *   - `SOURCES` / `SOURCE_LIST`：**自检六路**。自检页遍历它，`tests/sources.test.mjs:57`
  *     与 `tools/verify-standalone.mjs:106` 用「恰好六路」硬断言钉着。
- *   - `SOURCE_TABLE`：**全量表**（六路 + 自驾两路 + 气候常态一路 = 九路）。`getSource()`
+ *   - `SOURCE_TABLE`：**全量表**（六路 + 气候常态一路 = 七路）。`getSource()`
  *     查它，也就是 `core/http.js` 解析源规格时看到的全部。
  *   拆开这两张表，是为了让「自检只跑那六路可公开取样的源」与「新源可以被请求」
- *   同时成立 —— 自驾两路不适合进自检（OSRM 不可缓存、高德需要用户自填 Key，
- *   进了自检页只会出现永远的失败项）；气候常态一路同样不进自检（单次响应 303 KB、
+ *   同时成立 —— 气候常态一路不进自检（单次响应 303 KB、
  *   耗时十几秒，放进自检取样只会让自检永远跑不完，而且它是**用户点按钮才发起**的
- *   查阅物，不是每屏都要探的源）。把它们塞进 SOURCE_LIST 会直接把那两条断言弄红。
+ *   查阅物，不是每屏都要探的源）。把它塞进 SOURCE_LIST 会直接把那两条断言弄红。
+ *
+ * ★2026-10-17 自驾下线：原来的「自驾两路」（路线规划 / POI 候选）已从全量表摘除，
+ *   九路 → 七路。它们本就依赖用户自填的第三方 Key、且路线规划源响应不可缓存，不属于
+ *   「可公开取样的环境数据源」；摘除后 `SOURCE_LIST` 仍是原本的六路，一条没动。
  *
  * 依赖方向：data → core。本模块在加载时把 getSource 注入 core/http.js 的解析器，
  * 从而让 core 层保持对 data 层零依赖。
@@ -54,7 +57,6 @@ import {
   parseReverse,
 } from './photon.js';
 import { TILE_BASE, TILE_ATTRIBUTION_KEY, tileUrl, fingerprint } from './tiles.js';
-import { ROAD_SOURCES } from './roadsources.js';
 // 气候常态（ERA5 1991–2020 自算月平均）：同样只进全量表，不进自检六路，
 // 理由见文件头与 data/climate.js 的 CLIMATE_SOURCES 注释。
 import { CLIMATE_SOURCES } from './climate.js';
@@ -226,14 +228,18 @@ export const SOURCES = {
 export const SOURCE_LIST = Object.values(SOURCES);
 
 /**
- * 全量源表：自检六路 + 自驾两路（osrmRoute / amapPoi）+ 气候常态一路（climate）。
+ * 全量源表：自检六路 + 气候常态一路（climate）= **七路**。
  *
- * `getSource()` 只查这一张表，因此 `core/http.js` 能解析到自驾两路与气候常态；
+ * `getSource()` 只查这一张表，因此 `core/http.js` 能解析到气候常态；
  * 而自检与聚合一律走 `SOURCE_LIST`，仍是六路。
+ *
+ * ★2026-10-17 自驾下线：原本在表里的「路线规划 / POI 候选」两路已随自驾一起删除
+ *   （九路 → 七路）。「七路」这个数字被 `tests/climate.test.mjs` 硬断言钉着，
+ *   改源表时别忘了同步。
  *
  * @type {Object<string, SourceSpec>}
  */
-export const SOURCE_TABLE = { ...SOURCES, ...ROAD_SOURCES, ...CLIMATE_SOURCES };
+export const SOURCE_TABLE = { ...SOURCES, ...CLIMATE_SOURCES };
 
 /**
  * 按 id 取源规格（查**全量表**）。

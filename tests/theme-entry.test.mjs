@@ -14,7 +14,7 @@
  * 按 `getThemeMode()` 落好 —— 也就是主题引导必须写在模块顶层，不能塞进启动函数里。
  * 手写入口逐一验，只验一个等于没验（漏的就是没验的那个）。
  *
- * ★曾经漏过两个：`compare.html` 与 `roadtrip.html` 都在这里**没有条目**，而文件头上
+ * ★曾经漏过两个：`compare.html` 与（已下线的）`roadtrip.html` 都在这里**没有条目**，而文件头上
  *   那句「必须与 check.mjs 的 ENTRY_OF_PAGE 保持一致」是散文 —— 它不会变红。
  *   这两个页面的入口本来就在模块顶层引导主题，check.mjs 第 11 节的源码扫描也早就
  *   覆盖了它们，所以缺的那六条用例从来没有报过警（「不加也绿」）。2026-10 补上。
@@ -55,10 +55,11 @@ const ENTRIES = [
   { page: 'selfcheck.html', entry: '../src/ui/selfcheck.js' },
   { page: 'compass.html', entry: '../src/ui/compass.js' },
   { page: 'settings.html', entry: '../src/ui/settings.js' },
-  // 以下两个**不进 tabbar**（底部胶囊在 320px 屏上四个 tab 已贴临界点，加第五项必断行），
-  // 但它们同样是手写入口、同样有独立的一份「引导」，漏掉就等于默认它们可以不引导。
+  // 下面这个**不进 tabbar**（底部胶囊在 320px 屏上三个 tab 是安全上限，加第四项必断行），
+  // 但它同样是手写入口、同样有独立的一份「引导」，漏掉就等于默认它可以不引导。
+  // ★2026-10-17 自驾下线：原 `roadtrip.html` → `../src/ui/roadtrip.js` 一条已删除
+  //   （页面与入口模块一起下线，留着会直接 import 失败）。
   { page: 'compare.html', entry: '../src/ui/compare.js' },
-  { page: 'roadtrip.html', entry: '../src/ui/roadtrip.js' },
 ];
 
 /** 期望的 <html data-theme> 值：system 是**没有**这个属性（null），不是字符串。 */

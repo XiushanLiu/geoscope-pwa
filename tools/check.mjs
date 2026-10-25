@@ -17,10 +17,12 @@
  *      并机器核算最大档下英雄区行宽、固定高度文字盒、tabbar 是否还装得下（第 13 节）。
  *   9) **架构章节号引用有效性**：`src/**` 注释里的 `§N` 必须在架构文档里**恰好命中 1 处**
  *      —— 0 是断链、≥2 是歧义，二者是同一判定在不同输入下的结果（第 18 节）。
- *   10) **废弃入口不得复活**：`listTrips` 这个标识符不得出现在 `src/**`（持有者自身除外），
- *      防止「坏行程凭空消失」那个 bug 从后门回来（第 19 节）。
- *   11) **体积数字单一来源**：OSRM 几何体积那组 KB 数字只允许出现在 `src/data/osrm.js`，
- *      并反向钉住出处自己没有被删空（第 20 节）。
+ *   10) ~~**废弃入口不得复活**：`listTrips` 不得出现在 `src/**`~~ —— **2026-10-17 随自驾下线
+ *       整块删除**（原第 19 节）。它豁免的持有者 `src/core/tripstore.js` 已一并删除，
+ *       留着只会因为「豁免文件不存在」而恒红。空号保留：章节号只增不减。
+ *   11) ~~**体积数字单一来源**：OSRM 那组 KB 数字只允许出现在 `src/data/osrm.js`~~ ——
+ *       **2026-10-17 随自驾下线整块删除**（原第 20 节）。唯一出处 `src/data/osrm.js`
+ *       已删除，「出处仍持有全部 4 个数」那条反向断言必然变红。空号保留。
  *   12) **壳资产指纹**：`sw.js` 的 `SHELL_FINGERPRINT` 必须与 `SHELL_ASSETS` 里每个文件的
  *      当前内容算出来的指纹一致 —— 改了壳资产却没 bump 就报红（第 22 节）。
  *
@@ -46,8 +48,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /**
  * 允许出现的外部宿主。
  *
- * 六路自检数据源 + 自驾两路（OSRM 公共实例 / 高德 Web 服务）+ SVG 命名空间 + Open-Meteo 文档域名。
+ * 六路自检数据源 + SVG 命名空间 + Open-Meteo 文档域名。
  * ★新增数据源必须同步加到这里，否则第 7 节会以「白名单外外链」报红 —— 这条最容易被漏。
+ *
+ * ★2026-10-17 自驾下线：原「自驾两路」的宿主（OSRM 公共实例 / 高德 Web 服务）已从
+ *   白名单删除 —— 那两个模块连同整个自驾功能一起下线了，白名单里留着不存在的宿主，
+ *   等于给将来的外链留一个「看起来被批准过」的口子。
  */
 const ALLOWED_HOSTS = [
   'api.open-meteo.com',
@@ -59,8 +65,6 @@ const ALLOWED_HOSTS = [
   'server.arcgisonline.com',
   'www.w3.org',
   'open-meteo.com',
-  'router.project-osrm.org',
-  'restapi.amap.com',
 ];
 
 /**
@@ -76,9 +80,8 @@ const ENTRY_OF_PAGE = {
   // 对比页**不进 tabbar**（底部胶囊在 320px 屏上四个 tab 已贴临界点，加第五项必断行），
   // 但它仍然是一个手写页面，入口登记同样要在这儿占一行 —— 漏登记等于漏引 JS、白屏。
   'compare.html': 'src/ui/compare.js',
-  // 自驾页 2026-10-16 起**进 tabbar**（主导航砍到三个：此刻 / 自驾 / 我的，见 MAIN_TABS）。
-  // 它是一个手写页面，入口登记必须在这儿占一行 —— 漏登记等于漏引 JS、白屏。
-  'roadtrip.html': 'src/ui/roadtrip.js',
+  // ★2026-10-17 自驾下线：`roadtrip.html` → `src/ui/roadtrip.js` 这一行已整行删除
+  //   （页面、入口模块、以及它们的全部依赖一并下线）。
   // 生成产物：入口写在内联引导脚本的 `var ENTRY = "src/ui/selfcheck.js"` 里，
   // 不是 <script src=…> 属性，所以也能被同一条断言覆盖到。
   'selfcheck-standalone.html': 'src/ui/selfcheck.js',
@@ -92,22 +95,27 @@ const ENTRY_OF_PAGE = {
  *
  * @type {string[]}
  */
-const PAGES = ['index.html', 'selfcheck.html', 'compass.html', 'settings.html', 'roadtrip.html'];
+const PAGES = ['index.html', 'selfcheck.html', 'compass.html', 'settings.html'];
 
 /**
- * **主导航**：底部 tabbar 上出现的三个页面（此刻 / 自驾 / 我的）。
+ * **主导航**：底部 tabbar 上出现的三个页面（地理 / 气候 / 我的）。
  *
  * ★为什么和 PAGES 分开（2026-10-16 导航重构）：
  *   原来四个 tab 在 320px 屏上内容宽 294px 已贴临界点（真机出过断行），加第五个必撑破。
- *   用户拍板砍到三个：自检与方位降为「我的」里的入口，空出来的位置让给自驾。
- *   于是 compass.html / selfcheck.html **仍然带 tabbar**（方便返回主页面），
- *   但它们**不在** tabbar 里 —— 「有 tabbar 的页面」与「tabbar 指向的页面」不再是同一个集合。
+ *   用户第一次拍板砍到三个：自检与方位降为「我的」里的入口，空出来的位置让给自驾。
+ *   于是 selfcheck.html **仍然带 tabbar**（方便返回主页面），
+ *   但它**不在** tabbar 里 —— 「有 tabbar 的页面」与「tabbar 指向的页面」不再是同一个集合。
  *   tabbar 的**覆盖检查**必须对 MAIN_TABS 做（要求覆盖全部 3 个主页面），
- *   对 PAGES 做会要求把自检、方位也塞回 tabbar —— 那正是本次要消除的东西。
+ *   对 PAGES 做会要求把自检也塞回 tabbar —— 那正是本次要消除的东西。
+ *
+ * ★2026-10-17 自驾下线（第二次拍板）：自驾页整个砍掉，空出来的 tab 位**还给了地理** ——
+ *   方位页 `compass.html` 改造成「地理」页（地点 + 底图 + 方位 + 罗盘），重新回到主导航。
+ *   三个主 tab 从此是：地理（compass.html）/ 气候（index.html）/ 我的（settings.html）。
+ *   ⚠️ 三个是 320px 真机的安全上限（历史事故：五个必撑破）—— **别再往里加**。
  *
  * @type {string[]}
  */
-const MAIN_TABS = ['index.html', 'roadtrip.html', 'settings.html'];
+const MAIN_TABS = ['compass.html', 'index.html', 'settings.html'];
 
 /** 禁止出现的关键词（CDN / 统计 / 账号 / 广告）。 */
 const FORBIDDEN_PATTERNS = [
@@ -1470,7 +1478,9 @@ async function main() {
    * 只要有一个入口漏掉那一行，用户从设置页切到英文再进那一页，就会看到半中半英。
    */
   section(`15. 语言引导（${PAGES.length + 2} 个手写页面的入口必须在模块顶层切 i18n）`);
-  // roadtrip.html 已并入 PAGES（它现在带 tabbar），不再单列 —— 否则会被遍历两次。
+  // ★2026-10-17 自驾下线：`roadtrip.html` 已删除，它原本就在 PAGES 里（带 tabbar），
+  //   不再单列 —— 否则会被遍历两次。现在 PAGES 是 4 页，加上 compare.html 与
+  //   selfcheck-standalone.html 共 6 个手写页面入口。
   for (const html of [...PAGES, 'compare.html']) {
     const entry = ENTRY_OF_PAGE[html];
     const entrySrc = read(entry);
@@ -1670,17 +1680,17 @@ async function main() {
    * 页头标题的 i18n key。
    *
    * ⚠️ 说清楚本节的覆盖面，别把它当成「所有页面的页头都守住了」：
-   *   - `.hd-place` 出现在 5 个页面：compass / compare / settings / roadtrip 用
+   *   - `.hd-place` 出现在 4 个页面：compass / compare / settings 用
    *     `t('<page>.title')`，**now 页用 dynamic placeName**（用户输入/GEO 反查出来的
    *     地名，长度无上界 ——
    *     静态脚本没法给一个「通用预算」，它不进本模型，属于**已知覆盖缺口**）；
+   *     （2026-10-17 自驾下线：原来的第五个页面 roadtrip.html 已删除，
+   *      它的 `<title>` 与 `.hd-place` 同为 `rt.title`，zh『自驾』= 2.000em、
+   *      en『Road trip』= 4.806em，本就不是最宽的一条，删掉不影响本节结论。）
    *   - 静态标题里 `compass.title` 是**最宽**的一条（按本节字宽模型逐条算过：
    *     zh 6.460em vs compare 5.000 / settings 5.460 / tagline 5.460；
    *     en 16.562em vs compare 7.666 / settings 7.180 / tagline 5.464）。
-   *     roadtrip 不构成挑战 —— 它的 `<title>` 与 `.hd-place` 同为 `rt.title`，
-   *     zh『自驾』= 2 个全角字 = 2.000em，en『Road trip』= 8 个拉丁字母 + 1 空格
-   *     = 8 × 0.572 + 0.23 = 4.806em，都比 compass 窄一个量级；
-   *     守住 compass 等价于守住其余**四条**静态标题。
+   *     守住 compass 等价于守住其余**三条**静态标题。
    */
   const HD_TITLE_KEY = 'compass.title';
 
@@ -2136,92 +2146,16 @@ async function main() {
     );
   }
 
-  /* ---------- 19. 废弃入口 listTrips 不得在 src/** 出现 ---------- */
+  /* ---------- 19.（已随自驾下线删除） ---------- */
   //
-  // ★背景：`src/core/tripstore.js` 的 `listTrips()` 是**向后兼容的简版**：它丢掉
-  //   `listTripsWithIssues()` 带回的「坏行程为什么被跳过」的信息，界面上表现为
-  //   「用户的行程凭空消失」。新代码一律用 `listTripsWithIssues()`。
+  // ★本节原为「废弃入口 `listTrips` 不得出现在 `src/**`」，2026-10-17 自驾下线时
+  //   整块删除 —— 连它豁免的持有者 `src/core/tripstore.js` 一起删除了。
+  //   ⚠️ 留空号不补新内容：`tools/check.mjs` 的章节号**只增不减、不重排**，
+  //   把后面的 21/22 顺势改成 19/20 会让「第 N 节」的历史引用全部错位。
+  //   空号是刻意的代价，换来的是编号稳定。
   //
-  // ★覆盖面边界：
-  //   1. **用尾词边界 `\blistTrips\b`**：`listTripsWithIssues` 的 `listTrips` 后面紧跟
-  //      字母 `W`（是词字符），尾部 `\b` 不成立，**不会被误判** —— 这是本节最容易踩的坑，
-  //      也是本节存在的理由（光写 `/listTrips/` 会把正确用法全判成违规）。
-  //   2. 同时覆盖**调用** `listTrips()` 与**绑定**（`import { listTrips }` / 解构 / 传参）：
-  //      只禁调用不禁导入，等于允许「先引进来、下一行就调用」。
-  //   3. `src/core/tripstore.js` **自身豁免**：保留这个签名是架构 §4.2 类图的既定契约，
-  //      而且它的注释里必须能写出 `listTrips` 这五个字来解释为什么废弃。
-  //   4. `tests/**` **显式允许**：`tests/roadtrip-model.test.mjs` 里有一处**故意**用简版，
-  //      压的就是「向后兼容契约」本身（那处有注释说明理由）。本节只扫 `src/**`。
-  //   5. **不剥离 JS 注释**：`src/**` 里有人在注释里提到 `listTrips` 也会报红。
-  //      这是**故意**的 —— 宁可噪音可见，也不要漏掉真调用。
-  {
-    const OWNER = 'src/core/tripstore.js';
-    const BANNED_RE = /\blistTrips\b/g;
-    const bannedHits = [];
-    for (const rel of srcFiles) {
-      if (rel === OWNER) continue;
-      read(rel)
-        .split(/\r?\n/)
-        .forEach((line, i) => {
-          BANNED_RE.lastIndex = 0;
-          if (BANNED_RE.test(line)) bannedHits.push(`${rel}:${i + 1}`);
-        });
-    }
-    section(`19. 废弃入口 listTrips 不得出现在 src/**（${OWNER} 自身除外）`);
-    check(
-      `src/** 里除 ${OWNER} 外不出现 listTrips 标识符（命中 ${bannedHits.length} 处：${bannedHits.join('、') || '无'}）`,
-      bannedHits.length === 0,
-      '简版丢掉「坏行程为什么被跳过」的信息，界面上表现为用户的行程凭空消失；新代码一律用 listTripsWithIssues()'
-    );
-  }
-
-  /* ---------- 20. 体积数字单一来源 ---------- */
-  //
-  // ★背景：OSRM 几何体积那组数字（134 / 137 / 299 / 537 KB）曾经在三个模块里各抄一份，
-  //   抄散之后互相打架（134 / 137 / 137 —— 三个数指同一条路线）。现在约定：**代码里的
-  //   唯一出处是 `src/data/osrm.js` 的「体积口径」注释**，其它模块一律指向它，不许再抄。
-  //
-  // ★覆盖面边界：
-  //   1. **只匹配紧邻 `KB` 的数字**（中间允许空格）：`5987 点`、`135 224 字符` 这类不是
-  //      本节的对象；`1299 KB` / `5370 KB` 也不会被误判（`\b` 卡住两端）。
-  //   2. **只扫 `src/**`**。`docs/roadtrip-architecture.md` §0.1 的实测表是这些数字的
-  //      **出处**（架构师沙箱实测），`tests/**` 里那句 137 KB 是注释里的口径引用 ——
-  //      两者**都允许存在**，本节只管「代码里不许再抄一份」。
-  //   3. 只钉这 4 个数。`362 KB`（带 annotations）等其它体积数字不受约束 —— 它们今天
-  //      只在 osrm.js 里出现，将来若散出去本节管不着（已知缺口，不假装覆盖）。
-  {
-    const OWNER = 'src/data/osrm.js';
-    const VOL_NUMS = ['134', '137', '299', '537'];
-    const VOL_RE = new RegExp(`\\b(${VOL_NUMS.join('|')})\\s*KB\\b`, 'g');
-    const strays = [];
-    const present = new Set();
-    for (const rel of srcFiles) {
-      read(rel)
-        .split(/\r?\n/)
-        .forEach((line, i) => {
-          let m;
-          VOL_RE.lastIndex = 0;
-          while ((m = VOL_RE.exec(line)) !== null) {
-            if (rel === OWNER) present.add(m[1]);
-            else strays.push(`${rel}:${i + 1}（${m[0]}）`);
-          }
-        });
-    }
-    section(`20. 体积数字单一来源（${VOL_NUMS.join(' / ')} KB 只许出现在 ${OWNER}）`);
-    check(
-      `src/** 里除 ${OWNER} 外不出现这 4 个体积数字（命中 ${strays.length} 处：${strays.join('、') || '无'}）`,
-      strays.length === 0,
-      '抄散了就会互相矛盾（134 / 137 / 137 三处打架就是这么来的）；要引用就指向 osrm.js 的「体积口径」注释'
-    );
-    // 反向钉：唯一出处自己必须还持有全部 4 个数。否则「没人抄」会永远绿，而出处早被删空了
-    // —— 「不加也绿」的那类盲区必须自己补掉。
-    const goneNums = VOL_NUMS.filter((n) => !present.has(n));
-    check(
-      `${OWNER} 仍持有全部 4 个体积数字（缺失：${goneNums.join('、') || '无'}）`,
-      goneNums.length === 0,
-      '出处被删空时「不许抄」那条照样是绿的，这条补的就是那个盲区'
-    );
-  }
+  // ★同理，原「20. 体积数字单一来源（OSRM 134/137/299/537 KB）」也已整块删除 ——
+  //   它钉的唯一出处 `src/data/osrm.js` 已删除，那条反向断言必然变红。
 
   /* ---------- 21. 注释里的路径引用不得悬空（src/**） ---------- */
   //

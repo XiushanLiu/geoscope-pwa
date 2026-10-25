@@ -142,7 +142,7 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
 
   /** @type {string[]} 仓库内需要离线可用的运行时资源。 */
   const runtimeFiles = [
-    'index.html', 'selfcheck.html', 'compass.html', 'settings.html', 'compare.html', 'roadtrip.html', 'manifest.webmanifest',
+    'index.html', 'selfcheck.html', 'compass.html', 'settings.html', 'compare.html', 'manifest.webmanifest',
     'styles/tokens.css', 'styles/app.css',
     'src/i18n/zh.js',
     'src/i18n/en.js',
@@ -151,16 +151,14 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
     'src/ui/errtext.js',
     'src/core/http.js', 'src/core/cache.js', 'src/core/store.js', 'src/core/geo.js', 'src/core/sun.js', 'src/core/wmo.js', 'src/core/format.js',
     'src/core/mag.js', 'src/core/backup.js', 'src/core/csv.js',
-    // 自驾模块（T01/T02）：★新增 src 模块要同步三处清单 —— sw.js 的 SHELL_ASSETS、
+    // ★新增 src 模块要同步三处清单 —— sw.js 的 SHELL_ASSETS、
     //   tools/build-standalone.mjs 的 ORDER、以及这里。漏任何一处都会在**不同的地方**红：
     //   sw 漏 → check.mjs 第 6 节报红；ORDER 漏 → 打包直接中止；这里漏 → 新模块没人守。
-    'src/core/apikeys.js', 'src/core/roadtrip.js', 'src/core/tripstore.js',
+    //   （2026-10-17 自驾下线：原「自驾模块（T01/T02）」那一组 10 项已整组删除。）
     'src/data/sources.js', 'src/data/openmeteo.js', 'src/data/photon.js', 'src/data/tiles.js', 'src/data/health.js',
     'src/data/wmm2025.js',
-    'src/data/osrm.js', 'src/data/amap.js', 'src/data/roadsources.js',
     'src/ui/app.js', 'src/ui/now.js', 'src/ui/selfcheck.js', 'src/ui/compass.js', 'src/ui/map.js',
-    'src/ui/settings.js', 'src/ui/download.js', 'src/ui/roadtrip.js', 'src/ui/poilist.js',
-    'src/ui/roadmap.js',
+    'src/ui/settings.js', 'src/ui/download.js',
   ];
   for (const f of runtimeFiles) {
     assert.ok(fs.existsSync(path.resolve(ROOT, f)), `清单引用了不存在的文件 ${f}`);
