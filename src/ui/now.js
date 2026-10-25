@@ -190,11 +190,12 @@ export function renderSkeleton(root) {
   // ★2026-10-17 导航重构：本骨架是**气候页**（index.html）的骨架，槽位从
   //   `search→weather→air→place→climate→map→bearing→prov→legend` 瘦身为
   //   `search→weather→air→climate→prov→legend` —— place / map / bearing 三块随
-  //   「地理」主 tab 一起搬到 `ui/compass.js` 的骨架里（那里是
-  //   `header→search→place→map→bearing→declination→model→convert→compass→prov`）。
-  //   ⚠️ `renderPlaceCard` / `renderBearingCard` 两个导出**仍在**（地理页要 import），
-  //   只是本骨架不再给它们建槽 —— 调用方必须先建槽（`compass.js` 自己建），
-  //   否则渲染会静默落到页面末尾。
+  //   「地理」主 tab 一起搬到 `ui/compass.js` 的骨架里（那里现在是
+  //   `header→search→place→map→declination→model→convert→compass→prov`：
+  //   bearing 槽已于 2026-10-26 连同「方位 · 磁偏角」概览卡一并删除 ——
+  //   它与磁偏角详情卡在同一屏里把同一个数说两遍）。
+  //   ⚠️ `renderPlaceCard` 这个导出**仍在**（地理页要 import），只是本骨架不再给它建槽
+  //   —— 调用方必须先建槽（`compass.js` 自己建），否则渲染会静默落到页面末尾。
   root.appendChild(_slot(root, 'climate'));
   root.appendChild(_slot(root, 'prov'));
   // 指标释义入口放**最后**（页面底部）：它是查阅物，不该插在数据卡之间把首屏撑长。
@@ -751,8 +752,9 @@ export function renderPlaceCard(root, snapshot) {
  *
  * ★本函数**不发起任何请求**：30 年再分析数据的取数在 `ui/app.js` 的 `_loadClimate()`
  *   （本模块不许 import `src/data/` 下的任何东西，见文件头闭包红线）。数据由调用方
- *   算好 / 取好后放进 `view.data` 传进来，与 `renderBearingCard(root, snapshot,
- *   declinationDeg)` 的「调用方算、渲染层画」是同一个模式。
+ *   算好 / 取好后放进 `view.data` 传进来 —— 与已删除的 `renderBearingCard(root,
+ *   snapshot, declinationDeg)`（2026-10-26 随磁偏角数值一屏重复两遍而删）当年用的是
+ *   同一个「调用方算、渲染层画」的模式。
  *
  * ★上屏红线：`climate.entryNote` 那句「ERA5 再分析 1991–2020 自算月平均 · 非官方气候
  *   常态」必须**整句**上屏，不许简写成「气候常态」（那是说谎：它不是官方常态值）。
@@ -948,59 +950,6 @@ export function declinationText(declinationDeg) {
   if (Math.abs(d) < DECLINATION_FLAT_EPS) return t('compass.noDeclination');
   const abs = fmt.num(Math.abs(d), 2);
   return d > 0 ? t('compass.east', { deg: abs }) : t('compass.west', { deg: abs });
-}
-
-/**
- * 渲染「方位 · 磁偏角」卡（此刻页的**简化**版）。
- *
- * 2026-10-16 导航重构：方位页从底部 tabbar 撤下来，日常只看得到**磁偏角一个数**；
- * 完整罗盘、真/磁方位换算、WMM 模型有效期三块留在 compass.html，由本卡的按钮进去。
- * 换算与模型版本是低频信息，占着底部导航不划算，但**入口必须留着**。
- *
- * ★本卡不需要传感器：磁偏角是**本机 WMM2025 算出来的**，不联网、不用方向传感器，
- *   所以放在这一页不会触发任何权限请求（iOS 的 `requestPermission()` 必须由用户手势
- *   触发，罗盘本身仍然只能由用户点一下才启用 —— 这也是按钮去不掉的原因）。
- *
- * ★2026-10-17 导航重构：本卡搬去了**地理页**，而地理页把完整罗盘也摊在同一页上，
- *   所以那颗按钮在地理页上是**同页锚点**（`opts.compassHref = '#card-declination'`），
- *   不再是「跳到另一个页面」。默认值仍是 `compass.html`：本卡的渲染契约不变，
- *   `tests/ui.test.mjs` 那条「只有一条进 compass.html 的链接」的断言也就还成立。
- *
- * @param {HTMLElement} root 根容器。
- * @param {Object} snapshot NowSnapshot。
- * @param {number|null} [declinationDeg] 磁偏角（度，东偏为正），由调用方用
- *   `data/wmm2025.js` 的 `declinationDegAt()` 算好 —— 本模块不碰 WMM（见文件头红线）。
- * @param {{compassHref?:string, compassLabel?:string}} [opts] 选项：完整罗盘的入口。
- *   `compassHref` 默认 'compass.html'（跨页），地理页传同页锚点；
- *   `compassLabel` 默认 `now.bearingBtn`。★调用方必须先建 `bearing` 槽
- *   （本骨架已不给它建槽），否则卡片会静默落到页面末尾。
- * @returns {void}
- */
-export function renderBearingCard(root, snapshot, declinationDeg, opts = {}) {
-  const box = _slot(root, 'bearing');
-  // ★`Number(null) === 0`：直接 `Number.isFinite(Number(x))` 会把「没算出来」当成「0°（正北不偏）」，
-  //   显示一个看起来很有道理的假结果。必须**先**显式排除 null / undefined，再判有限性。
-  //   （本仓第三次踩同一个坑：计算层、显示层，现在是渲染层。）
-  const has = declinationDeg !== null && declinationDeg !== undefined && Number.isFinite(Number(declinationDeg));
-
-  box.textContent = '';
-  box.appendChild(
-    h('div', { class: 'card' }, [
-      h('p', { class: 'card-title', text: t('compass.title') }),
-      // 标签与值分开两行，不拼串（拼串会踩中英文语序）
-      h('div', { class: 'kv' }, [
-        _kv(t('compass.d'), has ? declinationText(declinationDeg) : t('compass.na')),
-      ]),
-      h('p', { class: 'card-note', text: t('compass.calcNote') }),
-      h('div', { class: 'field field--row' }, [
-        h('a', {
-          class: 'btn',
-          href: typeof opts.compassHref === 'string' && opts.compassHref ? opts.compassHref : 'compass.html',
-          text: opts.compassLabel || t('now.bearingBtn'),
-        }),
-      ]),
-    ])
-  );
 }
 
 /* ------------------------------------------------------------------ */

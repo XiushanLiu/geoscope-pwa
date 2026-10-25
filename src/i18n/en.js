@@ -116,8 +116,6 @@ export const EN = {
 
   // ---------- Now screen ----------
   'now.title': 'Now',
-  // Button on the Now page's bearing card (2026-10-16: the full compass moved into compass.html)
-  'now.bearingBtn': 'Open compass',
   'now.defaultPlaceNotice': 'No location fix, showing the default place',
   'now.locating': 'Getting your location…',
   'now.gpsOk': 'Location acquired',
@@ -253,7 +251,6 @@ export const EN = {
   // 2026-10-17 nav rework: compass.html grew from the "bearing" page into the "geo" tab.
   // `geo.title` is its <title>; the header's first line is the PLACE NAME (dynamic), not this.
   'geo.title': 'Geo · Bearing & basemap',
-  'geo.bearingBtn': 'See the full compass below',
 
   // ---------- Bearing screen (WMM2025 declination + compass) ----------
   // Wording rule: state "the value the model computes" and "the model's validity window",

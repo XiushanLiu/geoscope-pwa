@@ -633,7 +633,7 @@ test('★iOS 授权 denied：被拒也要真的重画成「已拒绝」，不许
  */
 const srcOf = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 
-test('★槽位顺序硬契约：骨架一口气建出 search→place→map→bearing→declination→model→convert→compass→prov', () => {
+test('★槽位顺序硬契约：骨架一口气建出 search→place→map→declination→model→convert→compass→prov', () => {
   const root = dom.byId.app;
   compass.renderSkeleton(root);
 
@@ -641,13 +641,15 @@ test('★槽位顺序硬契约：骨架一口气建出 search→place→map→be
   assert.equal(root.children[0].className, 'hd', '页头必须是第一个子节点');
 
   const ids = root.querySelectorAll('.card-slot').map((n) => n.getAttribute('id'));
+  // ★2026-10-26：bearing 槽随「方位 · 磁偏角」概览卡删除（它与紧邻的磁偏角详情卡
+  //   在同一屏把同一个数说了两遍）。契约从 9 槽变 8 槽，这里跟着改而不是删掉这条 ——
+  //   顺序契约本身就是靠它钉住的。
   assert.deepEqual(
     ids,
     [
       'card-search',
       'card-place',
       'card-map',
-      'card-bearing',
       'card-declination',
       'card-model',
       'card-convert',
@@ -658,26 +660,33 @@ test('★槽位顺序硬契约：骨架一口气建出 search→place→map→be
   );
 });
 
-test('★地点卡 / 底图卡 / 方位卡三块在地理页，且方位卡的罗盘入口是同页锚点', () => {
+test('★地点卡 / 底图卡 / 磁偏角详情卡在地理页，且磁偏角一屏只说一遍（概览卡已删）', () => {
   const root = dom.byId.app;
   const snapshot = snapshotAt(AT_2025, BEIJING);
   snapshot.elevationM = 44;
   snapshot.placeName = '北京 · 天安门';
   compass.renderSnapshot(root, snapshot);
 
-  // 三块从气候页搬过来的卡都必须真的画出来
+  // 从气候页搬过来的两块都必须真的画出来
   assert.ok(root.querySelector('#card-place').textContent.includes('44'), '地点卡必须显示海拔');
   assert.ok(root.querySelector('#card-map'), '底图槽必须存在（底图由 boot() 画，骨架只建槽）');
-  const bearing = root.querySelector('#card-bearing');
-  assert.ok(bearing.textContent.includes('西偏'), '方位卡必须显示磁偏角');
 
-  // ★完整罗盘摊在同一页：那颗按钮必须是同页锚点，不是跳页
-  const anchors = bearing.descendants().filter((n) => n.tagName === 'A');
-  assert.equal(anchors.length, 1, '方位卡只有一颗进完整罗盘的入口');
-  const href = anchors[0].getAttribute('href');
-  assert.equal(href, '#card-declination', `罗盘入口必须是同页锚点，实际：${href}`);
-  // 锚点目标必须真的存在，否则是个点了没反应的死链
-  assert.ok(root.querySelector('#card-declination'), '锚点目标 #card-declination 必须存在');
+  // ★概览卡必须真的没了（不是「还在但没画」）：它和详情卡把同一个数说了两遍
+  assert.equal(
+    root.querySelector('#card-bearing'),
+    null,
+    '「方位 · 磁偏角」概览卡必须已删（磁偏角不许一屏出现两次）'
+  );
+  const decl = root.querySelector('#card-declination');
+  assert.ok(decl.textContent.includes('西偏'), '磁偏角详情卡必须显示磁偏角');
+  // ★删除概览卡时「内容并进详情卡」之所以不用搬，是因为这句免责声明详情卡里本来就有
+  assert.ok(
+    decl.textContent.includes(t('compass.calcNote')),
+    '★免责声明「数值由模型算出，未经实地标定」必须在详情卡里（删卡不许把它删丢）'
+  );
+
+  // ★完整罗盘仍然摊在同一页：它本来就是这一页的一个槽位（不再需要那颗错标的锚点按钮）
+  assert.ok(root.querySelector('#card-compass'), '完整罗盘必须仍在同一页');
 });
 
 test('★依赖方向：底图卡只准由地理页 import（now.js import map.js 会成环）', () => {

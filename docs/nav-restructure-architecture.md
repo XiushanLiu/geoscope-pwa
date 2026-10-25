@@ -12,6 +12,18 @@
 > - **决定 A**：底部导航改成 3 个主 tab —— 地理 / 气候 / 我的。
 > - **决定 B**：自驾代码彻底删干净（零死代码，git 可恢复）。
 > - **决定 C**：本次发布带上气候常态（v44 内容）。
+>
+> **2026-10-26 修订（真机裁定，用户已拍板）**：地理页的「方位 · 磁偏角」概览卡
+> （`ui/now.js` 的 `renderBearingCard`）**删除**，不是搬迁 —— 它与紧邻的磁偏角详情卡
+> 在同一屏把同一个数（西偏 7.60°）说了两遍；其免责声明 `compass.calcNote` 详情卡里
+> 本来就有，删它不丢内容；它那颗「看下方完整罗盘」按钮锚点指向 `#card-declination`
+> （磁偏角详情卡，不是罗盘卡），标签与目标本身就不一致。
+> 连带影响（本文档以下章节按本条为准）：
+> - 地理页槽位契约由 9 槽变 8 槽：去掉 `bearing`
+>   （`header→search→place→map→declination→model→convert→compass→prov`）；
+> - `renderBearingCard` 的导出与 `geo.bearingBtn` / `now.bearingBtn` 两条文案一并删除；
+> - **保留 `compass.title` 这个 i18n key**（即使已不上屏）：`tools/check.mjs` §16 拿它做
+>   页头宽度的保守上界，删了会让该节静默退化成守一个英文字符串（详见该文件注释）。
 
 ---
 
@@ -408,7 +420,7 @@ classDiagram
 | `renderSkeleton(root)` | `ui/now.js:169` | **改** | 槽位顺序 `search→weather→air→place→climate→map→bearing→prov→legend` 改为 **`search→weather→air→climate→prov→legend`** |
 | `renderSnapshot(root, snap, opts)` | `ui/now.js:1076` | **改** | 不再调 `renderPlaceCard` / `renderBearingCard`；`opts.declinationDeg` 参数随之无意义，从 JSDoc 里移除 |
 | `renderPlaceCard(root, snap)` | `ui/now.js:701` | **保留导出** | 气候页不再自调；由地理页 import |
-| `renderBearingCard(root, snap, decDeg)` | `ui/now.js:945` | **保留导出** | 同上 |
+| `renderBearingCard(root, snap, decDeg)` | `ui/now.js:945` | **删除**（2026-10-26 修订） | 磁偏角数值一屏重复两遍；见本文开头「2026-10-26 修订」 |
 | `renderClimateCard(root, view, onLoad)` | `ui/now.js:741` | 不变 | 决定 C 带上 |
 | `declinationText(decDeg)` | `ui/now.js:918` | 不变 | 三处共用（地理页 / 设置页 / 原此刻页） |
 | `renderSkeleton(root)` | `ui/compass.js:693` | **改** | 前置 `search`/`place`/`map`/`bearing`，末尾补 `prov` |
@@ -680,7 +692,7 @@ src/ui/selfcheck.js 的依赖闭包（build-standalone ORDER）：
 - **优先级**：P1
 - **依赖**：T03、T04（`renderPlaceCard` / `renderBearingCard` 的导出与 `probeTileBatch` 的新家要先就位）
 - **文件**：
-  - `src/ui/compass.js`：骨架扩展为 `header→search→place→map→bearing→declination→model→convert→compass→prov`；`boot()` 新增 elevation / reverse 拉取、`probeTileBatch` 瓦片探测、`degradeMapMode` 三态降级编排；import `renderPlaceCard` / `renderBearingCard`（`./now.js`）与 `renderMapCard` / `renderMapSkeleton`（`./map.js`）
+  - `src/ui/compass.js`：骨架扩展为 `header→search→place→map→declination→model→convert→compass→prov`（2026-10-26 修订：去掉 `bearing` 槽）；`boot()` 新增 elevation / reverse 拉取、`probeTileBatch` 瓦片探测、`degradeMapMode` 三态降级编排；import `renderPlaceCard` / `renderBearingCard`（`./now.js`）与 `renderMapCard` / `renderMapSkeleton`（`./map.js`）
   - `src/ui/map.js`（仅注释）
   - `compass.html`（`data-page` 与 title/desc，若 T03 未一并做完）
 - **验证方式**：

@@ -1388,7 +1388,8 @@ body[data-page="compare"] {
   #card-air { grid-column: 2 / 3; grid-row: 3; }
   #card-place { grid-column: 1 / -1; grid-row: 4; }
   /* 气候常态卡（12 行月度表）独占一整行：半宽会让 4 列挤到换行。
-     行位显式给定而不是靠自动排布 —— 自动排布下它会和同样未登记的 #card-bearing
+     行位显式给定而不是靠自动排布 —— 自动排布下它会和同样未登记的槽位
+     （2026-10-26 前是 #card-bearing，那张「方位 · 磁偏角」概览卡已删）
      一起被塞进同一行的两半里，那张表就废了。 */
   #card-climate { grid-column: 1 / -1; grid-row: 8; }
   #card-map { grid-column: 1 / -1; grid-row: 5; }

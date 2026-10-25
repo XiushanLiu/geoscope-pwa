@@ -117,8 +117,6 @@ export const ZH = {
 
   // ---------- 此刻屏 ----------
   'now.title': '此刻',
-  // 此刻页方位卡的按钮（2026-10-16：完整罗盘收进 compass.html，此刻页只留磁偏角一个数）
-  'now.bearingBtn': '打开罗盘',
   'now.defaultPlaceNotice': '未取得定位，正在显示默认地点',
   'now.locating': '正在获取定位…',
   'now.gpsOk': '定位成功',
@@ -253,7 +251,6 @@ export const ZH = {
   // 2026-10-17 导航重构：compass.html 从「方位」页扩成「地理」页，三 tab 之一。
   // `geo.title` 是它的 <title>；页头第一行是**地名**（动态），不是这一条。
   'geo.title': '地理 · 方位与底图',
-  'geo.bearingBtn': '看下方完整罗盘',
 
   // ---------- 方位屏（磁偏角 WMM2025 + 罗盘） ----------
   // 文案口径：只说「模型算出来的值」与「模型有效期」，**不说精度**。

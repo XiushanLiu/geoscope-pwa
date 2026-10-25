@@ -1686,11 +1686,14 @@ async function main() {
    *     覆盖缺口**（与下面「now 页用 dynamic placeName」同一条），静态脚本给不出通用预算。
    *     所以本节**不再守卫这两页的页头**，别拿它的绿去证明这两页不折行。
    *   - 那本节还守什么？剩下 compare / settings 两条静态标题，以及骨架期的 tagline。
-   *     `compass.title` 今天只作为**方位卡的卡标题**上屏（`now.js` 的
-   *     `renderBearingCard`），不再是任何页头；留它做基准是因为它仍是**最宽**的一条
-   *     （zh 6.460em vs compare 5.000 / settings 5.460 / tagline 5.460；
-   *     en 16.562em vs compare 7.666 / settings 7.180 / tagline 5.464），
+   *     `compass.title` 已**不再上屏**（它曾是「方位 · 磁偏角」概览卡的卡标题，那张卡
+   *     连同 `now.js` 的 `renderBearingCard` 于 2026-10-26 删除 —— 原因：它与磁偏角
+   *     详情卡在同一屏把同一个数说了两遍）。★保留这个 key **仅作本节的保守上界**：
+   *     它仍是**最宽**的一条（zh 6.460em vs compare 5.000 / settings 5.460 /
+   *     tagline 5.460；en 16.562em vs compare 7.666 / settings 7.180 / tagline 5.464），
    *     守住它就等价于守住其余三条 —— 是一条**保守上界**，不是某一页的实测。
+   *     ⚠️ 因此**不许删这条 key**：删了 `t()` 会返回键名字面量 `'compass.title'`，
+   *     本节就从「守最宽的中文文案」静默退化成「守一个英文字符串」，护栏变弱且**不报红**。
    *   - 已删除的 roadtrip.html：`<title>` 与 `.hd-place` 同为 `rt.title`，zh 2.000em /
    *     en 4.806em，本就不是最宽的一条，删掉不影响本节结论。
    */

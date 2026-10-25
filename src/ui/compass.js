@@ -78,7 +78,7 @@ import {
 //   三处（本页大号数字 / 设置页 / 此刻页方位卡）共用。放在 now.js 是因为**本页不在自检页
 //   单文件产物的闭包里**，而 now.js 在 —— 反过来让 now.js import 本页会把 mag.js（26.6 KB）
 //   拖进那个诊断页。这里 re-export 只为保持既有 import 路径（tests/compass.test.mjs）。
-// ★地理页要用 now.js 的四张共用卡：地点卡、方位卡、溯源气泡，以及搜索面板（放大镜）。
+// ★地理页要用 now.js 的三张共用卡：地点卡、溯源气泡，以及搜索面板（放大镜）。
 //   `renderSearchPanel` / `searchButton` 原本是 now.js 的私有函数，2026-10-17 为地理页
 //   导出 —— 不复制一份，避免两套搜索面板各自漂移。
 import {
@@ -86,7 +86,6 @@ import {
   applyI18n,
   declinationText,
   renderPlaceCard,
-  renderBearingCard,
   renderProvenance,
   renderBanner,
   renderSearchPanel,
@@ -786,7 +785,6 @@ export function renderSkeleton(root) {
   root.appendChild(_slot(root, 'search'));
   root.appendChild(_slot(root, 'place')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'map'));
-  root.appendChild(_slot(root, 'bearing')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'declination')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'model'));
   root.appendChild(_slot(root, 'convert'));
@@ -811,11 +809,10 @@ export function renderSnapshot(root, snapshot, opts = {}) {
   if (!root.querySelector('.hd')) renderSkeleton(root);
   renderHeader(root, snapshot);
   renderPlaceCard(root, snapshot);
-  renderBearingCard(root, snapshot, snapshot.mag ? snapshot.mag.declination : null, {
-    // 完整罗盘就摊在同一页的下方：这里给同页锚点，不再跳页
-    compassHref: '#card-declination',
-    compassLabel: t('geo.bearingBtn'),
-  });
+  // ★2026-10-26 这里原有一张「方位 · 磁偏角」概览卡（renderBearingCard），已删：
+  //   它和紧接着的磁偏角详情卡把同一个数（西偏 7.60°）在一屏里说了两遍，且它那颗
+  //   「看下方完整罗盘」按钮锚点指到的是 #card-declination（磁偏角详情卡，不是罗盘卡）
+  //   —— 标签与目标本身就不一致。免责声明 compass.calcNote 详情卡里本来就有，没丢内容。
   renderDeclinationCard(root, snapshot);
   renderModelCard(root, snapshot);
   renderConvertCard(root, snapshot);

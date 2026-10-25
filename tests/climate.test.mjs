@@ -559,9 +559,16 @@ test('⑨ now.js 不许发请求、不许 import data 层（自检页单文件�
       `renderSkeleton 里不许再建 ${gone} 槽（已随地理页搬走）`
     );
   }
-  // 顺带钉住：renderPlaceCard / renderBearingCard 两个导出必须还在（地理页要 import）
+  // 顺带钉住：renderPlaceCard 这个导出必须还在（地理页要 import）
   assert.match(src, /export function renderPlaceCard\(/, 'renderPlaceCard 必须保留导出（地理页要用）');
-  assert.match(src, /export function renderBearingCard\(/, 'renderBearingCard 必须保留导出（地理页要用）');
+  // ★2026-10-26：「方位 · 磁偏角」概览卡删除（磁偏角数值一屏重复两遍），
+  //   renderBearingCard 随之删除 —— 原来那条「必须保留导出（地理页要用）」的理由已消失，
+  //   故删；但**不删成「没人管」**：反向钉住它不许复活（复活 = 那两遍又回来）。
+  assert.doesNotMatch(
+    src,
+    /export function renderBearingCard\(/,
+    'renderBearingCard 已随概览卡删除，不许复活（磁偏角只许在详情卡说一遍）'
+  );
 });
 
 test('⑨b climate.* / source.climate 中英成对且非空（不许简写红线文案）', () => {

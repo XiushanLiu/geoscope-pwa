@@ -28,6 +28,10 @@ document.readyState = 'loading';
 const app = await import('../src/ui/app.js');
 const selfcheck = await import('../src/ui/selfcheck.js');
 const now = await import('../src/ui/now.js');
+// 磁偏角详情卡 renderDeclinationCard 归地理页（compass.js）；「本机算 / 缺失不编方向」
+// 两条承诺的用例改挂到这里，所以本文件要用它（readyState='loading'，不会顶层自启动）。
+const compass = await import('../src/ui/compass.js');
+const i18n = await import('../src/i18n/index.js');
 const { getLastSnapshot } = await import('../src/core/store.js');
 
 const ctx = { lat: 39.9087, lon: 116.3975 };
@@ -141,54 +145,54 @@ test('回归锁（缺陷 5）：离线且无 store 快照、但 cache 里有数�
 });
 
 /* ------------------------------------------------------------------ */
-/* 此刻页方位卡（2026-10-16：方位页撤出 tabbar，只留磁偏角 + 入口）      */
+/* ------------------------------------------------------------------ */
+/* 磁偏角卡（2026-10-26：「方位 · 磁偏角」概览卡删除，只留一张详情卡）   */
+/*                                                                      */
+/* ★下面两条原是「此刻页方位卡」的用例。概览卡删了以后**不许连断言一起删**： */
+/*   「本机算、不联网」与「没算出来不许编一个方向」是产品承诺，跟着卡一起 */
+/*   消失等于把覆盖缺口记成接受缺口。改目标到 renderDeclinationCard ——    */
+/*   它如今是磁偏角唯一的渲染出口。                                      */
 /* ------------------------------------------------------------------ */
 
-test('★此刻页方位卡：显示磁偏角，且只有一条进 compass.html 的链接', () => {
+test('★磁偏角详情卡必须本机算：渲染它一个网络请求都不许发', () => {
   const root = document.createElement('div');
-  now.renderSkeleton(root);
-  // 数值由调用方（app.js 用本机 WMM）算好传进来 —— now.js 不许碰 WMM（见文件头红线）
-  now.renderBearingCard(root, { atMs: Date.now(), coord: { lat: 39.9087, lon: 116.3975 }, elevationM: 44 }, -6.49);
-  const card = text(root.querySelector('#card-bearing'));
-  // 北京磁偏角约 −6°（西偏）。具体数值交给 WMM 模型算，这里只钉「有方向词 + 有度数」，
-  // 不钉死数字 —— 模型系数换版本时数值会变，钉数字会变成假失败。
-  assert.ok(/东偏|西偏|正北/.test(card), `方位卡必须给出磁偏角方向，实际：${card}`);
-  assert.ok(/\d/.test(card), `方位卡必须带度数，实际：${card}`);
-
-  const links = root.querySelector('#card-bearing').descendants().filter((n) => n.tagName === 'A');
-  assert.equal(links.length, 1, '方位卡必须有且只有一条链接');
-  // 假 DOM 的 href 只落在 attribute 上，不在 .href 属性（读 .href 会得到 undefined）
-  assert.equal(links[0].getAttribute('href'), 'compass.html', '链接必须指向 compass.html（完整罗盘）');
-});
-
-test('★方位卡必须本机算：渲染它一个网络请求都不许发', () => {
-  const root = document.createElement('div');
-  now.renderSkeleton(root);
+  const snapshot = compass.createSnapshot(ctx, { atMs: Date.now() });
+  const res = compass.computeAt(ctx, { altitudeM: 44, atMs: Date.now() });
+  snapshot.mag = res.mag;
   const before = fetchMock.count;
-  now.renderBearingCard(root, { atMs: Date.now(), coord: { lat: 39.9087, lon: 116.3975 }, elevationM: 44 }, -6.49);
+  compass.renderDeclinationCard(root, snapshot);
   assert.equal(
     fetchMock.count,
     before,
-    '磁偏角走本机 WMM2025 系数，不许联网 —— 这也是它能直接放进此刻页（不触发任何权限）的前提'
+    '磁偏角走本机 WMM2025 系数，不许联网 —— 这是它不触发任何权限请求的前提'
   );
+  const card = text(root.querySelector('#card-declination'));
+  assert.ok(/东偏|西偏|正北/.test(card), `磁偏角卡必须给出方向，实际：${card}`);
 });
 
-test('方位卡：磁偏角缺失（null / 非数）时显示「暂不可用」，不抛错也不编方向', () => {
+test('★磁偏角缺失（mag:null）时显示「暂不可用」，不抛错也不编方向', () => {
   const root = document.createElement('div');
-  now.renderSkeleton(root);
-  now.renderBearingCard(root, { atMs: Date.now(), coord: null }, null);
-  const card = text(root.querySelector('#card-bearing'));
-  assert.ok(card.includes('暂不可用'), `坐标缺失必须显示暂不可用，实际：${card}`);
-  assert.ok(!/东偏|西偏/.test(card), '没坐标时不许编一个方向出来');
+  // 走 compass.js 的 `!snapshot.mag` 分支
+  compass.renderDeclinationCard(root, { mag: null, error: 'WMM_OUT_OF_RANGE' });
+  const card = text(root.querySelector('#card-declination'));
+  assert.ok(card.includes('暂不可用'), `没算出来必须显示「暂不可用」，实际：${card}`);
+  // ★光钉「暂不可用」不够：卡片右上角那个 chip 用的也是 `compass.na`（同文案），
+  //   把整句原因换成别的话它照样绿。所以再钉住**带原因的那一整句** —— 少了这半句，
+  //   「把失败原因藏起来」这种改法测不出来（变异验证：把 note 换成 calcNote 会红）。
+  assert.ok(
+    card.includes(i18n.t('compass.unavailable', { reason: 'WMM_OUT_OF_RANGE' })),
+    `没算出来必须把原因原样说出来，实际：${card}`
+  );
+  assert.ok(!/东偏|西偏|正北/.test(card), '★没算出来时不许编一个方向出来');
 });
 
 test('★2026-10-17 导航重构：气候页不再有方位槽 / 地点槽 / 底图槽（都归地理页）', async () => {
   // 为什么必须走 boot（而不是只看源码）：在线路径是「出一张渲染一张」的增量流，
   // 不走 renderSnapshot()，判断「气候页到底画了哪几张卡」只能看真实 boot 的结果。
-  // ★这条取代了原来的「此刻页方位卡必须真的被渲染出来」—— 方位卡没被删，
-  //   是**搬到了地理页**（compass.js）。它的渲染函数 renderBearingCard 仍是 now.js 的
-  //   导出，上面的「磁偏角缺失显示暂不可用」与「有坐标给出方向」两条用例照旧覆盖它。
-  //   这里反向钉住：气候页不许再出现这三个槽，否则搬迁等于没搬。
+  // ★这条取代了原来的「此刻页方位卡必须真的被渲染出来」—— 方位卡 2026-10-17 搬到
+  //   地理页，2026-10-26 又因「磁偏角数值一屏重复两遍」被整张删除（renderBearingCard
+  //   随之删除）。上面的两条用例已改挂到磁偏角详情卡 renderDeclinationCard 上，
+  //   覆盖没跟着卡一起消失。这里反向钉住：气候页不许再出现这三个槽。
   routeFixture();
   await app.boot();
   for (const gone of ['bearing', 'place', 'map']) {
