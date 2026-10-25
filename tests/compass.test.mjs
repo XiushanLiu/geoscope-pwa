@@ -185,8 +185,14 @@ test('无方向传感器：降级文案到位且不白屏（含端到端 boot）
   assert.ok(txt.includes(t('compass.sensorUnsupported')), `必须给出降级文案，实际：${txt.slice(0, 200)}`);
   assert.ok(txt.includes('西偏'), '降级时计算值照常显示 —— 不是白屏');
   assert.ok(txt.length > 100, '降级态必须有实质内容');
-  // 没有传感器就不该摆一个点不动的按钮
-  assert.equal(dom.byId.app.querySelectorAll('.btn').length, 0, '无传感器时不该给「启用」按钮');
+  // 没有传感器就不该摆一个点不动的按钮。
+  // ★2026-10-17：地理页扩了槽位之后，页面上本来就有别的两颗 .btn（页头的搜索放大镜、
+  //   方位卡里那颗进完整罗盘的锚点），所以这里不能数 `.btn` 的总数 —— 数总数会把
+  //   「多了一颗搜索按钮」误报成「无传感器却给了启用按钮」。只钉启用按钮本身。
+  const enableBtns = dom.byId.app
+    .querySelectorAll('.btn')
+    .filter((n) => text(n).includes(t('compass.sensorEnable')));
+  assert.equal(enableBtns.length, 0, '无传感器时不该给「启用方向传感器」按钮');
 
   // 端到端：boot() 走完定位降级（无 geolocation → 默认地点）也必须出内容
   await compass.boot();
@@ -592,4 +598,105 @@ test('★iOS 授权 denied：被拒也要真的重画成「已拒绝」，不许
     compass.resetSensor();
     delete globalThis.window;
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* 地理页装配（2026-10-17 导航重构 T05）                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 读仓库里的源码文本。
+ *
+ * @param {string} rel 仓库相对路径。
+ * @returns {string} 源码。
+ */
+const srcOf = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
+
+test('★槽位顺序硬契约：骨架一口气建出 search→place→map→bearing→declination→model→convert→compass→prov', () => {
+  const root = dom.byId.app;
+  compass.renderSkeleton(root);
+
+  // 页头必须在所有槽位之前
+  assert.equal(root.children[0].className, 'hd', '页头必须是第一个子节点');
+
+  const ids = root.querySelectorAll('.card-slot').map((n) => n.getAttribute('id'));
+  assert.deepEqual(
+    ids,
+    [
+      'card-search',
+      'card-place',
+      'card-map',
+      'card-bearing',
+      'card-declination',
+      'card-model',
+      'card-convert',
+      'card-compass',
+      'card-prov',
+    ],
+    `槽位顺序错了就再也挪不回去（顺序由首次 appendChild 决定），实际：${ids.join(' → ')}`
+  );
+});
+
+test('★地点卡 / 底图卡 / 方位卡三块在地理页，且方位卡的罗盘入口是同页锚点', () => {
+  const root = dom.byId.app;
+  const snapshot = snapshotAt(AT_2025, BEIJING);
+  snapshot.elevationM = 44;
+  snapshot.placeName = '北京 · 天安门';
+  compass.renderSnapshot(root, snapshot);
+
+  // 三块从气候页搬过来的卡都必须真的画出来
+  assert.ok(root.querySelector('#card-place').textContent.includes('44'), '地点卡必须显示海拔');
+  assert.ok(root.querySelector('#card-map'), '底图槽必须存在（底图由 boot() 画，骨架只建槽）');
+  const bearing = root.querySelector('#card-bearing');
+  assert.ok(bearing.textContent.includes('西偏'), '方位卡必须显示磁偏角');
+
+  // ★完整罗盘摊在同一页：那颗按钮必须是同页锚点，不是跳页
+  const anchors = bearing.descendants().filter((n) => n.tagName === 'A');
+  assert.equal(anchors.length, 1, '方位卡只有一颗进完整罗盘的入口');
+  const href = anchors[0].getAttribute('href');
+  assert.equal(href, '#card-declination', `罗盘入口必须是同页锚点，实际：${href}`);
+  // 锚点目标必须真的存在，否则是个点了没反应的死链
+  assert.ok(root.querySelector('#card-declination'), '锚点目标 #card-declination 必须存在');
+});
+
+test('★依赖方向：底图卡只准由地理页 import（now.js import map.js 会成环）', () => {
+  const now = srcOf('src/ui/now.js');
+  const compassSrc = srcOf('src/ui/compass.js');
+  const map = srcOf('src/ui/map.js');
+
+  // 反向钉：now.js 不许 import map.js —— map.js 要用 now.js 的 h()，反过来就是环
+  assert.ok(
+    !/from\s+['"]\.\/map\.js['"]/.test(now),
+    'now.js 不许 import ui/map.js（map.js 反向依赖 now.js 的 h()，成环）'
+  );
+  // 正向钉：地理页是真的在用底图卡
+  assert.ok(
+    /from\s+['"]\.\/map\.js['"]/.test(compassSrc),
+    '地理页 compass.js 必须 import ui/map.js（底图卡归它）'
+  );
+  // 环的另一半：map.js 确实依赖 now.js
+  assert.ok(/from\s+['"]\.\/now\.js['"]/.test(map), 'map.js 依赖 now.js 的 h()（这条是上面那条反向钉的前提）');
+});
+
+test('★两份 _pull 的溯源字段集合必须一致（app.js 与 compass.js 是同一份逻辑的两处副本）', () => {
+  /**
+   * 取出每个 `snapshot.provenance.push({...})` 里写的字段名。
+   *
+   * @param {string} src 源码。
+   * @returns {string[]} 逗号连接的字段名列表（每个 push 一条）。
+   */
+  const pushKeys = (src) =>
+    [...src.matchAll(/provenance\.push\(\{([\s\S]*?)\n\s*\}\);/g)].map((m) =>
+      [...m[1].matchAll(/^\s+(\w+):/gm)].map((k) => k[1]).join(',')
+    );
+
+  const app = pushKeys(srcOf('src/ui/app.js'));
+  const geo = pushKeys(srcOf('src/ui/compass.js'));
+  assert.equal(app.length, 1, `app.js 里应只有一处溯源 push，实际 ${app.length} 处`);
+  assert.equal(geo.length, 1, `compass.js 里应只有一处溯源 push，实际 ${geo.length} 处`);
+  assert.equal(
+    geo[0],
+    app[0],
+    `两份 _pull 写的溯源字段必须逐字一致（改一处就得改另一处），app=[${app[0]}] geo=[${geo[0]}]`
+  );
 });

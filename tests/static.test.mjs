@@ -193,7 +193,9 @@ test('无 JS 兜底：三个 HTML 都自带可见文案（断网首次打开不�
       assert.ok(textNodes.includes('数据源自检'), 'selfcheck.html 必须自带标题');
       assert.ok(textNodes.includes('开始自检'), 'selfcheck.html 必须自带的「开始自检」按钮文案');
     } else {
-      assert.ok(textNodes.includes('磁偏角'), 'compass.html 必须自带标题（无 JS 时也不该是空白页）');
+      // 2026-10-17：compass.html 已扩成「地理」页，<title> 文案随之改掉 —— 这里钉的是
+      // 「无 JS 时也有可见标题」这件事，不是某一句具体文案。
+      assert.ok(textNodes.includes('地理'), 'compass.html 必须自带标题（无 JS 时也不该是空白页）');
       assert.ok(textNodes.includes('正在装载'), 'compass.html 必须自带装载提示文本');
     }
     // 挂载点必须有内容

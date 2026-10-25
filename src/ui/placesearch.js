@@ -91,16 +91,23 @@ function _finiteCoord(v) {
  * ★坐标不是有限数字时返回空串：一个跳不过去的链接比没有链接更糟 —— 用户点下去会停在
  * 原页面而毫无反馈。调用方拿到空串就不做导航。
  *
+ * ★`target` 是「跳到哪一页」：默认 `index.html`（气候页）。地理页（compass.html）上的
+ *   搜索必须跳回地理页，否则用户从「地理」tab 搜完地点会被甩到「气候」tab —— 一次
+ *   搜索顺手换了个 tab，是导航层的事故。默认值不动，既有断言（tests/place-search.test.mjs
+ *   逐条钉的是 `index.html?…`）零改动。
+ *
  * @param {{lat:number, lon:number, name?:string|null}} place 地点。
- * @returns {string} `index.html?lat=…&lon=…&name=…`；坐标非法时 ''。
+ * @param {string} [target] 目标页文件名，默认 'index.html'。
+ * @returns {string} `${target}?lat=…&lon=…&name=…`；坐标非法时 ''。
  */
-export function placeHref(place) {
+export function placeHref(place, target = 'index.html') {
   const p = place && typeof place === 'object' ? place : {};
   const lat = _finiteCoord(p.lat);
   const lon = _finiteCoord(p.lon);
   if (lat === null || lon === null) return '';
+  const page = typeof target === 'string' && target ? target : 'index.html';
   const sName = encodeURIComponent(String(p.name === null || p.name === undefined ? '' : p.name));
-  return `index.html?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}&name=${sName}`;
+  return `${page}?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}&name=${sName}`;
 }
 
 /**

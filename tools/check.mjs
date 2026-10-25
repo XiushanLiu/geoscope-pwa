@@ -1679,18 +1679,20 @@ async function main() {
   /**
    * 页头标题的 i18n key。
    *
-   * ⚠️ 说清楚本节的覆盖面，别把它当成「所有页面的页头都守住了」：
-   *   - `.hd-place` 出现在 4 个页面：compass / compare / settings 用
-   *     `t('<page>.title')`，**now 页用 dynamic placeName**（用户输入/GEO 反查出来的
-   *     地名，长度无上界 ——
-   *     静态脚本没法给一个「通用预算」，它不进本模型，属于**已知覆盖缺口**）；
-   *     （2026-10-17 自驾下线：原来的第五个页面 roadtrip.html 已删除，
-   *      它的 `<title>` 与 `.hd-place` 同为 `rt.title`，zh『自驾』= 2.000em、
-   *      en『Road trip』= 4.806em，本就不是最宽的一条，删掉不影响本节结论。）
-   *   - 静态标题里 `compass.title` 是**最宽**的一条（按本节字宽模型逐条算过：
-   *     zh 6.460em vs compare 5.000 / settings 5.460 / tagline 5.460；
-   *     en 16.562em vs compare 7.666 / settings 7.180 / tagline 5.464）。
-   *     守住 compass 等价于守住其余**三条**静态标题。
+   * ⚠️ 说清楚本节的**真实覆盖面**（2026-10-17 导航重构后重算过，别照抄旧结论）：
+   *   - 机器上现在有 4 个带 `.hd-place` 的页面：地理（compass.html）/ 气候（index.html）/
+   *     compare / settings。其中**地理页与气候页的 `.hd-place` 都已经不是静态标题**了 ——
+   *     它们显示的是 `placeName`（GEO 反查出来的地名，长度无上界）。这是本节**已知的
+   *     覆盖缺口**（与下面「now 页用 dynamic placeName」同一条），静态脚本给不出通用预算。
+   *     所以本节**不再守卫这两页的页头**，别拿它的绿去证明这两页不折行。
+   *   - 那本节还守什么？剩下 compare / settings 两条静态标题，以及骨架期的 tagline。
+   *     `compass.title` 今天只作为**方位卡的卡标题**上屏（`now.js` 的
+   *     `renderBearingCard`），不再是任何页头；留它做基准是因为它仍是**最宽**的一条
+   *     （zh 6.460em vs compare 5.000 / settings 5.460 / tagline 5.460；
+   *     en 16.562em vs compare 7.666 / settings 7.180 / tagline 5.464），
+   *     守住它就等价于守住其余三条 —— 是一条**保守上界**，不是某一页的实测。
+   *   - 已删除的 roadtrip.html：`<title>` 与 `.hd-place` 同为 `rt.title`，zh 2.000em /
+   *     en 4.806em，本就不是最宽的一条，删掉不影响本节结论。
    */
   const HD_TITLE_KEY = 'compass.title';
 

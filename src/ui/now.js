@@ -354,6 +354,24 @@ let _placeSearch = null;
 let _searchBodyEl = null;
 
 /**
+ * 选中搜索结果后跳到**哪一页**（默认 `index.html` 气候页）。
+ *
+ * ★为什么是模块级变量而不是参数：每个 HTML 都是独立 JS 环境（四张页靠 `<a href>` 整页
+ *   跳转，没有共享内存），所以一次赋值就是整页生效，不存在「两个页面同时用同一份模块
+ *   实例」的情形。地理页在自己的入口里调一次 `setSearchTarget('compass.html')` 即可。
+ *
+ * ★不改 `placeHref()` 去猜当前页：`placeHref` 是纯函数且被测逐条钉住，让它去读
+ *   `location` 会把「跳哪一页」这件事藏进一个看起来与页面无关的工具函数里。
+ *
+ * @param {string} page 目标页文件名（如 'compass.html'）。
+ * @returns {void}
+ */
+let _searchTarget = 'index.html';
+export function setSearchTarget(page) {
+  if (typeof page === 'string' && page) _searchTarget = page;
+}
+
+/**
  * 搜索控制器单例（懒建）。
  *
  * 为什么必须是**模块级**：`renderHeader()` 每次都整槽 `_fill` 重建（一次 boot 至少三次：
@@ -367,9 +385,10 @@ function _search() {
   if (_placeSearch) return _placeSearch;
   _placeSearch = createPlaceSearch({
     onPick: (place) => {
-      // 跳回此刻页并带上坐标：app.js 的 parsePlaceParam 会解析它并**跳过定位**，
+      // 跳回本页所属的主页并带上坐标：入口模块的 parsePlaceParam 会解析它并**跳过定位**，
       // 与收藏跳转走的是同一条通路（source 都是 'explicit'）。
-      const href = placeHref(place);
+      // ★目标页由 `setSearchTarget()` 决定（地理页跳地理页、气候页跳气候页），见下面那条注释。
+      const href = placeHref(place, _searchTarget);
       if (!href) return; // 坐标非法：宁可不跳，也不跳到一个会静默定位的页面
       if (typeof location === 'undefined' || !location) return; // Node 侧无 location
       location.href = href;
@@ -459,7 +478,7 @@ function _searchItem(place) {
  * @param {HTMLElement} root 根容器。
  * @returns {void}
  */
-function _renderSearchPanel(root) {
+export function renderSearchPanel(root) {
   const ps = _search();
   const slot = _slot(root, 'search');
   if (!ps.isOpen) {
@@ -504,7 +523,7 @@ function _renderSearchPanel(root) {
  * @param {HTMLElement} root 根容器（展开后面板要挂到它的槽位上）。
  * @returns {HTMLElement} 按钮。
  */
-function _searchButton(root) {
+export function searchButton(root) {
   const ps = _search();
   const label = ps.isOpen ? t('search.close') : t('search.open');
   const btn = h('button', {
@@ -520,7 +539,7 @@ function _searchButton(root) {
     btn.setAttribute('aria-expanded', ps.isOpen ? 'true' : 'false');
     btn.setAttribute('aria-label', next);
     btn.setAttribute('title', next);
-    _renderSearchPanel(root);
+    renderSearchPanel(root);
   });
   return btn;
 }
@@ -556,7 +575,7 @@ export function renderHeader(root, snapshot, opts = {}) {
       // 地名与搜索入口同一行：地名本身的位置与层级不变，只是在它右侧多一颗按钮
       h('div', { class: 'hd-place-row' }, [
         h('h1', { class: 'hd-place', text: placeName }),
-        _searchButton(root),
+        searchButton(root),
       ]),
       h('p', { class: 'hd-coord num', text: snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.dash') }),
       // ★海拔进页头（2026-10-17）：地点卡搬去地理页之后，气候页不再有 place 槽，
@@ -575,7 +594,7 @@ export function renderHeader(root, snapshot, opts = {}) {
     h('div', { class: 'hd-time', text: right }),
   ]);
   // 搜索面板不在 .hd 里：整槽重建会把它连根拔掉，所以挂到独立槽位上重画一次
-  _renderSearchPanel(root);
+  renderSearchPanel(root);
 }
 
 /* ------------------------------------------------------------------ */
@@ -939,16 +958,25 @@ export function declinationText(declinationDeg) {
  * 换算与模型版本是低频信息，占着底部导航不划算，但**入口必须留着**。
  *
  * ★本卡不需要传感器：磁偏角是**本机 WMM2025 算出来的**，不联网、不用方向传感器，
- *   所以放在此刻页不会触发任何权限请求（iOS 的 `requestPermission()` 必须由用户手势
- *   触发，罗盘本身仍然只能待在 compass.html 里 —— 这也是按钮去不掉的原因）。
+ *   所以放在这一页不会触发任何权限请求（iOS 的 `requestPermission()` 必须由用户手势
+ *   触发，罗盘本身仍然只能由用户点一下才启用 —— 这也是按钮去不掉的原因）。
+ *
+ * ★2026-10-17 导航重构：本卡搬去了**地理页**，而地理页把完整罗盘也摊在同一页上，
+ *   所以那颗按钮在地理页上是**同页锚点**（`opts.compassHref = '#card-declination'`），
+ *   不再是「跳到另一个页面」。默认值仍是 `compass.html`：本卡的渲染契约不变，
+ *   `tests/ui.test.mjs` 那条「只有一条进 compass.html 的链接」的断言也就还成立。
  *
  * @param {HTMLElement} root 根容器。
  * @param {Object} snapshot NowSnapshot。
  * @param {number|null} [declinationDeg] 磁偏角（度，东偏为正），由调用方用
  *   `data/wmm2025.js` 的 `declinationDegAt()` 算好 —— 本模块不碰 WMM（见文件头红线）。
+ * @param {{compassHref?:string, compassLabel?:string}} [opts] 选项：完整罗盘的入口。
+ *   `compassHref` 默认 'compass.html'（跨页），地理页传同页锚点；
+ *   `compassLabel` 默认 `now.bearingBtn`。★调用方必须先建 `bearing` 槽
+ *   （本骨架已不给它建槽），否则卡片会静默落到页面末尾。
  * @returns {void}
  */
-export function renderBearingCard(root, snapshot, declinationDeg) {
+export function renderBearingCard(root, snapshot, declinationDeg, opts = {}) {
   const box = _slot(root, 'bearing');
   // ★`Number(null) === 0`：直接 `Number.isFinite(Number(x))` 会把「没算出来」当成「0°（正北不偏）」，
   //   显示一个看起来很有道理的假结果。必须**先**显式排除 null / undefined，再判有限性。
@@ -965,7 +993,11 @@ export function renderBearingCard(root, snapshot, declinationDeg) {
       ]),
       h('p', { class: 'card-note', text: t('compass.calcNote') }),
       h('div', { class: 'field field--row' }, [
-        h('a', { class: 'btn', href: 'compass.html', text: t('now.bearingBtn') }),
+        h('a', {
+          class: 'btn',
+          href: typeof opts.compassHref === 'string' && opts.compassHref ? opts.compassHref : 'compass.html',
+          text: opts.compassLabel || t('now.bearingBtn'),
+        }),
       ]),
     ])
   );

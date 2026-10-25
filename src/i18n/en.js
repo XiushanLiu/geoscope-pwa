@@ -247,6 +247,12 @@ export const EN = {
   'sc.downlink': 'downlink: {value} Mb/s',
   'sc.userAgent': 'UA: {value}',
 
+  // ---------- Geo screen (place + basemap + bearing + full compass) ----------
+  // 2026-10-17 nav rework: compass.html grew from the "bearing" page into the "geo" tab.
+  // `geo.title` is its <title>; the header's first line is the PLACE NAME (dynamic), not this.
+  'geo.title': 'Geo · Bearing & basemap',
+  'geo.bearingBtn': 'See the full compass below',
+
   // ---------- Bearing screen (WMM2025 declination + compass) ----------
   // Wording rule: state "the value the model computes" and "the model's validity window",
   // and NOTHING about accuracy. The WMM COF carries no error model and this module exports

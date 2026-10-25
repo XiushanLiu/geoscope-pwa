@@ -73,8 +73,9 @@ const ORDER = [
   // 自检页本身不显示图例，但闭包校验是「import 了就必须在闭包内」，少登记会直接打包中止。
   'src/ui/legend.js',
   'src/ui/now.js',
-  // ★ `src/ui/map.js` **故意不登记在 ORDER 里**：它只被气候页入口 `src/ui/app.js` import
-  //   （2026-10-17 导航重构：T05 之后改由地理页 `src/ui/compass.js` import），
+  // ★ `src/ui/map.js` **故意不登记在 ORDER 里**：2026-10-17 导航重构后它只被地理页入口
+  //   `src/ui/compass.js` import（气候页入口 `src/ui/app.js` 在 T04 瘦身后已不再用它，
+  //   `src/ui/now.js` 也不许 import 它 —— `map.js` 要用 now.js 的 `h()`，反向依赖成环），
   //   不在本产物入口 `src/ui/selfcheck.js` 的依赖闭包内 —— 内联进去是 20.3 KB 的死重量。
   //   ⚠️ 上面那组「登记时 X 模块 / Y KB，移除后 …」的对照数字已删除 —— 它们是 2026-10
   //   某次实测的旧值，与今天产物（自检闭包）的真实规模对不上，留在注释里只会误导。

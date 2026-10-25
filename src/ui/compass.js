@@ -1,9 +1,18 @@
 /**
- * 方位屏渲染与装配（磁偏角 WMM2025 + 罗盘）
+ * 地理屏渲染与装配（地点 + 底图 + 方位 + 完整罗盘）
  *
- * 职责：把「本机算出来的地磁要素」变成 DOM。网络、定位、传感器状态全部在上游完成，
- * 本模块只做「数据 → 节点」；模型计算走 `src/data/wmm2025.js`（本地系数、不发请求），
- * 所以本屏**断网可用** —— 这是它与此刻屏最大的区别。
+ * ★2026-10-17 导航重构：本模块从「方位屏」扩成**地理屏**（三 tab 的「地理」）。气候页
+ *   瘦身时搬出来的三块 —— 地点卡（海拔/坐标/地名）、底图卡（Esri 瓦片三态）、方位卡
+ *   （磁偏角一个数）—— 与原有的完整罗盘四块（磁偏角主卡 / 模型卡 / 换算卡 / 传感器罗盘）
+ *   摊在**同一页**上。原来方位卡里那颗「打开罗盘」按钮因此从跨页链接变成同页锚点。
+ *
+ * 骨架槽位硬契约（顺序由首次 appendChild 决定，建错就再也挪不回去）：
+ *   `header → search → place → map → bearing → declination → model → convert → compass → prov`
+ *   ⚠️ 改 `renderSkeleton()` 必须**一口气按上表建完**，不许「先建 declination 再插 place」。
+ *
+ * 职责：把「本机算出来的地磁要素」以及定位 / 海拔 / 地名 / 瓦片探测的结果变成 DOM。
+ * 模型计算走 `src/data/wmm2025.js`（本地系数、不发请求），所以**磁偏角那几块断网可用**；
+ * 底图与逆地理反查要联网，失败走各自的三态降级，不让整页跟着塌。
  *
  * 三条不变量（勿回退）：
  *   1) **不编造精度**：WMM 的 COF 里没有误差模型，模块也不导出任何不确定度字段。
@@ -22,22 +31,41 @@
  *   - `decimalYear` 不传会按历元 2025.0 算而不是今天，必须显式传 `decimalYearFromDate(new Date())`；
  *   - 可能抛 `RangeError`（纬度越界）/ `TypeError`（NaN/字符串）→ try/catch 降级，不许白屏。
  *
- * 依赖方向：ui ← data（`wmm2025.js`）/ core（`mag.js` `geo.js` `format.js` `store.js`）。
- * 顶层只碰两处 DOM —— 主题引导（把 themeMode 写到 <html data-theme>）与字号档位引导
- * （把 fontScale 写到 <html data-fs>），两者都是全站属性，见 `theme.js`；
+ * 依赖方向：ui ← data（`wmm2025.js` / `tiles.js` / `sources.js` / `health.js`）
+ * / core（`mag.js` `geo.js` `format.js` `store.js` `http.js`）。
+ * ★`src/ui/map.js`（20.3 KB）**只由本模块 import**：气候页入口 `app.js` 在瘦身时已不再
+ *   用它，而 `now.js` **不许** import 它（`map.js` 要用 `now.js` 的 `h()`，反向依赖成环）。
+ *   本模块不在自检单文件产物的闭包内，所以 map.js 也进不去 —— 与 `build-standalone.mjs`
+ *   的 ORDER 现状一致（那里故意不登记 map.js）。
+ * 顶层只碰三处 DOM —— 主题引导（把 themeMode 写到 <html data-theme>）、字号档位引导
+ * （把 fontScale 写到 <html data-fs>）与语言引导，三者都是全站属性，见 `theme.js`；
  * 其余 DOM 访问都在 boot / render 内，便于 Node 侧检查与单测。
  */
 
 import { t } from '../i18n/index.js';
 import * as fmt from '../core/format.js';
 import {
+  getDefaultPlace,
   getThemeMode,
   getFontScale,
   getLocale,
   log,
 } from '../core/store.js';
-import { getCurrentPosition } from '../core/geo.js';
+import { getCurrentPosition, parsePlaceParam, resolveCoord } from '../core/geo.js';
+import { request, isOnline } from '../core/http.js';
+import { getSource } from '../data/sources.js';
+import { recordResult, overallMode, resetHealth } from '../data/health.js';
 import { computeGeomagnetic, WMM_MODEL } from '../data/wmm2025.js';
+import {
+  sampleTiles,
+  mapMode,
+  MAP_MODE,
+  degradeMapMode,
+  setNoMapMode,
+  probeTileBatch,
+  TILE_PROBE_COUNT,
+  TILE_PROBE_BUDGET_MS,
+} from '../data/tiles.js';
 import {
   decimalYearFromDate,
   trueBearingFromMagnetic,
@@ -49,12 +77,28 @@ import {
 //   三处（本页大号数字 / 设置页 / 此刻页方位卡）共用。放在 now.js 是因为**本页不在自检页
 //   单文件产物的闭包里**，而 now.js 在 —— 反过来让 now.js import 本页会把 mag.js（26.6 KB）
 //   拖进那个诊断页。这里 re-export 只为保持既有 import 路径（tests/compass.test.mjs）。
-import { h, applyI18n, declinationText } from './now.js';
+// ★地理页要用 now.js 的四张共用卡：地点卡、方位卡、溯源气泡，以及搜索面板（放大镜）。
+//   `renderSearchPanel` / `searchButton` 原本是 now.js 的私有函数，2026-10-17 为地理页
+//   导出 —— 不复制一份，避免两套搜索面板各自漂移。
+import {
+  h,
+  applyI18n,
+  declinationText,
+  renderPlaceCard,
+  renderBearingCard,
+  renderProvenance,
+  renderBanner,
+  renderSearchPanel,
+  searchButton,
+  setSearchTarget,
+} from './now.js';
 export { declinationText };
 import { applyThemeMode, applyFontScale } from './theme.js';
+// 底图卡：只由本页 import（气候页已不再显示底图，now.js 也不许 import 它，见文件头）。
+import { renderMapCard, renderMapSkeleton } from './map.js';
 // 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
 // （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
-import { applyLocale } from './locale.js';
+import { applyLocale, placeDisplayName } from './locale.js';
 
 // ★主题引导（模块顶层）：本页是四个入口之一，必须在 module 求值那一刻就把 store 里的
 // themeMode 写到 <html data-theme> 上，不能等 boot() —— 否则用户会先看到一帧系统色。
@@ -65,8 +109,21 @@ applyThemeMode(getThemeMode());
 applyFontScale(getFontScale());
 applyLocale(getLocale());
 
+// ★搜索结果点了以后跳**回本页**（地理页），不是跳气候页。默认目标是 index.html，
+//   不设的话用户在「地理」tab 搜完地点会被甩到「气候」tab —— 一次搜索顺手换了个 tab。
+setSearchTarget('compass.html');
+
 /** 定位超时（毫秒）：与此刻屏一致，超时即降级为默认地点，不阻塞渲染。 */
 const GEO_TIMEOUT_MS = 8000;
+
+/**
+ * 轮次号：每次 boot() 自增。
+ *
+ * 用途与气候页 `app.js` 同一套：refresh() 不切断 `http.js` 的全局串行队列（那会让在飞任务
+ * 与新任务并行，破坏「全局并发 1」），而是让上一轮仍在飞的结果返回时发现 epoch 已变，
+ * 直接丢弃、不再渲染。
+ */
+let _epoch = 0;
 
 /**
  * 传感器等待上限（毫秒）。
@@ -408,26 +465,38 @@ function _chip(status, text) {
 /* ------------------------------------------------------------------ */
 
 /**
- * 渲染标题区（地点 / 坐标 / 默认地点提示）。
+ * 渲染页头（地点名 / 坐标 / 默认地点提示 / 搜索入口）。
+ *
+ * ★第一行是**地名**，不是页面标题：本页是「地理」页，用户要看的是「这是哪儿」。
+ *   地名由逆地理反查补（后台补齐），没拿到之前显示坐标，再没有才显示「未知」——
+ *   绝不拿页面标题去占位（那会让人以为「方位 · 磁偏角」是个地名）。
+ *
+ * ★搜索放大镜与气候页同一颗（now.js 的 `searchButton`），不在这里另写一份：
+ *   两套搜索入口必然漂移，而漂移的表现是「一边能搜一边不能搜」，很难查。
  *
  * @param {HTMLElement} root 根容器。
- * @param {Object} snapshot 方位屏状态。
+ * @param {Object} snapshot 地理屏状态。
  * @returns {void}
  */
 export function renderHeader(root, snapshot) {
   const hd = root.querySelector('.hd');
   if (!hd) return;
-  const placeName = snapshot.coord
+  const coordText = snapshot.coord
     ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon)
     : t('app.unknown');
   _fill(hd, [
     h('div', {}, [
-      h('h1', { class: 'hd-place', text: t('compass.title') }),
-      h('p', { class: 'hd-coord num', text: placeName }),
+      h('div', { class: 'hd-place-row' }, [
+        h('h1', { class: 'hd-place', text: snapshot.placeName || coordText }),
+        searchButton(root),
+      ]),
+      h('p', { class: 'hd-coord num', text: snapshot.coord ? coordText : t('app.dash') }),
       snapshot.isDefaultPlace ? h('p', { class: 'hd-coord', text: t('compass.defaultPlaceNotice') }) : null,
     ]),
     h('div', { class: 'hd-time', text: t('compass.subtitle') }),
   ]);
+  // 搜索面板挂独立槽位（不在 .hd 里，否则整槽重建会把面板连根拔掉）
+  renderSearchPanel(root);
 }
 
 /**
@@ -687,6 +756,12 @@ export function renderCompassCard(root, snapshot, opts = {}) {
 /**
  * 渲染骨架（立即上屏，不转圈等待定位）。
  *
+ * ★槽位顺序硬契约（顺序由首次 `appendChild` 决定，建错位置就再也挪不回去）：
+ *   `header → search → place → map → bearing → declination → model → convert → compass → prov`
+ *   所以这 9 个槽必须**在这一个函数里按上表一口气建完**，不许「先建 declination 再插 place」
+ *   那种补建写法 —— 补建出来的卡片会永久停在页面末尾。
+ *   `tests/compass.test.mjs` 有一条用例逐字钉住这个顺序。
+ *
  * @param {HTMLElement} root 根容器。
  * @returns {void}
  */
@@ -695,21 +770,30 @@ export function renderSkeleton(root) {
   root.textContent = '';
   root.appendChild(
     h('div', { class: 'hd' }, [
-      h('div', {}, [h('h1', { class: 'hd-place', text: t('compass.title') })]),
+      h('div', {}, [h('h1', { class: 'hd-place', text: t('app.loading') })]),
       h('div', { class: 'hd-time', text: t('app.loading') }),
     ])
   );
+  root.appendChild(_slot(root, 'search'));
+  root.appendChild(_slot(root, 'place')).appendChild(h('div', { class: 'sk' }));
+  root.appendChild(_slot(root, 'map'));
+  root.appendChild(_slot(root, 'bearing')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'declination')).appendChild(h('div', { class: 'sk' }));
   root.appendChild(_slot(root, 'model'));
   root.appendChild(_slot(root, 'convert'));
   root.appendChild(_slot(root, 'compass'));
+  root.appendChild(_slot(root, 'prov'));
 }
 
 /**
- * 一次性完整渲染。
+ * 一次性完整渲染（**不含底图卡**）。
+ *
+ * ★底图卡不在本函数里：`renderMapCard()` 每调一次就要重铺一遍瓦片（3×3 起，含网络），
+ *   而本函数会被 `rerender()` 在首屏内连着调好几次（定位后 / 海拔回来后 / 地名回来后）。
+ *   底图由 `boot()` 在骨架之后与瓦片探测裁决之后各画一次，见 `boot()` 的注释。
  *
  * @param {HTMLElement} root 根容器。
- * @param {Object} snapshot 方位屏状态。
+ * @param {Object} snapshot 地理屏状态。
  * @param {{onChange?:() => void}} [opts] 选项。
  * @returns {void}
  */
@@ -717,17 +801,25 @@ export function renderSnapshot(root, snapshot, opts = {}) {
   if (!root) return;
   if (!root.querySelector('.hd')) renderSkeleton(root);
   renderHeader(root, snapshot);
+  renderPlaceCard(root, snapshot);
+  renderBearingCard(root, snapshot, snapshot.mag ? snapshot.mag.declination : null, {
+    // 完整罗盘就摊在同一页的下方：这里给同页锚点，不再跳页
+    compassHref: '#card-declination',
+    compassLabel: t('geo.bearingBtn'),
+  });
   renderDeclinationCard(root, snapshot);
   renderModelCard(root, snapshot);
   renderConvertCard(root, snapshot);
   renderCompassCard(root, snapshot, opts);
+  renderProvenance(root, snapshot);
 }
 
 /**
  * 构造一份空状态（字段齐全，避免渲染时到处判空）。
  *
  * @param {{lat:number, lon:number}|null} coord 坐标。
- * @param {{altitudeM?:number|null, isDefaultPlace?:boolean, atMs?:number}} [opts] 附加字段。
+ * @param {{altitudeM?:number|null, isDefaultPlace?:boolean, atMs?:number,
+ *          placeName?:string|null}} [opts] 附加字段。
  * @returns {Object} 状态对象。
  */
 export function createSnapshot(coord, opts = {}) {
@@ -736,9 +828,97 @@ export function createSnapshot(coord, opts = {}) {
     altitudeM: Number.isFinite(Number(opts.altitudeM)) ? Number(opts.altitudeM) : null,
     isDefaultPlace: opts.isDefaultPlace === true,
     atMs: Number(opts.atMs) || Date.now(),
+    // 地名由逆地理反查补（后台）；没有就是 null，页头退回显示坐标
+    placeName: typeof opts.placeName === 'string' && opts.placeName ? opts.placeName : null,
+    // 溯源气泡：本页只消费 elevation 与 reverse 两路，条目由 `_pull()` 追加
+    provenance: [],
     mag: null,
     error: null,
   };
+}
+
+/**
+ * 拉取一路源并写回快照（记录健康 + 溯源气泡）。
+ *
+ * ★与 `app.js` 的 `_pull()` 是**同一份逻辑的两处副本**：气候页入口 `app.js` 是入口模块
+ *   （顶层有三处 DOM 引导副作用），本页不能 import 它，否则整个气候页闭包（含
+ *   `data/climate.js`）会被拖进地理页。零新增文件原则下没有第三个落点，所以这里是副本，
+ *   改一处必须改另一处 —— `tests/compass.test.mjs` 有一条用例钉住两处字段集合一致。
+ *
+ * @param {Object} snapshot 地理屏状态（原地修改）。
+ * @param {string} sourceId 源 id。
+ * @param {Object} ctx 上下文（lat/lon）。
+ * @param {(data:*) => void} apply 解析结果写回函数。
+ * @returns {Promise<Object>} SourceResult。
+ */
+async function _pull(snapshot, sourceId, ctx, apply) {
+  const spec = getSource(sourceId);
+  const res = await request(sourceId, ctx);
+  recordResult(res);
+
+  // res.stale 是显式标记：ok=false 时 data 可能是陈旧兜底值，不能当成功数据用
+  const state = res.stale ? 'stale' : 'fresh';
+  if (res.data !== null && res.data !== undefined) {
+    apply(res.data);
+    snapshot.provenance.push({
+      sourceId,
+      label: spec ? spec.label : sourceId,
+      url: res.meta.requestUrl,
+      latencyMs: res.meta.latencyMs,
+      fetchedAt: res.meta.finishedAt,
+      state,
+      attribution: spec ? spec.attribution : '',
+    });
+  }
+  return res;
+}
+
+/**
+ * 带兜底的拉取：单路源抛异常时只废掉自己那张卡，不打断后续源。
+ *
+ * @param {Object} snapshot 地理屏状态。
+ * @param {string} sourceId 源 id。
+ * @param {Object} ctx 上下文。
+ * @param {(data:*) => void} apply 写回函数。
+ * @param {(ok:boolean) => void} render 渲染回调（成功/失败都调一次）。
+ * @returns {Promise<Object|null>} SourceResult；抛错时为 null。
+ */
+async function _safePull(snapshot, sourceId, ctx, apply, render) {
+  try {
+    const res = await _pull(snapshot, sourceId, ctx, apply);
+    try {
+      render(res.ok === true);
+    } catch (renderErr) {
+      log(`${sourceId} render failed`, renderErr && renderErr.message);
+    }
+    return res;
+  } catch (err) {
+    log(`${sourceId} pull failed`, err && err.message);
+    try {
+      render(false);
+    } catch (renderErr) {
+      /* 渲染兜底也失败时不再抛出，保证后续源继续 */
+    }
+    return null;
+  }
+}
+
+/**
+ * 横幅应显示的降级态。
+ *
+ * 与气候页 `app.js` 的 `_bannerMode()` 同一套判定，且同样只在展示层接住 grid：
+ * `overallMode()` 对「底图半残」返回 'partial'，而 'partial' 的文案是「部分数据源不可用」
+ * —— 本页的六路 API 可能全正常，坏的只是瓦片，那句话就是假话。
+ *
+ * @returns {'live'|'stale'|'partial'|'grid'|'offline'|'no-map'|'empty'} 横幅态。
+ */
+function _bannerMode() {
+  if (!isOnline()) return 'offline';
+  const mode = overallMode();
+  // grid 只压过这三档（实际可达的只有 partial，其余两项是防御性冗余，理由见 app.js 同名函数）
+  const gridWins = mode === 'partial' || mode === 'no-map' || mode === 'live';
+  if (mapMode() === MAP_MODE.GRID && gridWins) return 'grid';
+  return mode;
 }
 
 /**
@@ -813,40 +993,142 @@ export function createCompassRenderer(root, snapshot) {
 }
 
 /**
- * 方位屏启动流程。
+ * 地理屏启动流程。
+ *
+ * 顺序（★不许调换，理由见每一步的注释）：
+ *   ① 骨架（一口气建 10 个槽）→ ② 定位 / URL 指定地点 → ③ 页头 + 除底图外的所有卡
+ *   → ④ 底图首次上屏 → ⑤ 离线则到此为止 → ⑥ elevation → ⑦ reverse（地名）
+ *   → ⑧ 瓦片探测与三态裁决 → ⑨ 底图按裁决结果重画 + 横幅 + 溯源气泡。
  *
  * @returns {Promise<void>}
  */
 export async function boot() {
   const root = typeof document !== 'undefined' && document ? document.getElementById('app') : null;
   if (!root) return;
+  const bannerEl = typeof document !== 'undefined' && document ? document.getElementById('banner') : null;
+
+  // 本轮轮次号：refresh() 会自增，让上一轮在飞结果回来后被丢弃
+  const epoch = ++_epoch;
 
   applyI18n(document);
+  resetHealth();
 
   const snapshot = createSnapshot(null);
   // ★走 createCompassRenderer，不许退化成 renderSnapshot(root, snapshot)：
   //   后者会让罗盘卡的「启用方向传感器」按钮拿到空 onChange，点了零重渲染。
   const { rerender } = createCompassRenderer(root, snapshot);
-  rerender();
 
-  const coord = await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS });
+  // ① 骨架 + 底图占位：槽位顺序在这一刻定死，晚建的卡会永久落到页面末尾
+  renderSkeleton(root);
+  renderMapSkeleton(root);
+  renderHeader(root, snapshot);
 
-  snapshot.coord = { lat: coord.lat, lon: coord.lon };
-  snapshot.altitudeM = Number.isFinite(Number(coord.altitudeM)) ? Number(coord.altitudeM) : null;
-  // ★只认 `source === 'default'`，不能写成 `coord.source !== 'gps'`：
-  // 方位页的 coord 今天只来自 geo.js（'gps' / 'default' 两种），两种写法**恰好**等价；
-  // 但那靠的是「没有第三个 source」，不是靠写法本身成立。哪天给方位页加
-  // 「收藏地 / 搜索地从这里看磁偏角」（source:'explicit'，很自然的下一步），`!== 'gps'`
-  // 会立刻把它判成「未取得定位，正在显示默认地点」—— 一句假话，且没有测试拦得住。
-  // 与 app.js 的 resolveCoord() 同口径（那里也是 `base.source === 'default'`）。
-  snapshot.isDefaultPlace = coord.source === 'default';
+  // ② URL 指定地点（收藏跳转 / 搜索结果）优先：用户已经明确选了这个地点，再去要一次
+  //    系统定位既慢（最多 8 s）又是和用户意图对着干。
+  const fromUrl = parsePlaceParam();
+  const raw = fromUrl || (await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS }));
+  if (epoch !== _epoch) return;
+  const { base, isDefaultPlace } = resolveCoord(raw, {
+    defaultPlace: getDefaultPlace(),
+    displayName: placeDisplayName,
+  });
+  if (fromUrl) log('coord from url param', base.lat, base.lon, base.name);
+
+  snapshot.coord = { lat: base.lat, lon: base.lon };
+  snapshot.altitudeM = Number.isFinite(Number(raw.altitudeM)) ? Number(raw.altitudeM) : null;
+  snapshot.isDefaultPlace = isDefaultPlace;
+  snapshot.placeName = typeof base.name === 'string' && base.name ? base.name : null;
   snapshot.atMs = Date.now();
 
   const res = computeAt(snapshot.coord, { altitudeM: snapshot.altitudeM, atMs: snapshot.atMs });
   snapshot.mag = res.mag;
   snapshot.error = res.error;
 
+  // ③ 除底图外的所有卡一次上屏（磁偏角那几块是本机算的，断网也有数）
   rerender();
+
+  // ④ 底图首次上屏（渲染发生在探测**之前**：先按当前已知的三态出图，探测结论回来再重画）
+  try {
+    renderMapCard(root, { coord: snapshot.coord });
+  } catch (err) {
+    log('map render failed', err && err.message);
+  }
+
+  // ⑤ 离线：不发任何请求。底图判 no-map（没网就是没瓦片，这是事实不是降级猜测）
+  if (!isOnline()) {
+    setNoMapMode(true);
+    try {
+      renderMapCard(root, { coord: snapshot.coord });
+    } catch (err) {
+      log('map render failed (offline)', err && err.message);
+    }
+    renderBanner(bannerEl, 'offline');
+    return;
+  }
+
+  const ctx = { lat: snapshot.coord.lat, lon: snapshot.coord.lon };
+
+  // ⑥ 海拔：地点卡的主体之一，失败只废这一行（卡里其余两行照常显示）
+  await _safePull(
+    snapshot,
+    'elevation',
+    ctx,
+    (data) => {
+      snapshot.elevationM = data && data.elevationM !== undefined ? data.elevationM : null;
+    },
+    () => {
+      renderPlaceCard(root, snapshot);
+    }
+  );
+  if (epoch !== _epoch) return;
+
+  // ⑦ 逆地理反查：地名进页头与地点卡，失败不影响其余内容
+  await _safePull(
+    snapshot,
+    'reverse',
+    ctx,
+    (data) => {
+      if (data && data.placeName) snapshot.placeName = data.placeName;
+    },
+    () => {
+      renderHeader(root, snapshot);
+      renderPlaceCard(root, snapshot);
+    }
+  );
+  if (epoch !== _epoch) return;
+
+  // ⑧ 瓦片探测：不重试；模式由**整批**结果裁决（探一块时 grid 数学上不可达）
+  try {
+    const tiles = sampleTiles(snapshot.coord);
+    const probes = await probeTileBatch('street', tiles, {
+      count: TILE_PROBE_COUNT,
+      budgetMs: TILE_PROBE_BUDGET_MS,
+      shouldStop: () => epoch !== _epoch,
+    });
+    if (epoch !== _epoch) return;
+    log('tile probes', probes.map((p) => (p.ok ? (p.fromCache ? 'ok(cache)' : 'ok') : 'fail')).join(' / '));
+    if (probes.length >= 2) {
+      degradeMapMode(probes);
+    } else {
+      log('tile probes too few to judge', String(probes.length));
+    }
+  } catch (err) {
+    if (epoch !== _epoch) return;
+    // 探测本身抛异常（无 probe 结果可裁决）→ 直接判无地图
+    setNoMapMode(true);
+    log('tile probe failed', err && err.message);
+  }
+
+  // ⑨ 底图按裁决后的三态重画 + 横幅 + 溯源
+  try {
+    renderMapCard(root, { coord: snapshot.coord });
+  } catch (err) {
+    log('map render failed (after probe)', err && err.message);
+  }
+  renderBanner(bannerEl, _bannerMode());
+  renderProvenance(root, snapshot);
+  // 传感器回调不需要在这里接线：`rerender()` 已经把 `onSensorChange` 交给罗盘卡了
+  // （见 createCompassRenderer 的注释 —— 少了这一步，那颗「启用」按钮就是死的）。
 }
 
 // DOM 就绪后启动；非浏览器环境（Node 侧检查）不执行
