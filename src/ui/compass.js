@@ -587,8 +587,9 @@ export function renderModelCard(root, snapshot) {
         // ★2026-10 真机缺陷：这里原来标 `card.magnetic`（「地磁要素」），值是小数年 ——
         //   界面读到「地磁要素 2026.82」，标签张冠李戴（地磁要素指 D/I/F/H 那些量）。
         //   ★如实记录一处副作用：这一行本来是 `card.magnetic` 在 src 里的**唯一**引用点，
-        //   换键之后该键在源码里已无引用（成为孤儿键）。按裁决「不许动 card.magnetic」
-        //   保留原样，不删；项目目前没有孤儿键门禁，不会因此报红。
+        //   换键之后它在 src 里确实没有引用了 —— 但**不是孤儿**：`tests/compass.test.mjs`
+        //   拿它当反向锚点（「不许再借『地磁要素』当这一行的标签」），删了那条断言会
+        //   静默失效。按裁决「不许动 card.magnetic」保留原样，用途写在 i18n 表该键旁边。
         _kv(
           t('compass.modelAt'),
           snapshot.mag ? fmt.num(snapshot.mag.decimalYear, 2) : t('app.dash')

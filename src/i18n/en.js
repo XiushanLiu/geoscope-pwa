@@ -265,6 +265,11 @@ export const EN = {
   'compass.calcNote': 'Values are computed by the model, not calibrated on site',
 
   'card.declination': 'Declination',
+  // No longer rendered (2026-10-26: the model card's last row uses `compass.modelAt`). Kept ONLY as a
+  // reverse anchor: `tests/compass.test.mjs` asserts this key must NOT be reused as that row's label.
+  // Delete it and `t()` returns the key literal 'card.magnetic' — the assertion stays green while
+  // pinning nothing, and nothing reports red (same silent-weakening class as `compass.title`, which is
+  // the conservative upper bound of section 16 in tools/check.mjs).
   'card.magnetic': 'Magnetic elements',
   'card.model': 'Model',
   'card.convert': 'True ↔ magnetic bearing',

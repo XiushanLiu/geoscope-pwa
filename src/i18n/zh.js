@@ -264,6 +264,11 @@ export const ZH = {
   'compass.calcNote': '数值由模型算出，未经实地标定',
 
   'card.declination': '磁偏角',
+  // ★本键已不上屏（2026-10-26 起模型卡末行改用 `compass.modelAt`）。保留**仅作反向锚点**：
+  //   `tests/compass.test.mjs` 拿它断言「不许再借『地磁要素』当那一行的标签」；删了它，
+  //   `t()` 会返回键名字面量 'card.magnetic'，那条断言就变成拿中文标签比一个英文字符串
+  //   —— **永远绿、却什么都没钉住，且不报红**（与 `compass.title` 在 tools/check.mjs
+  //   第 16 节的用途同一类：都是「看似没用、删了护栏静默变弱」的键）。
   'card.magnetic': '地磁要素',
   'card.model': '模型信息',
   'card.convert': '真方位 ↔ 磁方位换算',
