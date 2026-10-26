@@ -699,8 +699,12 @@ export function renderAirCard(root, snapshot) {
     h('div', { class: 'card' }, [
       h('div', { class: 'card--row' }, [
         h('p', { class: 'card-title', text: t('card.air') }),
-        // AQI 用 displayValue（钳制负值），避免出现「优 · AQI -10」这类自相矛盾文案
-        h('span', { class: `chip chip--${info.level === 'good' || info.level === 'fair' ? 'ok' : info.level === 'extreme' ? 'failed' : 'stale'}`, text: `${t(info.levelKey)} · AQI ${info.displayValue}` }),
+        // AQI 用 displayValue（钳制负值），避免出现「优 · AQI -10」这类自相矛盾文案。
+        // ★2026-10 真机：这里原写「AQI 74」，中国用户会按国标读（51–100 = 良），
+        //   而这个数取自 `european_aqi`、档位 20/40/60/80/100 是**欧洲 AQI** 的 ——
+        //   数值没错，错在没说清这个数是**在哪把尺子上量的**。所以标签写 EAQI。
+        //   ★只补标签，不补算法：wmo.js 的阈值与 aqi() 的判定式一个字都不动。
+        h('span', { class: `chip chip--${info.level === 'good' || info.level === 'fair' ? 'ok' : info.level === 'extreme' ? 'failed' : 'stale'}`, text: `${t(info.levelKey)} · EAQI ${info.displayValue}` }),
       ]),
       h('div', { class: 'kv' }, [
         _kv(t('w.pm10'), fmt.pollutant(a.pm10)),
@@ -708,6 +712,8 @@ export function renderAirCard(root, snapshot) {
         _kv(t('w.ozone'), fmt.pollutant(a.ozone)),
         _kv(t('w.no2'), fmt.pollutant(a.no2)),
       ]),
+      // ★尺度说明放在数值与建议之间：先看清是哪个尺子，再看该不该减少户外活动
+      h('p', { class: 'card-note', text: t('air.aqiScale') }),
       h('p', { class: 'card-title', text: t(info.adviceKey) }),
     ]),
   ]);

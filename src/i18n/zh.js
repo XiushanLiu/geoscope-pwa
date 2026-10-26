@@ -126,6 +126,11 @@ export const ZH = {
 
   'card.weather': '天气',
   'card.air': '空气',
+  // ★2026-10 真机：空气卡上的数取自 `european_aqi`（欧洲 AQI，档位 20/40/60/80/100），
+  //   等级词却和国标用同一套字 —— 中国用户会把 EAQI 74 读成国标的「良」（51–100），
+  //   而欧标里它落在 60–80 = 差。数值没错，缺的是「这把尺子是哪把」，所以这句必须上屏。
+  //   ★只标尺度，不改算法（wmo.js 的阈值与 aqi() 的判定式一字未动）。
+  'air.aqiScale': 'AQI 为欧洲标准（EAQI），档位与中国国标不同',
   'card.place': '位置',
   'card.provenance': '数据来源',
   // ★「这一路命中了本地缓存」：没发请求，不许显示 0 ms。与 map.cacheHit 各用各的键，故意不互借。
@@ -503,8 +508,9 @@ export const ZH = {
   'csv.h.uvLevel': '紫外线档位',
   'csv.h.todayMax': '今日最高（°C）',
   'csv.h.todayMin': '今日最低（°C）',
-  'csv.h.aqi': '欧洲 AQI',
-  'csv.h.aqiLevel': 'AQI 档位',
+  // ★与屏幕口径一致：空气卡上写的是 EAQI（欧洲标准），导出的两列也必须是同一把尺子。
+  'csv.h.aqi': '欧洲 AQI（EAQI）',
+  'csv.h.aqiLevel': 'EAQI 档位',
   'csv.h.pm10': 'PM10（µg/m³）',
   'csv.h.pm25': 'PM2.5（µg/m³）',
   'csv.h.ozone': '臭氧（µg/m³）',

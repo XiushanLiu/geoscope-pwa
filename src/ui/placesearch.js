@@ -221,6 +221,27 @@ export function createPlaceSearch(opts = {}) {
     });
   }
 
+  /**
+   * 空结果时「补一次『市』」的重试词。
+   *
+   * ★为什么只补「市」这一条：真机实测（`geocoding-api.open-meteo.com` = GeoNames）
+   *   —— 泉州 0 条 / 泉州市 1 条、厦门 0 / 厦门市 1、温州 0 / 温州市 1，
+   *   而北京 / 上海 / 苏州 / 东莞 / 无锡 / 宁波 不带「市」就有。缺的是**带后缀的别名**，
+   *   不是这些城市本身。
+   *   ★也有补了仍为 0 的（晋江 / 晋江市 / 石狮市 实测都是 0）—— 那种是真没有，
+   *   照常说「没有找到这个地方」，不许继续加后缀去凑（补一次就停）。
+   *
+   * @param {string} kw 原关键词（已 trim）。
+   * @returns {string|null} 重试词；不该重试时返回 null。
+   */
+  function _citySuffixKeyword(kw) {
+    // ① 纯汉字才补：拼音（Quanzhou）、含空格或英文的词补「市」只会更糟
+    if (!/^[\u3400-\u9fff]+$/.test(kw)) return null;
+    // ② 已经带了行政区划后缀就别再加（「泉州市市」不是地名）
+    if (/(市|区|县|镇|乡|村)$/.test(kw)) return null;
+    return `${kw}市`;
+  }
+
   return {
     /** @returns {string} 当前结果态。 */
     get status() {
@@ -393,7 +414,34 @@ export function createPlaceSearch(opts = {}) {
         return res || null;
       }
 
-      const list = _navigable(Array.isArray(res.data) ? res.data : []);
+      let list = _navigable(Array.isArray(res.data) ? res.data : []);
+
+      // ★2026-10 真机缺陷：中文地名搜不到（泉州 / 厦门 / 温州）。根因是**上游数据缺口**，
+      //   不是解析错 —— `geocoding-api.open-meteo.com`（= GeoNames）的中文别名索引只登记了
+      //   一部分城市的带「市」写法：泉州 → 0 条、泉州市 → 1 条；厦门 / 温州同理。
+      //   所以空结果时按规则补一次「市」再问一次（★只补一次，不许循环）。
+      //   ★补请求是**锦上添花**：它失败（抛异常 / !ok）时保留第一次的真实结果（空），
+      //   照常走 EMPTY —— 不许把「没找到」改写成「网络错误」（那正是 'search.failed' 与
+      //   'search.empty' 必须是两句话的原因）。
+      //   ★健康台账因此会记两次 geocode attempt：确实发了两次，诚实记录，不去抵消。
+      if (list.length === 0) {
+        const retryKw = _citySuffixKeyword(kw);
+        if (retryKw) {
+          // 竞态守卫：补请求**发出前**也要查一次，慢的旧响应不许覆盖用户的新输入
+          if (isStale()) return null;
+          try {
+            const res2 = await fetchFn('geocode', { keyword: retryKw, lang });
+            // 竞态守卫（另一半）：**拿到结果后**也要查一次
+            if (isStale()) return null;
+            if (res2 && res2.ok) {
+              list = _navigable(Array.isArray(res2.data) ? res2.data : []);
+            }
+          } catch (err) {
+            // 补请求抛异常：什么都不做 —— `list` 仍是第一次的真实结果（空）
+          }
+        }
+      }
+
       _commit({
         status: list.length > 0 ? SEARCH_STATUS.OK : SEARCH_STATUS.EMPTY,
         results: list,

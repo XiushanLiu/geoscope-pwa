@@ -473,3 +473,110 @@ test('★状态住在控制器里：标题区整槽重建后，输入过的关�
   assert.ok(input2, '重建后面板必须还在（状态不在 DOM 里，所以能照着 state 重画回来）');
   assert.equal(input2.value, '重建用例', '★打过的字不许被整槽重建抹掉');
 });
+
+/* ------------------------------------------------------------------ */
+/* 5. 中文地名补「市」重试（2026-10 真机：泉州 / 厦门 / 温州 搜不到）    */
+/*                                                                      */
+/* ★根因是**上游数据缺口**，不是解析错：geocoding-api.open-meteo.com    */
+/*   （= GeoNames）的中文别名索引只登记了一部分城市的带「市」写法。      */
+/*   所以空结果时补一次「市」再问一次 —— 补一次就停，不许循环。          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 造一个「按 keyword 分流」的假取数函数，并记账每一次调用。
+ *
+ * @param {Object<string, Array<Object>>} table keyword → 结果列表。
+ * @param {Object} [opts] `throwOn`：这些 keyword 一律抛异常。
+ * @returns {{calls:Array<string>, fetch:Function}} 调用记录与取数函数。
+ */
+function keywordFetch(table, opts = {}) {
+  const calls = [];
+  const boom = opts.throwOn || [];
+  return {
+    calls,
+    fetch: async (id, ctx) => {
+      calls.push(ctx.keyword);
+      if (boom.includes(ctx.keyword)) throw new Error('network down');
+      return { ok: true, data: table[ctx.keyword] || [] };
+    },
+  };
+}
+
+/** 泉州（带「市」才有）—— 真机实测：泉州 0 条、泉州市 1 条。 */
+const QUANZHOU = { name: '泉州市', lat: 24.91389, lon: 118.58583, country: '中国', admin1: '福建省' };
+
+test('★中文地名补「市」：「泉州」上游 0 条 → 自动再问一次「泉州市」并命中', async () => {
+  const { calls, fetch } = keywordFetch({ 泉州: [], 泉州市: [QUANZHOU] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('泉州');
+
+  assert.equal(ctl.status, 'ok', `★泉州必须搜得到（靠补「市」那一次），实际 ${ctl.status}`);
+  assert.equal(ctl.results.length, 1);
+  assert.equal(ctl.results[0].name, '泉州市');
+  assert.equal(ctl.results[0].admin1, '福建省');
+  // ★变异验证：去掉补「市」这一步，这条会红（1 次 + 状态变 empty）
+  assert.deepEqual(calls, ['泉州', '泉州市'], `必须恰好发两次，实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+test('★补了也还是 0 条（晋江这类真没有的）：状态仍是 empty，且只补一次不许循环', async () => {
+  const { calls, fetch } = keywordFetch({ 晋江: [], 晋江市: [] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('晋江');
+
+  assert.equal(ctl.status, 'empty', '★补了「市」仍然 0 条 = 真没有，不许说成「搜索失败」');
+  assert.equal(ctl.results.length, 0);
+  assert.deepEqual(calls, ['晋江', '晋江市'], '补一次就停（不许「市市」「市市市」地循环）');
+  ctl.dispose();
+});
+
+test('★第一次就有结果时绝不许多发一次请求（一次多余的请求比一次多余的等待贵）', async () => {
+  const { calls, fetch } = keywordFetch({ 北京: [BJ], 北京市: [BJ] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('北京');
+
+  assert.equal(ctl.status, 'ok');
+  // ★变异验证：把补「市」的条件写成「不管有没有结果都补」，这条会红
+  assert.deepEqual(calls, ['北京'], `★命中了就只许发一次，实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+test('★补请求失败：保留第一次的真实结果（空），不许把「没找到」改写成「网络错误」', async () => {
+  // ★这是本组最要紧的一条：补请求是锦上添花，它的失败不能污染第一次的真实结论。
+  //   变异验证：把补请求的失败分支写成 ERROR，这条会红。
+  const calls = [];
+  const ctl = ps.createPlaceSearch({
+    fetch: async (id, ctx) => {
+      calls.push(ctx.keyword);
+      if (ctx.keyword === '泉州市') throw new Error('network down');
+      return { ok: true, data: [] };
+    },
+  });
+
+  await ctl.run('泉州');
+
+  assert.equal(ctl.status, 'empty', '★补请求失败时必须仍是「没有这个地方」，不是「搜索失败」');
+  assert.equal(ctl.errorMessage, '', '补请求的失败原因不许写进状态');
+  assert.deepEqual(calls, ['泉州', '泉州市'], '补请求确实发出去了（发了两次就是两次，诚实记账）');
+  ctl.dispose();
+});
+
+test('★不该补的场景：拼音 / 已带行政区划后缀 —— 一次都不许多问', async () => {
+  const { calls, fetch } = keywordFetch({ Quanzhou: [], 泉州市: [QUANZHOU], 思明区: [] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('Quanzhou'); // 非纯汉字
+  assert.deepEqual(calls, ['Quanzhou'], '拼音不补「市」');
+
+  await ctl.run('泉州市'); // 已带后缀
+  assert.deepEqual(calls, ['Quanzhou', '泉州市'], '已经带「市」就不许再加成「泉州市市」');
+  assert.equal(ctl.status, 'ok');
+
+  await ctl.run('思明区'); // 已带区
+  assert.deepEqual(calls, ['Quanzhou', '泉州市', '思明区'], '已带「区」也不补');
+  assert.equal(ctl.status, 'empty', '补不了又不命中，就该如实说没找到');
+  ctl.dispose();
+});

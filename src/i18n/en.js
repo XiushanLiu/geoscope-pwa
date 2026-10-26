@@ -125,6 +125,11 @@ export const EN = {
 
   'card.weather': 'Weather',
   'card.air': 'Air',
+  // ★2026-10 device: the number comes from `european_aqi` (bands 20/40/60/80/100), while the
+  //   level words read like China's national standard — a Chinese user reads EAQI 74 as "良"
+  //   (51-100) when it is 60-80 = poor on the European scale. The number is right; what was
+  //   missing is which ruler it was measured on. ★Label only — no algorithm change.
+  'air.aqiScale': 'AQI is the European standard (EAQI); its bands differ from China\'s national standard',
   'card.place': 'Place',
   'card.provenance': 'Sources',
   // "No request was sent" — must never render as 0 ms. Own key, not borrowed from map.cacheHit.
@@ -517,8 +522,8 @@ export const EN = {
   'csv.h.uvLevel': 'UV band',
   'csv.h.todayMax': "Today's high (°C)",
   'csv.h.todayMin': "Today's low (°C)",
-  'csv.h.aqi': 'European AQI',
-  'csv.h.aqiLevel': 'AQI band',
+  'csv.h.aqi': 'European AQI (EAQI)',
+  'csv.h.aqiLevel': 'EAQI band',
   'csv.h.pm10': 'PM10 (µg/m³)',
   'csv.h.pm25': 'PM2.5 (µg/m³)',
   'csv.h.ozone': 'Ozone (µg/m³)',

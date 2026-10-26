@@ -215,8 +215,15 @@ test('snapshotToCsv：数值按界面口径算出（含时区偏移换算的观�
   assert.equal(byHeader['风向'], t('w.windFrom', { dir: t(windDir16(135).abbrKey) }));
   assert.equal(byHeader['天气现象'], t(wmo(2, true).key));
   assert.equal(byHeader['天气码'], String(wmo(2, true).code));
-  assert.equal(byHeader['欧洲 AQI'], '30');
-  assert.equal(byHeader['AQI 档位'], '良', '30 落在「良」档（20 < v ≤ 40）');
+  // ★2026-10 真机：表头改成 EAQI 口径（与屏幕一致 —— 空气卡上写的是 EAQI）。
+  //   用 `t()` 取而不是写死字面量：写死的话改表头文案时这条会红，那是假失败；
+  //   而「列还在、表头说的还是欧洲标准」才是要钉的（★改的是表头文案，列一列没删）。
+  assert.equal(byHeader[t('csv.h.aqi')], '30');
+  assert.equal(byHeader[t('csv.h.aqiLevel')], '良', '30 落在「良」档（20 < v ≤ 40）');
+  assert.ok(
+    t('csv.h.aqi').includes('EAQI') && t('csv.h.aqiLevel').includes('EAQI'),
+    `两列表头必须标明是欧洲标准（EAQI），实际：${t('csv.h.aqi')} / ${t('csv.h.aqiLevel')}`
+  );
   assert.equal(byHeader['紫外线指数'], '5');
   assert.equal(byHeader['紫外线档位'], '中', '5 落在「中」档（2 < v ≤ 5）');
   assert.equal(byHeader['昼长（分）'], String(Math.round((Date.UTC(2025, 0, 5, 10, 32) - Date.UTC(2025, 0, 4, 22, 20)) / 60000)));

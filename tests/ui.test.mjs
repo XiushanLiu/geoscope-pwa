@@ -281,6 +281,26 @@ test('此刻屏冷启动：定位被拒（无 geolocation）也能渲染，走�
   assert.equal(dom.byId['banner'].hidden, true, '全绿时不得显示降级横幅');
 });
 
+test('★空气卡必须标明这把尺子是欧洲标准（EAQI）：数值与等级词不许被当成国标读', () => {
+  // 真机：空气卡显示「差 · AQI 74」+ 建议减少户外活动。中国用户按国标读 74 = 「良」
+  // （51–100），而这个数取自 european_aqi、档位 20/40/60/80/100 是**欧洲 AQI**，
+  //   74 落在 60–80 = poor。数值没错，缺的是「这把尺子是哪把」。
+  const root = document.createElement('div');
+  now.renderSkeleton(root);
+  now.renderAirCard(root, {
+    air: { europeanAqi: 74, pm10: 30, pm25: 20, ozone: 90, no2: 20 },
+  });
+  const card = text(root.querySelector('#card-air'));
+  assert.ok(card.includes('EAQI 74'), `chip 必须写 EAQI 而不是光写 AQI，实际：${card}`);
+  assert.ok(
+    card.includes(i18n.t('air.aqiScale')),
+    `★必须说明是欧洲标准（档位与国标不同），实际：${card}`
+  );
+  // ★只补标签、不补算法：等级词与建议仍是 wmo.js 那套（74 → 差 / 减少户外活动）
+  assert.ok(card.includes(i18n.t('level.aqi.poor')), `74 在欧标里仍是「差」，实际：${card}`);
+  assert.ok(card.includes(i18n.t('aqi.poor.advice')), '建议那行不许丢');
+});
+
 test('DOM 挂载点稳定：天气/空气/气候常态/溯源四个 slot 都存在且唯一', async () => {
   // ★2026-10-17 导航重构：原来的第四个是 `card-place`（地点卡）。地点卡搬去了地理页，
   //   气候页的槽位变成 `search→weather→air→climate→prov→legend`，
