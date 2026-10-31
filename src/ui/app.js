@@ -98,6 +98,16 @@ let _epoch = 0;
 /**
  * 注册 Service Worker（失败静默：file:// 或非安全上下文下不可用）。
  *
+ * ★注册之后**主动催一次更新**并让等待中的新壳立刻接管 —— 只看 register() 是不够的：
+ *   浏览器默认只在导航时顺便查一次 sw.js，而真机可以几周都停在旧壳上（有用户报的
+ *   bug 最后查出来就是设备跑着两周前的副本：线上文件全是新的，本机那份不是）。
+ *   装上新壳之后它默认停在 waiting 等旧页面全部关闭，所以这里补一句
+ *   `postMessage({type:'skip-waiting'})`，让 activate 立刻发生。
+ *
+ * ★这里**故意不加 location.reload()**：自动重载会把用户正在输入的搜索词冲掉，
+ *   风险大于收益。本单只做到「让新壳尽快接管，下次进入即是新版」；想立刻看新版的用户
+ *   可以在「我的」页那张壳版本卡上点「检查更新」，结果文案会如实告诉他。
+ *
  * @returns {void}
  */
 function _registerSW() {
@@ -106,7 +116,23 @@ function _registerSW() {
   // 本地 http / https 均可；file:// 下 serviceWorker 不存在，已在上面短路
   navigator.serviceWorker
     .register('sw.js')
-    .then(() => log('sw registered'))
+    .then((reg) => {
+      if (!reg) return;
+      log('sw registered');
+      // 默认只在导航时查一次，这里手动催一次（失败无所谓：下次导航还会再查）
+      if (typeof reg.update === 'function') reg.update().catch(() => {});
+      // 已经有新壳在等（比如上次进来时装好的）：让它立刻接管
+      if (reg.waiting) reg.waiting.postMessage({ type: 'skip-waiting' });
+      if (typeof reg.addEventListener !== 'function') return;
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener('statechange', () => {
+          // 装完且已经进 waiting 才催：installed 但没进 waiting 的新壳催了也没用
+          if (sw.state === 'installed' && reg.waiting) reg.waiting.postMessage({ type: 'skip-waiting' });
+        });
+      });
+    })
     .catch((err) => log('sw register failed', err && err.message));
 }
 
