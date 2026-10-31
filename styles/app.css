@@ -1217,6 +1217,16 @@ body[data-page="compare"] {
   line-height: 1.5;
 }
 
+/* 「已到当前样式的缩放上限」那一句：只在到顶时出现（常驻就是一行永久噪声）。
+   ★刻意**不写 color**：继承卡片正文色 —— 既不新增 `color:` 声明（tools/contrast-audit.mjs
+     全量扫的就是它），对比度也必然不低于正文。
+   ★必须能折行：它是独立一行而不是拼进 nowrap 的 .map-status，就是为了这点。 */
+.map-cap {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
 .map-foot {
   margin: 0;
   font-size: var(--fs-xs);

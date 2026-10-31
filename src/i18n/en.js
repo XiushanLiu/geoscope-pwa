@@ -355,6 +355,10 @@ export const EN = {
   'map.noMapNote': 'Coordinates and values are unaffected',
   'map.zoomIn': 'Zoom in',
   'map.zoomOut': 'Zoom out',
+  // "Zoom maxed out" must be said out loud: before this, hitting the style's ceiling only greyed out
+  // the + button — users could not tell a network failure from "this style simply has no finer data"
+  // (streets cap at z13 in China, two taps in). Shown only when actually at the ceiling.
+  'map.zoomMax': 'This style supports up to zoom {z}',
   'map.footnote': 'Tiles cached by URL for 7 days · requests only after you trust the source · 6 s timeout, no retry',
   'map.gridFootnote': 'Missing basemap tiles do not affect coordinates or values · grid still works offline',
   'map.credit': 'Basemap attribution',

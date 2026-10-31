@@ -352,6 +352,9 @@ export const ZH = {
   'map.noMapNote': '坐标与数值不受影响',
   'map.zoomIn': '放大',
   'map.zoomOut': '缩小',
+  // ★「画不动了」要说出来：以前顶到缩放上限只有一个变灰的 +，用户不知道是网络失败还是到底了
+  //   （street 在中国上限 z13，放大两下就撞上）。只在到顶时出现，不许常驻。
+  'map.zoomMax': '此样式最高只到 {z} 级',
   'map.footnote': '瓦片按 URL 缓存 7 天 · 授信后发请求 · 6 s 超时不重试',
   'map.gridFootnote': '底图缺块不影响坐标与数值 · 离线仍可出网格',
   'map.credit': '底图署名',

@@ -4,7 +4,7 @@
  * 职责：把瓦片拼成一张地图卡。网络、探测、指纹、授信、三态裁决全在 `src/data/tiles.js`
  * 完成，本模块只做「瓦片号 + 字节 → 节点」，不自己发请求、不自己判降级。
  *
- * 四条不变量（勿回退）：
+ * 五条不变量（勿回退）：
  *   1) **瓦片 URL 顺序是 `{z}/{y}/{x}`**（Esri，不是常见的 `{z}/{x}/{y}`）。本模块只调
  *      `tileUrl()`，绝不自己拼 URL —— 顺序写反不会报错，只会静默拉到地球另一侧的瓦片，
  *      而且「看起来像地图」，是最难发现的一类错。
@@ -17,6 +17,10 @@
  *      设计稿里没画这一行，是设计稿漏了，代码必须补。
  *   4) **Blob URL 必须回收**：缓存命中走 `createObjectURL`，不 `revokeObjectURL` 会在
  *      96 块 LRU 之外再漏一份内存（每块约 20 KB，翻几次样式就上百块）。
+ *   5) **缩放上限按当前样式取**（`maxZoomOf(_view.styleId)`），**不许**拿全局
+ *      `MAX_ZOOM` 去 clamp（2026-10-31 加）：Esri 在中国 z14 起返回 HTTP 200 的
+ *      占位图，街道样式上限只有 z13、影像能到 z19 —— 用全局上界会把用户送到占位图层级，
+ *      而界面不会有任何提示。切样式时若当前层级超过新样式的上限，必须**降级**。
  *
  * 另两条条款（写在这里是因为只有渲染侧会想做它们）：
  *   - 不得用 robots / 自动批量拉取 ArcGIS Online 地图。本模块的按需拉瓦片（视口内
@@ -33,7 +37,7 @@ import {
   TILE_STYLES,
   TILE_SIZE,
   MIN_ZOOM,
-  MAX_ZOOM,
+  DEFAULT_STYLE_ID,
   DEFAULT_ZOOM,
   MAP_MODE,
   lonLatToTile,
@@ -42,6 +46,7 @@ import {
   tileCachedBytes,
   mapMode,
   isStyleTrusted,
+  maxZoomOf,
 } from '../data/tiles.js';
 
 /**
@@ -77,9 +82,14 @@ export const VIEW_H = 260;
  *
  * 与 `tiles.js` 的 `_mapMode` 同款做法 —— 同一份状态只在一处存，编排层不缓存第二份。
  *
+ * 起手样式取 `DEFAULT_STYLE_ID`（今天是 imagery）：2026-10-31 实测 street 在北京
+ * z14 起返回 "Map data not yet available" 占位图，而它是 HTTP 200 + 合法 JPEG，
+ * 界面完全看不出来 —— 让用户在国内默认的还是 street，等于默认给用户一张英文灰图。
+ * 理由全文与实测方法写在 tiles.js 的 `DEFAULT_STYLE_ID` 注释与文件头，改这里先去读。
+ *
  * @type {{styleId:string, zoom:number, coord:{lat:number, lon:number}|null}}
  */
-const _view = { styleId: 'street', zoom: DEFAULT_ZOOM, coord: null };
+const _view = { styleId: DEFAULT_STYLE_ID, zoom: DEFAULT_ZOOM, coord: null };
 
 /**
  * 已创建但尚未回收的 Blob URL。
@@ -144,19 +154,36 @@ function _revokeBlobs() {
  *   —— 原来唯一传值的路线图随自驾删除了；这个参数按「将来可能还有非街道级取景」
  *   保留，不是死参数（默认值分支仍在被走）。
  *
+ * ★上界取 `maxZoomOf(当前样式)`，**不再是**一个全局最大值（2026-10-31 改）：
+ *   street 在北京 z14 起就是 Esri 的占位图，而它是 HTTP 200 + 合法 JPEG —— 用全局
+ *   16 去 clamp 会把用户送到占位图层级，且界面不会说一句话。数字来源见 tiles.js。
+ *   ★因此 `patch.styleId` 必须在算上界**之前**落地，否则「切样式」这次调用用的还是
+ *   旧样式的上限。
+ *
+ * ★**切样式即降级**：「 imagery z19 → 切到 street」这条路径没有 `patch.zoom`，
+ *   所以不能只在 `Number.isFinite(z)` 那个分支里 clamp —— 必须在剩下的那个分支里
+ *   把当前 zoom 重钳一遍，否则切完样式还停在 z19，下一次渲染就请求到占位图。
+ *   （这条最容易漏，测试 `map-render.test.mjs` 有专门一条钉着它。）
+ *
  * @param {{styleId?:string, zoom?:number, coord?:{lat:number, lon:number}|null}} patch 增量。
  * @param {number} [minZoom] 缩放下界；缺省 `MIN_ZOOM`。非法值按缺省处理（防御性：宁可
  *   退回街道级，也不接受 `undefined` 之外的乱值把视图拖到 z0）。
  * @returns {{styleId:string, zoom:number, coord:{lat:number, lon:number}|null}} 合并后的视图。
  */
 export function setMapView(patch = {}, minZoom = MIN_ZOOM) {
+  // ① 先落样式：后面的上界要按**新样式**算
   if (typeof patch.styleId === 'string' && TILE_STYLES[patch.styleId]) {
     _view.styleId = patch.styleId;
   }
   const lo = Number.isFinite(Number(minZoom)) ? Math.round(Number(minZoom)) : MIN_ZOOM;
+  const hi = maxZoomOf(_view.styleId);
   const z = Number(patch.zoom);
   if (Number.isFinite(z)) {
-    _view.zoom = Math.min(MAX_ZOOM, Math.max(lo, Math.round(z)));
+    _view.zoom = Math.min(hi, Math.max(lo, Math.round(z)));
+  } else {
+    // 没给 zoom（典型是切样式 / 只换坐标）：把当前层级重钳一遍 —— 切到上限更低的
+    // 样式时，这一步就是「降级」，不写就带着旧层级越界。
+    _view.zoom = Math.min(hi, Math.max(lo, _view.zoom));
   }
   if (patch.coord && Number.isFinite(Number(patch.coord.lat)) && Number.isFinite(Number(patch.coord.lon))) {
     _view.coord = { lat: Number(patch.coord.lat), lon: Number(patch.coord.lon) };
@@ -383,8 +410,10 @@ function _zoomNode(onChange) {
     }
     return btn;
   };
+  // 到顶与否按**当前样式**的上限判：street 到 13 就禁用，imagery 还能放到 19
+  const zoomTop = _view.zoom >= maxZoomOf(_view.styleId);
   return h('div', { class: 'map-zoom' }, [
-    mk('map.zoomIn', 1, _view.zoom >= MAX_ZOOM),
+    mk('map.zoomIn', 1, zoomTop),
     h('span', { class: 'map-zoom-sep' }),
     mk('map.zoomOut', -1, _view.zoom <= MIN_ZOOM),
   ]);
@@ -503,6 +532,29 @@ function _creditRow() {
   ]);
 }
 
+/**
+ * 「已到当前样式的缩放上限」那一行：**只在到顶时出现**。
+ *
+ * ★为什么要有它：以前顶到上限只有一个变灰的 `+`，用户不知道是网络失败、到底了、
+ *   还是这个样式压根没那么细的数据。而 street 在中国的上限就是 z13 —— 放大两下就撞上，
+ *   不给解释等于让用户猜。
+ *
+ * ★**不许常驻**：绝大多数时候用户根本没到顶，常显就是一行永久噪声（且与它的语义矛盾：
+ *   它说的是「已经到顶」）。所以未到顶时返回 `null`，由 `_fill()` 跳过。
+ *
+ * ★为什么单独一行、不拼进 `.map-status`：`.map-status` 是 `white-space: nowrap`，
+ *   再接一句会越过 320px 视口下卡片的内容宽度（320 − app 内边距 32 − card 内边距 32 ≈ 254px，
+ *   而拼完的字符串按 --fs-xs 估约 257px）—— 横向溢出正是本项目栽过的一类错
+ *   （见 check.mjs 第 17 节）。单独一行可自行折行，超宽不发生。
+ *
+ * @returns {HTMLElement|null} 提示节点；未到顶时 `null`。
+ */
+function _capRow() {
+  const hi = maxZoomOf(_view.styleId);
+  if (_view.zoom < hi) return null;
+  return h('p', { class: 'map-cap', text: t('map.zoomMax', { z: hi }) });
+}
+
 /* ------------------------------------------------------------------ */
 /* 主入口                                                               */
 /* ------------------------------------------------------------------ */
@@ -563,6 +615,9 @@ export function renderMapCard(root, opts = {}) {
     'aria-label': coord ? `${t('card.map')} · ${fmt.coord(coord.lat, coord.lon)}` : t('card.map'),
   });
 
+  // 到顶提示只在「真的铺了瓦片」时出现：纯坐标模式下没有缩放控件，说「已到上限」
+  // 是在描述一个不存在的动作。
+  let capRow = null;
   if (mode === MAP_MODE.NO_MAP || !coord) {
     // 纯坐标模式：一块都不请求。坐标与数值不受影响，这句话要对用户说清楚。
     viewport.className = 'map-viewport map-viewport--nomap';
@@ -578,6 +633,7 @@ export function renderMapCard(root, opts = {}) {
     viewport.appendChild(_pinNode());
     viewport.appendChild(_zoomNode(rerender));
     _fill(detailBox, Array.from(_coordRow(coord, stats).children));
+    capRow = _capRow();
   }
 
   const footKey = mode === MAP_MODE.GRID ? 'map.gridFootnote' : 'map.footnote';
@@ -592,6 +648,8 @@ export function renderMapCard(root, opts = {}) {
       _styleChips(rerender),
       viewport,
       detailBox,
+      // 未到顶时是 null，_fill 会跳过（不占行数、不留空白）
+      capRow,
       _creditRow(),
       h('p', { class: 'map-foot', text: t(footKey) }),
     ]),

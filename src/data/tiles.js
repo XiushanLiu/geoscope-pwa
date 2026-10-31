@@ -27,6 +27,29 @@
  *   要素是否按 GCJ-02 生产**没有官方声明，未确认。若真机发现落点与路网错开数百米，
  *   再启用 `core/geo.js` 的 `wgs84ToGcj02()` 占位函数 —— 现在不要实现纠偏。
  *
+ * 按样式的缩放上限（2026-10-31 实测 → 写成 `TILE_STYLES[*].maxZoom`，见该文件里的注释）：
+ *   Esri 在中国境内并不是每个缩放层级都有真瓦片，没覆盖到的层级返回的是一张**占位图**，
+ *   而它是 **HTTP 200 + 合法 JPEG** —— 探测与渲染都判「成功」，界面不会有任何提示，
+ *   用户放大后看到的就是一张英文灰图（灰底白字 "Map data not yet available"）。
+ *   实测方法：同一层级取北京 / 上海 / 成都三张瓦片，**三者字节完全相同**即判为占位图
+ *   （正常地图三地瓦片不可能逐字节一样）。北京的结果：
+ *     street  → z10–z13 真瓦片，**z14–z20 占位图**
+ *     dark    → z10–z16 真瓦片，z17+ 占位图
+ *     imagery → z10–**z19** 真瓦片，z20 占位图
+ *   对照组（证明是区域覆盖问题、不是服务故障）：street 在东京 / 纽约 / 伦敦的
+ *   z12–z18 全部是真瓦片。
+ *   占位图实体：2521 B 的 JPEG。
+ *   ⚠️ 当初识别它用的那份一次性取数脚本与摘要值（含算法名与十六进制结果）**没有抄进本文件** ——
+ *       第 8 节禁止本文件出现那个算法的字样（防的是「又有人把它引进代码」），
+ *      完整记录写在本笔提交的 message 里。这里保留的是**判据本身**（三地字节全同）与结论。
+ *
+ *   处理方式：**按样式卡住 zoom 上限**（`maxZoomOf()`），让用户根本上不去到占位图的层级。
+ *   ★本次**不**做占位图内容识别（不比摘要、不比字节数）：「real / fake」的判定依旧
+ *     只发生在自检页的多样本比对里（见 `dedupeTiles()`），日常渲染不去猜字节 ——
+ *     靠内容识别要先把那张图请求回来，而那次请求本身就是我们想省掉的。
+ *   ⚠️ 这三个数字是**今天在北京**实测的结果：底图源会补数据也会撤数据，重测之前
+ *     别把它当永久真理；改数字要先重跑一次同法实测，不许推算。
+ *
  * 服务条款（同样来自实测响应，改动前先重读）：
  *   1) **必须署名**：每个服务都返回 `copyrightText`，且 Esri 要求同时显示
  *      "Powered by Esri"（见 `TILE_CREDITS` / `TILE_POWERED_BY` / `tileAttribution()`）。
@@ -50,6 +73,17 @@ export const TILE_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/'
 
 /**
  * 三种样式定义。注意 dark 的路径层级不同（Canvas/World_Dark_Gray_Base/...），不可照抄 street。
+ *
+ * `maxZoom` 是**各样式自己的**缩放上限，数字来自 2026-10-31 在北京的逐样本比对实测
+ * （方法与对照组见文件头「按样式的缩放上限」那段），改动前先去那里读一遍：
+ *   - street  = 13：z14 起就是占位图 —— 这是把默认样式换成 imagery 的全部理由；
+ *   - imagery = 19：三个样式里唯一能到 z19 的，也决定了自己自用的默认样式；
+ *   - dark    = 16：z17 起占位图（旧代码里那个「全局上限 16」其实是这一路的数字，
+ *                   被当成通用值用在了所有样式上 —— 见 `MAX_ZOOM` 的注释）。
+ *
+ * ★不要把这组的任何一个数字删掉或改成「看起来更保险」的值：
+ *   调高 → 用户又看到那张 "Map data not yet available" 灰图；
+ *   调低 → 明明有数据却不让放大，同样是谎。
  */
 export const TILE_STYLES = {
   street: {
@@ -57,18 +91,21 @@ export const TILE_STYLES = {
     labelKey: 'tile.street',
     path: 'World_Street_Map/MapServer/tile/{z}/{y}/{x}',
     fmt: 'jpeg',
+    maxZoom: 13,
   },
   imagery: {
     id: 'imagery',
     labelKey: 'tile.imagery',
     path: 'World_Imagery/MapServer/tile/{z}/{y}/{x}',
     fmt: 'jpeg',
+    maxZoom: 19,
   },
   dark: {
     id: 'dark',
     labelKey: 'tile.dark',
     path: 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
     fmt: 'png',
+    maxZoom: 16,
   },
 };
 
@@ -112,13 +149,63 @@ export function tileAttribution(styleId) {
 /** 瓦片像素尺寸（三个服务的 tileInfo 均为 256×256）。 */
 export const TILE_SIZE = 256;
 
-/** 缩放层级下限（z10：城市级视野）。 */
+/** 缩放层级下限（z10：城市级视野）。三个样式在 z10 都有真瓦片，故这是**全局**的。 */
 export const MIN_ZOOM = 10;
 
-/** 缩放层级上限（z16：街区级视野；再往上 Esri 暗色样式已无覆盖）。 */
-export const MAX_ZOOM = 16;
+/**
+ * 所有样式里**最大的**那个缩放上限（今天 = 19，来自 imagery）。
+ *
+ * ★它只是「全仓 zoom 的边界上界」，**不是任何单个样式的可用上限**。决定用户能放到
+ *   几级，一律取 `maxZoomOf(当前样式)`（`ui/map.js` 的 clamp 与按钮禁用态都走它）。
+ *   ★用 `MAX_ZOOM` 去 clamp 会怎样：street 会被一路放到 z14–z20，而那正是 Esri
+ *   占位图层级 —— 用户放大两档就看到满屏 "Map data not yet available"（2026-10-31
+ *   实测，见文件头）。历史上那个写死的 16 其实是 **dark** 一路的上限，被当成通用值
+ *   套在了所有样式上，这在中国是错的。
+ *
+ * ★为什么保留这个导出而不是删掉：它是既有测试与调用方引用过的形状（“请求层级不得超过
+ *   MAX_ZOOM”这种**上界**断言）。留着的正当用法只有「上界」这一种；任何要说「这个样式
+ *   能到几级」的地方都必须换成 `maxZoomOf()`。
+ *
+ * ★为什么写成 `Math.max(...)` 而不是写死 19：新样式进来、或某个样式重测后上限变大，
+ *   它自己跟着变，不会留下第二个需要人手动同步、然后悄悄漂移的数字。
+ */
+export const MAX_ZOOM = Math.max(...Object.values(TILE_STYLES).map((s) => s.maxZoom));
 
-/** 起手缩放层级（z12）。 */
+/**
+ * 取某个样式的**实测**缩放上限。
+ *
+ * clamp 的唯一来源：`ui/map.js` 用它算 `_view.zoom` 的上界，也用它决定「放大」按钮
+ * 是否禁用、以及是否要在状态区解释「为什么加号灰了」。
+ *
+ * 未知样式 id 一律返回 `MIN_ZOOM`（= 只能待在最低层级，放不大）：没有任何实测数据能
+ * 支撑它到更高的层级，宁可保守，也不让一个没验过的样式去请求可能全是占位图的层级。
+ * 同理，某个样式的 `maxZoom` 配坏（缺字段 / 非数字 / 低于全局下界）时也退回 `MIN_ZOOM`。
+ *
+ * @param {string} styleId 样式 id。
+ * @returns {number} 该样式的缩放上限（≥ `MIN_ZOOM` 的整数）。
+ */
+export function maxZoomOf(styleId) {
+  const style = TILE_STYLES[styleId];
+  if (!style) return MIN_ZOOM;
+  const z = Number(style.maxZoom);
+  return Number.isFinite(z) ? Math.max(MIN_ZOOM, Math.round(z)) : MIN_ZOOM;
+}
+
+/**
+ * 首屏默认样式：**影像**（imagery）。
+ *
+ * 理由（2026-10-31 实测，见文件头）：street 在北京 **z14 起就是占位图**，
+ * 用户随便放大两档就满屏 "Map data not yet available"；imagery 一直到 **z19**
+ * 都是真瓦片，是国内三个样式里唯一能一路放大到 z19 的那个。
+ * ★默认选的**不是最好看的那个**，而是「在国内真能放大」的那个 —— 而 z12 三个样式
+ *   都有数据，所以 `DEFAULT_ZOOM = 12` 不用跟着改。
+ *
+ * ★不要因此删掉 `street`：小比例尺下它有路名标注（影像没有），用户仍可手动切回去 ——
+ *   只是它不再适合当默认。
+ */
+export const DEFAULT_STYLE_ID = 'imagery';
+
+/** 起手缩放层级（z12）。三个样式在 z12 都有真瓦片。 */
 export const DEFAULT_ZOOM = 12;
 
 /** 瓦片探测超时（毫秒），retry 恒为 0。 */
