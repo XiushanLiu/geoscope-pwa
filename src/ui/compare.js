@@ -46,6 +46,9 @@ import { h, applyI18n } from './now.js';
 import '../data/sources.js';
 // 主题 / 字号是全站属性，本页作为入口之一必须各引导一次（实现见 ui/theme.js）。
 import { applyThemeMode, applyFontScale } from './theme.js';
+
+// 壳更新提示条：任何页面都要能看见「有新版本」（详见 shellupdate.js 文件头）。
+import { watchShellUpdate } from './shellupdate.js';
 // 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
 // （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
 
@@ -548,6 +551,7 @@ export function init() {
   applyFontScale(getFontScale());
 
   applyI18n(document);
+  watchShellUpdate();  // 任何页面都要能看见「有新版本」，见 shellupdate.js
   if (typeof document !== 'undefined' && document.title !== undefined) {
     document.title = `${t('app.name')} · ${t('compare.title')}`;
   }
