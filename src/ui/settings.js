@@ -99,6 +99,32 @@ let _compareCountBox = null;
 /** @type {HTMLElement|null} 对比卡的「先收藏地点」提示行。 */
 let _compareNeedBox = null;
 
+/** @type {HTMLElement|null} 壳版本卡里那一行版本号（SW 回包后要填，留引用同 _favBox）。 */
+let _shellVersionBox = null;
+
+/** @type {HTMLElement|null} 壳版本卡里那一行资产指纹。 */
+let _shellFingerprintBox = null;
+
+/** @type {HTMLElement|null} 壳版本卡的「检查更新」结果行。 */
+let _shellResultBox = null;
+
+/**
+ * 向 SW 问版本号的最长等待（毫秒）。
+ *
+ * 为什么要超时：SW 不回包的原因很多（旧版 SW 不认这个信封、controller 还没接管本页、
+ * 消息通道被打断），而这些情况下页面**不会有任何反应**。不设上限就是那一行永远
+ * 停在「查询中…」，用户看着像卡住了。1.5 s 足够一个健康的 SW 回一次消息。
+ */
+const SHELL_ASK_TIMEOUT_MS = 1500;
+
+/**
+ * 调 `registration.update()` 之后留给「新壳进 waiting」的观察窗（毫秒）。
+ *
+ * update() 只是**发起**检查，它 resolve 时新版可能还在 installing。不等这一下的话
+ * 永远看不到 waiting，按钮会一直说「已是最新」——那是最误导人的一种假话。
+ */
+const SHELL_UPDATE_SETTLE_MS = 800;
+
 /**
  * 取 DOM 元素（缺失返回 null，不抛）。
  *
@@ -593,6 +619,171 @@ function _renderPreview(plan, fileName) {
 }
 
 /**
+ * 渲染「离线壳版本」卡。
+ *
+ * ★为什么要在界面上摆版本号（不是洁癖，是一次真机事故的产物）：
+ *   有用户报「搜泉州没找到、空气卡还是 AQI」，而线上 index.html 与 src/ui/*.js 核过
+ *   **都是新的** —— 设备上跑的是一份两周前的旧壳副本（底部 tab 还是导航重构之前的
+ *   三个）。同一台设备的另一个页面却是新的。也就是说：发布成功了，但用户没换过来，
+ *   而这个 App 当时**没有任何地方**能告诉他这件事，也不会自己去拿新壳。
+ *   这张卡就是那个「能看见」的地方：版本号由**正在运行的 SW 自己报回来**，
+ *   不是页面读常量拼出来的 —— 后者永远显示仓库里的最新值，等于什么也没说。
+ *
+ * ★三条不许退化的规矩：
+ *   1) 拿不到版本号就如实写「未知 / 本环境不支持」，**绝不编一个填上去**；
+ *   2) 问 SW 必须带超时，不能让那一行永远停在「查询中…」；
+ *   3) 检查更新失败必须报失败，**不许吞成「已是最新」**。
+ *
+ * @returns {HTMLElement} 卡片节点。
+ */
+function _renderShellCard() {
+  const versionBox = h('p', { class: 'card-note', id: 'shell-version', text: t('shell.querying') });
+  const fpBox = h('p', { class: 'card-note', id: 'shell-fingerprint', text: '' });
+  const resultBox = h('p', { class: 'card-note', id: 'shell-check-result', text: '' });
+  const btn = h('button', { class: 'btn', type: 'button', id: 'btn-check-update', text: t('shell.checkBtn') });
+  btn.addEventListener('click', _onCheckUpdate);
+
+  _shellVersionBox = versionBox;
+  _shellFingerprintBox = fpBox;
+  _shellResultBox = resultBox;
+
+  return h('div', { class: 'card' }, [
+    h('p', { class: 'card-title', text: t('shell.title') }),
+    versionBox,
+    fpBox,
+    h('div', { class: 'field field--row' }, [btn]),
+    h('p', { class: 'card-note', text: t('shell.hint') }),
+    resultBox,
+  ]);
+}
+
+/**
+ * 向正在运行的 SW 问一句「你是哪一份」，把版本号与指纹填进卡片。
+ *
+ * 只在 SW 存在时才发消息并挂超时；`navigator.serviceWorker` 不存在（file:// 或
+ * 非安全上下文）时**同步**落一句「本环境不支持」—— 那种环境里连问都没处问，
+ * 挂一个注定超时的定时器只会让卡片多 blank 一秒半。
+ *
+ * @returns {void}
+ */
+function _askShellVersion() {
+  const versionBox = _shellVersionBox;
+  const fpBox = _shellFingerprintBox;
+  if (!versionBox) return;
+
+  const nav = typeof navigator !== 'undefined' && navigator ? navigator : null;
+  if (!nav || !nav.serviceWorker) {
+    // ★如实说不支持，不许拿 SHELL_CACHE 之类的常量拼一个版本号出来（见本卡 JSDoc 第 1 条）
+    versionBox.textContent = t('shell.unsupported');
+    if (fpBox) fpBox.textContent = '';
+    return;
+  }
+
+  const sw = nav.serviceWorker;
+  const controller = sw.controller;
+
+  // 首次访问（本页还没被任何 SW 接管）时 controller 为 null：问了也没有人回，
+  // 直接判未知，不必白等满超时。
+  if (!controller || typeof controller.postMessage !== 'function') {
+    versionBox.textContent = t('shell.unknown');
+    if (fpBox) fpBox.textContent = '';
+    return;
+  }
+
+  let settled = false;
+  let timer = null;
+
+  /**
+   * 收尾：先落值，再把监听与定时器都摘掉。
+   *
+   * @param {string} versionText 版本号那一行要显示的文案。
+   * @param {string} fpText 指纹那一行要显示的文案。
+   * @returns {void}
+   */
+  const finish = (versionText, fpText) => {
+    if (settled) return;
+    settled = true;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (typeof sw.removeEventListener === 'function') sw.removeEventListener('message', onMessage);
+    versionBox.textContent = versionText;
+    if (fpBox) fpBox.textContent = fpText || '';
+  };
+
+  /**
+   * SW 回包处理：只认 shell-version 信封，其余消息（别的页面也可能在广播）不碰。
+   *
+   * @param {Object} event MessageEvent。
+   * @returns {void}
+   */
+  function onMessage(event) {
+    const data = event && event.data;
+    if (!data || typeof data !== 'object' || data.type !== 'shell-version') return;
+    // ★回包里没有版本号（比如跑的是一个不认这个信封的旧 SW）就判未知，不编。
+    const v = typeof data.version === 'string' && data.version ? data.version : t('shell.unknown');
+    const fp = typeof data.fingerprint === 'string' && data.fingerprint ? t('shell.fingerprint', { fp: data.fingerprint }) : '';
+    finish(v, fp);
+  }
+
+  if (typeof sw.addEventListener === 'function') sw.addEventListener('message', onMessage);
+  timer = setTimeout(() => finish(t('shell.unknown'), ''), SHELL_ASK_TIMEOUT_MS);
+  controller.postMessage({ type: 'shell-version' });
+}
+
+/**
+ * 「检查更新」：手动催一次 SW 更新，并让等待中的新壳立刻接管。
+ *
+ * ★为什么这里**不自动 reload()**：页面重载会把用户正在输入的搜索词冲掉，
+ *   风险大于收益。本单只做到「让新壳尽快接管，下次进入即是新版」，
+ *   并把结果如实写在按钮下面，由用户自己决定要不要刷新。
+ *
+ * @returns {Promise<void>} 永不 reject（异常已写进结果行）。
+ */
+async function _onCheckUpdate() {
+  const box = _shellResultBox;
+
+  /**
+   * 写结果行。
+   *
+   * @param {string} s 文案。
+   * @returns {void}
+   */
+  const set = (s) => {
+    if (box) box.textContent = s;
+  };
+
+  const nav = typeof navigator !== 'undefined' && navigator ? navigator : null;
+  if (!nav || !nav.serviceWorker) {
+    set(t('shell.unsupported'));
+    return;
+  }
+
+  set(t('shell.querying'));
+  try {
+    const reg = await nav.serviceWorker.getRegistration();
+    if (!reg) {
+      set(t('shell.unknown'));
+      return;
+    }
+    await reg.update();
+    // update() resolve 时新版可能还在 installing，等这一下才看得到 waiting（见常量注释）
+    await new Promise((resolve) => setTimeout(resolve, SHELL_UPDATE_SETTLE_MS));
+    const pending = reg.waiting || reg.installing;
+    if (pending && typeof pending.postMessage === 'function') {
+      set(t('shell.checking'));
+      pending.postMessage({ type: 'skip-waiting' });
+      return;
+    }
+    set(t('shell.upToDate'));
+  } catch (err) {
+    // ★失败必须报失败：吞成「已是最新」会让用户以为自己拿到新版了（见本卡 JSDoc 第 3 条）
+    set(t('shell.checkFailed', { msg: (err && err.message) || t('app.unknown') }));
+  }
+}
+
+/**
  * 渲染「数据源自检」入口卡。
  *
  * 2026-10-16 导航重构：自检**从底部 tabbar 移进「我的」页**（主导航砍到三个：
@@ -686,7 +877,12 @@ function _renderPage() {
   // (d) 导出 CSV（紧跟备份两张卡：三张都是「把数据带出本机」，连成一片更好找）
   app.appendChild(_renderCsvCard());
 
-  // (d2) 数据源自检 —— 2026-10-16 从底部 tabbar 搬进来（主导航只剩三个，见 MAIN_TABS）。
+  // (d2) 离线壳版本 —— 它和自检一样是**诊断工具**而不是外观设置，所以挨着自检入口放，
+  //      放在数据类卡片末尾、外观类之前。语言卡必须仍压在整页最后（见下面 (g) 的注释），
+  //      不要抢它的位置。
+  app.appendChild(_renderShellCard());
+
+  // (d3) 数据源自检 —— 2026-10-16 从底部 tabbar 搬进来（主导航只剩三个，见 MAIN_TABS）。
   //      位置：数据类卡片末尾、外观类之前 —— 它是诊断工具而不是外观设置；
   //      语言卡必须压在整页最后（点完要整页重画，见下面 (g) 的注释），不能抢它的位置。
   app.appendChild(_renderSelfcheckCard());
@@ -705,6 +901,10 @@ function _renderPage() {
   // 收藏列表内容最后填：卡片刚建好时 _favBox / _favCountBox 才指向真实节点，
   // 这一步顺带把导出卡的 {count} 也算对。
   _refreshFavorites();
+
+  // 壳版本号同理：_renderShellCard() 刚把两个文案位挂上来（_shellVersionBox /
+  // _shellFingerprintBox），现在才指得到真实节点。问 SW 是异步的，不影响渲染。
+  _askShellVersion();
 }
 
 /* ------------------------------------------------------------------ */
