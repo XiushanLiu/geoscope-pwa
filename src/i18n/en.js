@@ -496,6 +496,11 @@ export const EN = {
   'shell.checkFailed': 'Check failed: {msg}',
   'shell.fingerprint': 'Fingerprint {fp}',
   'shell.hint': 'Browsers sometimes keep serving an older offline shell; what you see here is the copy this device is actually running. If it looks older than you expected, the cache has not swapped yet — use "Check for updates" to nudge it.',
+  // Site-wide note (src/ui/shellupdate.js): shown at the top of any page when a new shell has
+  // installed and is waiting to take over. reloadBtn only ever appears on that note — reloading
+  // is the user's click, never automatic (it would wipe a half-typed search term).
+  'shell.updateReady': 'A new version is ready',
+  'shell.reloadBtn': 'Reload now',
 
   // ---------- Export CSV ----------
   // Same rule as the backup JSON privacy note: say up front what is exported and how
