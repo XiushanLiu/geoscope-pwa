@@ -61,6 +61,11 @@ import { placeDisplayName } from './locale.js';
 //   现在 Key 卡与自驾入口卡一起删除，它只剩纯粹的副作用导入用途。
 import '../data/sources.js';
 
+// 壳更新提示条：任何页面都要能看见「有新版本」（详见 shellupdate.js 文件头）。
+// ★本页另有 _renderShellCard() 的「检查更新」按钮，两者是同一条链路的两段：
+//   用户点「检查更新」→ 新壳 activate → 这里探测到 waiting → 出现提示条。
+import { watchShellUpdate } from './shellupdate.js';
+
 /** 主题模式选项（顺序即界面顺序）。 */
 export const THEME_MODES = ['system', 'light', 'dark'];
 
@@ -1082,6 +1087,7 @@ export function init() {
 
   // ② 静态外壳文案统一由 i18n 填充
   applyI18n(document);
+  watchShellUpdate();  // 任何页面都要能看见「有新版本」，见 shellupdate.js
   if (typeof document !== 'undefined' && document.title !== undefined) {
     document.title = `${t('app.name')} · ${t('settings.title')}`;
   }
