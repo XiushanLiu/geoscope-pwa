@@ -66,6 +66,10 @@ import '../data/sources.js';
 //   用户点「检查更新」→ 新壳 activate → 这里探测到 waiting → 出现提示条。
 import { watchShellUpdate } from './shellupdate.js';
 
+// 安装状态机：本页的「添加到桌面」卡只问它三个事实（装没装 / 能不能弹 / 弹的结果），
+//   可见文案一律留在本页走 t()（详见 install.js 文件头）。
+import { initInstallPrompt, isInstalled, canPrompt, promptInstall } from './install.js';
+
 /** 主题模式选项（顺序即界面顺序）。 */
 export const THEME_MODES = ['system', 'light', 'dark'];
 
@@ -396,6 +400,107 @@ function _refreshCompare() {
   if (_compareCountBox) _compareCountBox.textContent = t('compare.current', { count });
   if (_compareBtn) _compareBtn.disabled = count === 0;
   if (_compareNeedBox) _compareNeedBox.textContent = count === 0 ? t('compare.needFav') : '';
+}
+
+/**
+ * 渲染「添加到桌面 / 主屏幕」卡（三态，见 _fillInstallCard）。
+ *
+ * ★为什么压在最上面（页头之后、收藏卡之前）——位置本身就是这次修复的内容：
+ *   真机反馈是「在哪里『添加到桌面或主屏幕』？我没找到」，manifest 与 SW 一直都在、
+ *   浏览器菜单里也一直能装，缺的就是 App 内一个看得见的入口。藏进设置下半部分
+ *   等于没做。
+ *   会不会长期占地方？不会：这是一次性动作 —— 装完这一卡就折叠成一行
+ *   （settings.installedNote），不再有按钮，也不再占视线。
+ *   iOS 尤其不能藏：iOS Safari 永远不触发 `beforeinstallprompt`，那类环境**只能**
+ *   靠这张卡里的手动步骤，藏深了等于这条路径根本不存在。
+ *
+ * @returns {HTMLElement} 卡片节点（id 稳定，供 _refreshInstallCard 原地重画）。
+ */
+function _renderInstallCard() {
+  const card = h('div', { class: 'card', id: 'install-card' });
+  _fillInstallCard(card);
+  return card;
+}
+
+/**
+ * 按**当前**状态重画「添加到桌面」卡的内部内容（原地替换，不换卡片节点本身）。
+ *
+ * ★为什么必须有这个函数：`beforeinstallprompt` 是**异步**到的 —— 典型情形是页面刚
+ *   加载完那一小会儿事件才来，而 `_renderPage()` 早已画完。只画一次的话，用户看到的
+ *   永远是「手动步骤」那一档，按钮**永远不会出现**，这次修复等于没做。
+ *   所以 `initInstallPrompt()` 的 onChange 指向这里；切换语言会整页重画
+ *   （`_renderPage()` → 新建卡片 → `_fillInstallCard()`），那条路径同样对。
+ *
+ * @returns {void}
+ */
+function _refreshInstallCard() {
+  const card = _el('install-card');
+  if (!card) return;  // 不在设置页（别的页面没有这张卡）→ 什么都不做
+  _fillInstallCard(card);
+}
+
+/**
+ * 填卡片内容（三态，判据全部来自 install.js，本页不自行推断平台）。
+ *
+ *   1) 已安装（isInstalled()）→ 一行 settings.installedNote，**无按钮**；
+ *   2) 能弹（canPrompt()）→ settings.installHint + 按钮 settings.installBtn；
+ *   3) 都没有（iOS / 事件还没到 / 已用过）→ settings.installManual 手动步骤，**无按钮**。
+ *
+ * ★第 3 档正是「不许显示点了没反应的按钮」的落点：没捕获到事件就只给文案 ——
+ *   与 `_renderShellCard()` 里「没有 SW 就如实说 unsupported，绝不编版本号」同一条纪律。
+ *
+ * @param {HTMLElement} card 卡片节点。
+ * @returns {void}
+ */
+function _fillInstallCard(card) {
+  card.textContent = '';
+  card.appendChild(h('p', { class: 'card-title', text: t('settings.installTitle') }));
+
+  if (isInstalled()) {
+    // ① 已经装好了：一行说明收尾，不再给任何按钮（一次性动作，装完就该安静）
+    card.appendChild(h('p', { class: 'card-note', id: 'install-note', text: t('settings.installedNote') }));
+    card.appendChild(h('p', { class: 'card-note', id: 'install-result', text: '' }));
+    return;
+  }
+
+  if (canPrompt()) {
+    // ② 手里真有事件对象：这一档的按钮才点了有反应
+    const btn = h('button', { class: 'btn', type: 'button', id: 'btn-install', text: t('settings.installBtn') });
+    btn.addEventListener('click', _onInstallClick);
+    card.appendChild(h('p', { class: 'card-note', id: 'install-note', text: t('settings.installHint') }));
+    card.appendChild(h('div', { class: 'field field--row' }, [btn]));
+    card.appendChild(h('p', { class: 'card-note', id: 'install-result', text: '' }));
+    return;
+  }
+
+  // ③ 既没装、也拿不到事件对象（iOS Safari 就是这一类）：给平台中立的手动步骤
+  card.appendChild(h('p', { class: 'card-note', id: 'install-note', text: t('settings.installManual') }));
+  card.appendChild(h('p', { class: 'card-note', id: 'install-result', text: '' }));
+}
+
+/**
+ * 「添加到桌面」按钮点击：弹系统安装提示，把结果写进结果位。
+ *
+ * ★点击期间把按钮 disabled：事件对象只能用一次，连点第二次会直接抛（真浏览器行为），
+ *   而抛出来只是界面上多一句「安装没能完成」，看不出是被自己连点搞坏的。
+ *
+ * @returns {Promise<void>} 永不 reject（promptInstall() 自己吞异常）。
+ */
+async function _onInstallClick() {
+  const btn = _el('btn-install');
+  if (btn) btn.disabled = true;
+
+  const res = await promptInstall();
+  const outcome = res && res.outcome;
+  let msg = t('settings.installFailed');
+  if (outcome === 'accepted') msg = t('settings.installAccepted');
+  else if (outcome === 'dismissed') msg = t('settings.installDismissed');
+
+  // ★弹完之后事件对象必定已经消耗掉（canPrompt() 变 false），按钮留着就是个死按钮
+  //   → 重画到「没有事件对象」那一档（手动步骤），再把结果写回去。
+  //   顺序不能反：重画会重建结果位，写在重画之前会被清掉。
+  _refreshInstallCard();
+  _setStatus('install-result', msg);
 }
 
 /**
@@ -840,6 +945,10 @@ function _renderPage() {
     ])
   );
 
+  // (0) 添加到桌面 / 主屏幕（压在收藏卡之前：真机反馈「没找到」，位置本身就是修复内容；
+  //     装完这一卡折叠成一行，不会长期占地方。位置理由见 _renderInstallCard 的 JSDoc）
+  app.appendChild(_renderInstallCard());
+
   // (a) 收藏地点（放在备份之前：先让用户有东西可收藏，再说怎么把它们带走）
   app.appendChild(_renderFavoriteCard());
 
@@ -1088,6 +1197,9 @@ export function init() {
   // ② 静态外壳文案统一由 i18n 填充
   applyI18n(document);
   watchShellUpdate();  // 任何页面都要能看见「有新版本」，见 shellupdate.js
+  // 安装状态机：事件是**异步**到的（页面刚加载完那一小会儿才来），所以这里只挂监听，
+  // 由 onChange → _refreshInstallCard() 把那一卡原地重画（理由见它的 JSDoc）。
+  initInstallPrompt(_refreshInstallCard);
   if (typeof document !== 'undefined' && document.title !== undefined) {
     document.title = `${t('app.name')} · ${t('settings.title')}`;
   }

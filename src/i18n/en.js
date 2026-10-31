@@ -423,6 +423,17 @@ export const EN = {
   'settings.title': 'Me · Settings',
   'settings.subtitle': 'Backup and appearance: nothing leaves this device, both export and import happen locally.',
 
+  // Add to desktop / home screen (a one-off action; it collapses to a single line once installed)
+  'settings.installTitle': 'Add to desktop or home screen',
+  'settings.installHint': 'Once added, open it from the icon on your desktop or home screen: no address bar, and it opens even when offline.',
+  'settings.installBtn': 'Add to desktop',
+  'settings.installedNote': 'Already added: open it from that icon on your desktop or home screen.',
+  // Platform-neutral: this page cannot tell iOS from Android reliably, so both routes are spelled out
+  'settings.installManual': 'This browser gives the page no one-tap install entry point, so add it manually: on iPhone / iPad open this page in Safari, tap Share at the bottom → Add to Home Screen; on Android open this page in Chrome, tap the menu at the top right → Install app or Add to Home Screen. Once added, open it from that icon.',
+  'settings.installAccepted': 'Install accepted: the system will add an icon to your desktop or home screen.',
+  'settings.installDismissed': 'Not installed this time: you dismissed the system prompt. Reload this page to try again, or follow the manual steps above.',
+  'settings.installFailed': 'This step did not go through (usually a repeated tap, or an unsupported browser). The manual steps above still work.',
+
   'settings.exportTitle': 'Export backup',
   'settings.exportBtn': 'Export backup file',
   'settings.exportCurrent': 'Ready to export: default place {place} · {count} saved places · weather snapshot {snapshot}',

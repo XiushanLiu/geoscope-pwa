@@ -416,6 +416,17 @@ export const ZH = {
   'settings.title': '我的 · 设置',
   'settings.subtitle': '备份搬家与外观：整机数据不出设备，导出与导入都在本机完成。',
 
+  // 添加到桌面 / 主屏幕（一次性动作，装完折叠成一行）
+  'settings.installTitle': '添加到桌面或主屏幕',
+  'settings.installHint': '装好之后从桌面或主屏幕的图标打开就是它：不显示地址栏，断网也能打开这一页。',
+  'settings.installBtn': '添加到桌面',
+  'settings.installedNote': '已经装好了：从桌面或主屏幕上的那个图标打开即可。',
+  // 平台中立：本页无法可靠判断 iOS / 安卓，所以两条路都写出来，让用户自己对号入座
+  'settings.installManual': '这个浏览器没有给页面「一键安装」的入口，需要手动添加：iPhone / iPad 请用 Safari 打开本页，点底部「分享」→「添加到主屏幕」；安卓请用 Chrome 打开本页，点右上角菜单 →「安装应用」或「添加到主屏幕」。装好后从那个图标打开即可。',
+  'settings.installAccepted': '已接受安装：系统会在桌面或主屏幕上加一个图标。',
+  'settings.installDismissed': '这次没装：你在系统提示里点了取消。想再试可以刷新本页，或按上面的手动步骤添加。',
+  'settings.installFailed': '这一步没能走完（多半是重复点击或浏览器不支持）。按上面的手动步骤一样能添加。',
+
   'settings.exportTitle': '备份导出',
   'settings.exportBtn': '导出备份文件',
   'settings.exportCurrent': '当前可导出：默认地点 {place} · 收藏 {count} 条 · 天气快照 {snapshot}',
