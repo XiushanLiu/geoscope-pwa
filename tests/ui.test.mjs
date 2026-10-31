@@ -676,3 +676,43 @@ test('now.js：缺失字段必须显示占位符「—」而不是 0（与 forma
   assert.ok(!/体感\s*0°/.test(card), `不得把缺失的体感温度显示成 0°：${card}`);
   assert.ok(!/湿度\s*0%/.test(card), '不得把缺失湿度显示成 0%');
 });
+
+test('★壳版本卡：没有 Service Worker 时必须如实说「不支持」，绝不编一个版本号糊上去', async () => {
+  // 环境前提：harness 的 installNavigator() 把 navigator.serviceWorker 置成 null，
+  // 这正是 file:// 或非安全上下文下的真实形态。
+  assert.ok(!globalThis.navigator.serviceWorker, '前置：本用例假定本环境没有 Service Worker');
+
+  const settings = await import('../src/ui/settings.js');
+  settings.init();
+
+  const rows = dom.byId.app.descendants().filter((n) => n.getAttribute('id') === 'shell-version');
+  assert.ok(rows.length >= 1, '「我的」页必须有 #shell-version 那一行');
+  const shown = rows[rows.length - 1].textContent;
+
+  const unsupported = i18n.t('shell.unsupported');
+  assert.ok(
+    shown.indexOf(unsupported) !== -1,
+    `没有 SW 时必须写「${unsupported}」，实际：${JSON.stringify(shown)}`
+  );
+  assert.ok(
+    shown.indexOf(i18n.t('shell.querying')) === -1,
+    `不许停在「${i18n.t('shell.querying')}」：那种环境里连问都没处问，实际：${JSON.stringify(shown)}`
+  );
+
+  // ★防「编个版本号糊弄」：整页任何地方都不许出现 geoscope-shell-vNN 这种字面量。
+  //   拿不到就是拿不到 —— 编出来的版本号比「不支持」更糟，它会让人以为自己已经在跑新版。
+  const allText = dom.byId.app
+    .descendants()
+    .map((n) => n.textContent)
+    .join('\n');
+  assert.ok(
+    !/geoscope-shell-v\d+/.test(allText),
+    `整页不许出现任何版本号字面量（拿不到就如实说不支持），实际：${JSON.stringify(allText.slice(0, 400))}`
+  );
+
+  // 卡上还得有「检查更新」按钮与指纹位，否则这张卡对用户没有可用性
+  const btn = dom.byId.app.descendants().filter((n) => n.getAttribute('id') === 'btn-check-update');
+  assert.ok(btn.length >= 1, '必须有 #btn-check-update 按钮');
+  const fp = dom.byId.app.descendants().filter((n) => n.getAttribute('id') === 'shell-fingerprint');
+  assert.ok(fp.length >= 1, '必须有 #shell-fingerprint 那一行');
+});
