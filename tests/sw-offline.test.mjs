@@ -36,6 +36,7 @@ const BASE = `${ORIGIN}/`;
 
 /** 从 sw.js 源码解析常量，避免测试与实现漂移（与 static.test.mjs 同一手法）。 */
 const SHELL_CACHE = SW_SOURCE.match(/const SHELL_CACHE\s*=\s*'([^']+)';/)[1];
+const SHELL_FINGERPRINT = SW_SOURCE.match(/const SHELL_FINGERPRINT\s*=\s*'([^']+)';/)[1];
 const SHELL_ASSETS = (SW_SOURCE.match(/const SHELL_ASSETS = \[([\s\S]*?)\];/)[1]
   .match(/'([^']+)'/g) || [])
   .map((literal) => literal.slice(1, -1));
@@ -552,5 +553,78 @@ describe('sw.js 离线壳行为', () => {
     const res = await sb.settle(record);
 
     assert.equal(tagOf(res), 'INDEX-SHELL', '根导航最终应回退到 index.html');
+  });
+});
+
+describe('sw.js 消息通道（壳版本查询 / skip-waiting）', () => {
+  /**
+   * 造一个 message 事件并派发给 sw.js 注册的 message 处理器。
+   *
+   * @param {Object} sb createSandbox() 的返回值。
+   * @param {*} data event.data（字符串或信封对象）。
+   * @param {Object|null} source event.source（传 null 模拟「消息来自已关闭的 client」）。
+   * @returns {{sent: Array}} 收到的回包（source.postMessage 的实参）。
+   */
+  function dispatchMessage(sb, data, source) {
+    const sent = [];
+    const src =
+      source === undefined
+        ? {
+            postMessage(msg) {
+              sent.push(msg);
+            },
+          }
+        : source;
+    const event = { data, source: src };
+    const handlers = sb.handlersOf('message');
+    assert.equal(handlers.length, 1, 'sw.js 应注册且仅注册一个 message 处理器');
+    handlers[0](event);
+    return { sent };
+  }
+
+  test('{type:"shell-version"} 能拿到回包，version 就是 SHELL_CACHE、fingerprint 就是 SHELL_FINGERPRINT', () => {
+    const sb = createSandbox();
+    const { sent } = dispatchMessage(sb, { type: 'shell-version' });
+
+    assert.equal(sent.length, 1, '应当回一个包');
+    // ★逐字段比，不 deepEqual 整个对象：回包是在 vm 沙箱里造的，它的原型是那个
+    //   realm 的 Object.prototype，deepStrictEqual 会因为原型不同而非内容不同报红。
+    assert.equal(sent[0].type, 'shell-version');
+    assert.equal(sent[0].version, SHELL_CACHE);
+    assert.equal(sent[0].fingerprint, SHELL_FINGERPRINT);
+    // ★这条是这张卡的立身之本：版本号必须是**正在跑的这份 SW 自己报的**。
+    //   页面若改成读常量拼一个，显示的就是仓库最新版而不是本机实际在用的那份 ——
+    //   那正是「发布成功了但用户还在旧壳上」这件事能静默两周的原因。
+    assert.equal(sent[0].version, SHELL_CACHE, '版本号必须来自 SW 自身，不允许页面侧编造');
+  });
+
+  test('event.source 为 null 时不抛异常（消息来自已关闭的 client）', () => {
+    const sb = createSandbox();
+    // source 为 null：实现必须先判空再 postMessage。SW 里抛错是**静默**的 ——
+    // 页面只是永远收不到回包，控制台也不一定有东西，这种错极难查。
+    assert.doesNotThrow(() => dispatchMessage(sb, { type: 'shell-version' }, null));
+    assert.doesNotThrow(() => dispatchMessage(sb, { type: 'skip-waiting' }, null));
+  });
+
+  test("裸字符串 'skip-waiting' 仍然可用（回归：老调用方与既有测试依赖它）", () => {
+    const sb = createSandbox();
+    dispatchMessage(sb, 'skip-waiting');
+    assert.equal(sb.state.skipWaiting, 1, "字符串形态必须继续触发 skipWaiting");
+  });
+
+  test("信封形态 {type:'skip-waiting'} 同样触发 skipWaiting", () => {
+    const sb = createSandbox();
+    dispatchMessage(sb, { type: 'skip-waiting' });
+    assert.equal(sb.state.skipWaiting, 1);
+  });
+
+  test('不认识的消息不触发任何动作（别的页面也可能在 SW 通道上广播）', () => {
+    const sb = createSandbox();
+    const { sent } = dispatchMessage(sb, { type: 'something-else' });
+    dispatchMessage(sb, 'nonsense');
+    dispatchMessage(sb, null);
+    dispatchMessage(sb, undefined);
+    assert.equal(sb.state.skipWaiting, 0, '无关消息不许触发 skipWaiting');
+    assert.equal(sent.length, 0, '无关消息不许回包');
   });
 });
