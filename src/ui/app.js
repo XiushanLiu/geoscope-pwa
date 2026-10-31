@@ -38,6 +38,9 @@ import { request, isOnline } from '../core/http.js';
 import { getSource } from '../data/sources.js';
 // recordResult 不再由本模块直接调用：它活在 `ui/pull.js` 的 pullSource() 里（唯一实现）。
 import { overallMode, resetHealth } from '../data/health.js';
+
+// 壳更新提示条：任何页面都要能看见「有新版本」（详见 shellupdate.js 文件头）。
+import { watchShellUpdate } from './shellupdate.js';
 // ★probeTileBatch / TILE_PROBE_COUNT / TILE_PROBE_BUDGET_MS 2026-10-17 从本模块迁到
 //   data/tiles.js（同一条理由：地理页也要用，且它本来就是瓦片层的事）。
 import {
@@ -451,6 +454,8 @@ export async function boot() {
   applyI18n(document);
 
   _registerSW();
+  // 紧跟注册：新壳可能早在 waiting 里躺着（2026-10-31 事故的实际情形）
+  watchShellUpdate();
   resetHealth();
 
   // 骨架屏立即上屏（不转圈等待定位与网络）
