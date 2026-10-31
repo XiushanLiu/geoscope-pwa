@@ -45,6 +45,9 @@ import { stamp, latency as fmtLatency, bytes as fmtBytes } from '../core/format.
 import { h, applyI18n } from './now.js';
 import { downloadJson } from './download.js';
 import { applyThemeMode, applyFontScale } from './theme.js';
+
+// 壳更新提示条：任何页面都要能看见「有新版本」（详见 shellupdate.js 文件头）。
+import { watchShellUpdate } from './shellupdate.js';
 // 语言引导：与主题 / 字号同构，本页入口必须在 module 求值那一刻就切好 i18n
 // （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
 
@@ -741,6 +744,7 @@ function _renderPlaceholders() {
 export function init() {
   // 静态 HTML 外壳的文案统一由 i18n 填充（HTML 内不硬编码中文）
   applyI18n(document);
+  watchShellUpdate();  // 任何页面都要能看见「有新版本」，见 shellupdate.js
   if (typeof document !== 'undefined' && document.title !== undefined) {
     document.title = `${t('app.name')} · ${t('sc.title')}`;
   }
