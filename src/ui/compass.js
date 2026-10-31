@@ -103,6 +103,9 @@ import { pullSource, safePull } from './pull.js';
 // （四个独立 HTML、靠 <a href> 跳转，没有共享 bootstrap，谁也不能替谁写）。
 import { applyLocale, placeDisplayName } from './locale.js';
 
+// 壳更新提示条：任何页面都要能看见「有新版本」（详见 shellupdate.js 文件头）。
+import { watchShellUpdate } from './shellupdate.js';
+
 // ★主题引导（模块顶层）：本页是四个入口之一，必须在 module 求值那一刻就把 store 里的
 // themeMode 写到 <html data-theme> 上，不能等 boot() —— 否则用户会先看到一帧系统色。
 // 实现与四组合语义见 ui/theme.js 文件头。
@@ -1067,6 +1070,7 @@ export async function boot() {
 
   applyI18n(document);
   resetHealth();
+  watchShellUpdate();  // 任何页面都要能看见「有新版本」，见 shellupdate.js
 
   const snapshot = createSnapshot(null);
   // ★走 createCompassRenderer，不许退化成 renderSnapshot(root, snapshot)：
