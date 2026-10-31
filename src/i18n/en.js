@@ -477,6 +477,26 @@ export const EN = {
   'settings.font.xlarge': 'Largest',
   'settings.fontDone': 'Text size set to {mode}',
 
+  // ---------- Offline shell version (the card on the Me screen) ----------
+  // Why surface the version at all: the browser decides whether to update a service worker by
+  // looking at sw.js's own bytes, so a device can keep running a **much older** shell — the page
+  // is stale but nothing errors, and there was no way to tell except guessing.
+  // What is shown here is not "the newest version in the repo" but the one the running service
+  // worker reports back, i.e. the copy this device is actually using.
+  // ★Never invent a version: when it cannot be read, say "unknown / unsupported" honestly rather
+  //   than assembling one from a constant or a cache name — a made-up version is worse than
+  //   "unknown", because it makes you believe you are already on the new one.
+  'shell.title': 'Offline shell',
+  'shell.querying': 'Checking…',
+  'shell.unknown': 'Unknown (no offline shell in this environment)',
+  'shell.unsupported': 'Offline shell unavailable here (needs https or localhost)',
+  'shell.checkBtn': 'Check for updates',
+  'shell.checking': 'New version found, applying…',
+  'shell.upToDate': 'Up to date',
+  'shell.checkFailed': 'Check failed: {msg}',
+  'shell.fingerprint': 'Fingerprint {fp}',
+  'shell.hint': 'Browsers sometimes keep serving an older offline shell; what you see here is the copy this device is actually running. If it looks older than you expected, the cache has not swapped yet — use "Check for updates" to nudge it.',
+
   // ---------- Export CSV ----------
   // Same rule as the backup JSON privacy note: say up front what is exported and how
   // missing values are represented.
