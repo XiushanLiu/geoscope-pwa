@@ -493,6 +493,21 @@ class FakeNode {
     return node;
   }
 
+  /**
+   * 第一个子元素（没有子元素时返回 null，与真实 DOM 一致）。
+   *
+   * ★为什么必须补：`ui/shellupdate.js` 的 showNote() 用
+   *   `document.body.insertBefore(el, document.body.firstElementChild)` 把提示条插到
+   *   <body> 最前面 —— 两个页面的骨架第一个子元素不同（index.html 是 #banner，
+   *   selfcheck.html 是 <header class="sc-head">），不能写死 id。缺了它，替身会
+   *   拿到 undefined 并走「插到末尾」分支，提示条位置错，而位置正是它的全部意义。
+   *
+   * @returns {Object|null} 第一个子元素。
+   */
+  get firstElementChild() {
+    return this.children.length ? this.children[0] : null;
+  }
+
   /** 下一个兄弟节点（无父节点或已是最后一个时返回 null，与真实 DOM 一致）。 */
   get nextSibling() {
     const p = this.parentNode;
@@ -644,7 +659,19 @@ export function createFakeDom(ids = []) {
     n._text = String(txt);
     return n;
   };
-  document.getElementById = (id) => document.__index.get(String(id)) || null;
+  // ★先查索引、查不到再扫整棵树 —— 后者才是真实 DOM 的行为。
+  //   原来只查索引（`__index` 只登记 createFakeDom 预置的那几个 id），于是**运行时新建**
+  //   的节点一律查不到。后果不是报错，而是「幂等判据失效」：`ui/shellupdate.js` 的
+  //   showNote() 靠 `getElementById('shell-update-note')` 判断「已经插过就不插第二次」，
+  //   在替身里永远返回 null → 同一条提示条会被插两遍，而这类「重复插入」在只测
+  //   「有没有出现」的用例里根本看不出来。替身不真 = 假绿，所以修在替身侧。
+  document.getElementById = (id) => {
+    const key = String(id);
+    const preset = document.__index.get(key);
+    if (preset) return preset;
+    const hit = document.descendants().filter((n) => n.attrs.get('id') === key);
+    return hit.length ? hit[0] : null;
+  };
   document.title = '';
 
   define('document', document);
