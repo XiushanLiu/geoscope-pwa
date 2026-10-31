@@ -11,7 +11,7 @@
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v65';
+const SHELL_CACHE = 'geoscope-shell-v66';
 
 /**
  * 壳资产指纹：SHELL_ASSETS 全部文件内容按清单顺序拼接后的 sha256 前 16 位（CRLF 已规范为 LF）。
@@ -20,7 +20,7 @@ const SHELL_CACHE = 'geoscope-shell-v65';
  *   真机会一直用旧壳 —— 而且**没有任何报错**。tools/check.mjs 第 22 节拿它重算比对，
  *   不一致就报红；改完壳资产跑一次 node tools/bump-shell.mjs 即可（本脚本自动维护它）。
  */
-const SHELL_FINGERPRINT = '7a222b4655d14f61';
+const SHELL_FINGERPRINT = '143248ae1c5870bc';
 
 const SHELL_ASSETS = [
   './',
@@ -98,9 +98,45 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/**
+ * 页面 → SW 的消息通道。
+ *
+ * 两种形态都要认：
+ *   - 裸字符串 `'skip-waiting'`：最早的调用方与既有测试都在用它，**必须原样保留**；
+ *   - `{ type: 'skip-waiting' }`：与下面 shell-version 同一套信封，新代码一律用这种；
+ *   - `{ type: 'shell-version' }`：回包本壳的版本号与资产指纹。
+ *
+ * ★为什么要有 shell-version 这条：浏览器判断 SW 要不要更新只看 sw.js 自身的字节，
+ *   真机可能一直跑着一份很旧的壳 —— 页面是旧的、但**没有任何报错**。
+ *   以前只能靠猜到底哪一份在跑，现在设置页问一句就知道：它拿到的 `SHELL_CACHE`
+ *   就是这台设备上实际在用的那一份（SW 自己报出来的，不是页面读常量拼出来的）。
+ */
 self.addEventListener('message', (event) => {
-  if (event && event.data === 'skip-waiting') {
+  if (!event) return;
+  const data = event.data;
+
+  // 裸字符串形态（向后兼容，勿删）
+  if (data === 'skip-waiting') {
     self.skipWaiting();
+    return;
+  }
+  if (!data || typeof data !== 'object') return;
+
+  if (data.type === 'skip-waiting') {
+    self.skipWaiting();
+    return;
+  }
+
+  if (data.type === 'shell-version') {
+    // ★event.source 可能是 null（消息来自已经关闭的 client）。SW 里抛错是**静默**的：
+    //   页面收不到回包、控制台也不一定有东西，这种错最难查，所以先判空再发。
+    if (event.source && typeof event.source.postMessage === 'function') {
+      event.source.postMessage({
+        type: 'shell-version',
+        version: SHELL_CACHE,
+        fingerprint: SHELL_FINGERPRINT,
+      });
+    }
   }
 });
 
