@@ -11,7 +11,7 @@
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v69';
+const SHELL_CACHE = 'geoscope-shell-v70';
 
 /**
  * 壳资产指纹：SHELL_ASSETS 全部文件内容按清单顺序拼接后的 sha256 前 16 位（CRLF 已规范为 LF）。
@@ -20,7 +20,7 @@ const SHELL_CACHE = 'geoscope-shell-v69';
  *   真机会一直用旧壳 —— 而且**没有任何报错**。tools/check.mjs 第 22 节拿它重算比对，
  *   不一致就报红；改完壳资产跑一次 node tools/bump-shell.mjs 即可（本脚本自动维护它）。
  */
-const SHELL_FINGERPRINT = '75db0e3795626a5a';
+const SHELL_FINGERPRINT = '57ceae46fbe5c67c';
 
 const SHELL_ASSETS = [
   './',
@@ -43,6 +43,7 @@ const SHELL_ASSETS = [
   './src/ui/map.js',
   './src/ui/placesearch.js',
   './src/ui/legend.js',
+  './src/ui/install.js',
   './src/ui/pull.js',
   './src/ui/shellupdate.js',
   './src/i18n/zh.js',
