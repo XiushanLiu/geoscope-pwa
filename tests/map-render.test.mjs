@@ -276,25 +276,135 @@ test('三个样式的署名互不相同且都非空（漏一路就是违约）',
 /* 6. 缩放边界                                                          */
 /* ------------------------------------------------------------------ */
 
-test('缩放被钳在 MIN_ZOOM..MAX_ZOOM，越界入参不会污染 URL', () => {
-  assert.equal(map.setMapView({ zoom: 99 }).zoom, tiles.MAX_ZOOM);
-  assert.equal(map.setMapView({ zoom: -5 }).zoom, tiles.MIN_ZOOM);
+test('★缩放被钳在 MIN_ZOOM..当前样式上限，越界入参不会污染 URL', () => {
+  // ★2026-10-31 语义变了：上界不再是全局 MAX_ZOOM，而是 maxZoomOf(当前样式)。
+  //   理由：street 在北京 z14 起就是那张 HTTP 200 的占位图，让它越过 13 等于把用户
+  //   送到 "Map data not yet available"，而界面一句话都不说。
+  //   本用例保留原来的形状（越界入参 → 被钳 → URL 里不留脏值），只把期望改成新语义。
+  assert.equal(map.setMapView({ zoom: 99 }).zoom, tiles.maxZoomOf('street'), 'street 上限 13');
+  assert.equal(map.setMapView({ zoom: -5 }).zoom, tiles.MIN_ZOOM, '下界仍是全局 MIN_ZOOM');
   map.renderMapCard(root, { coord: ctx, zoom: 99 });
   const srcs = imgs(root.querySelector('#card-map')).map((n) => String(n.attrs.get('src')));
   assert.ok(srcs.every((s) => !/NaN|undefined/.test(s)), `不得出现脏 URL：${srcs.join(' | ')}`);
   assert.ok(
-    srcs.every((s) => new RegExp(`/tile/${tiles.MAX_ZOOM}/`).test(s)),
-    '越界缩放必须被钳到 MAX_ZOOM'
+    srcs.every((s) => new RegExp(`/tile/${tiles.maxZoomOf('street')}/`).test(s)),
+    `越界缩放必须被钳到当前样式的上限 z${tiles.maxZoomOf('street')}，实际 ${srcs[0]}`
   );
 });
 
-test('缩放控件在边界处禁用（不给出无效按钮）', () => {
-  map.renderMapCard(root, { coord: ctx, zoom: tiles.MAX_ZOOM });
+test('★每一个样式的上限都被钉住（street 13 / imagery 19 / dark 16）', () => {
+  const expect = { street: 13, imagery: 19, dark: 16 };
+  for (const [id, z] of Object.entries(expect)) {
+    assert.equal(map.setMapView({ styleId: id, zoom: 25 }).zoom, z, `${id} 必须被钳到 z${z}`);
+    assert.equal(tiles.maxZoomOf(id), z, `${id} 的配置值必须是 ${z}（2026-10-31 实测）`);
+  }
+});
+
+test('★同一句调用在不同样式下钳出不同结果（不许回到全局最大值）', () => {
+  assert.equal(map.setMapView({ styleId: 'imagery', zoom: 25 }).zoom, 19, 'imagery 到 z19');
+  assert.equal(map.setMapView({ styleId: 'street', zoom: 25 }).zoom, 13, '同样的 25 在 street 只能到 z13');
+  assert.notEqual(tiles.maxZoomOf('street'), tiles.MAX_ZOOM, 'street 的上限必须小于全局上界');
+});
+
+test('★切样式即降级：imagery z19 → 切到 street → zoom 必须落到 13', () => {
+  // ★最容易漏的一条：样式 chip 走的路径是 setMapView({ styleId }) —— **不带 zoom**。
+  //   若只在「传了 zoom」那个分支里 clamp，切完样式还停在 z19，下一次渲染就会去
+  //   请求 street 的 z19（全占位图），而界面不会有任何提示。
+  map.setMapView({ styleId: 'imagery', zoom: 25, coord: ctx });
+  assert.equal(map.mapView().zoom, 19, '先在 imagery 顶到 z19');
+  map.setMapView({ styleId: 'street' });
+  assert.equal(
+    map.mapView().zoom,
+    13,
+    '切到上限更低的样式必须把层级降下来（少这一步 = 下一次渲染请求到占位图）'
+  );
+  // 反过来：切到上限更高的样式不会被抬上去（降级是单向的，不许反向猜用户想要的层级）
+  assert.equal(map.setMapView({ styleId: 'imagery' }).zoom, 13, '切回 imagery 不擅自放大');
+});
+
+test('★瓦片 URL 的层级不超过当前样式上限（不只是 _view.zoom 被钳住）', () => {
+  map.setMapView({ styleId: 'street', zoom: 25, coord: ctx });
+  map.renderMapCard(root, { coord: ctx });
+  const srcs = imgs(root.querySelector('#card-map')).map((n) => String(n.attrs.get('src')));
+  assert.ok(srcs.length > 0, '应渲染出瓦片');
+  assert.ok(
+    srcs.every((s) => new RegExp(`/tile/${tiles.maxZoomOf('street')}/`).test(s)),
+    `street 渲染出来的层级不得高于 z${tiles.maxZoomOf('street')}：${srcs[0]}`
+  );
+});
+
+test('缩放控件在边界处禁用（按当前样式的上限，不是全局最大值）', () => {
+  map.renderMapCard(root, { coord: ctx, zoom: tiles.maxZoomOf('street') });
   const box = root.querySelector('#card-map');
   const btns = box.querySelectorAll('.map-zoom-btn');
   assert.equal(btns.length, 2, '放大 / 缩小两个按钮');
-  assert.ok(btns[0].attrs.has('disabled'), '已在最大层级 → 放大按钮必须禁用');
+  assert.ok(btns[0].attrs.has('disabled'), 'street 已到 z13 → 放大按钮必须禁用');
   assert.ok(!btns[1].attrs.has('disabled'), '缩小按钮仍可用');
+
+  // 同一个 z13 换成 imagery 远没到顶 —— 按钮必须又活过来（旧行为会一直灰着）
+  map.setMapView({ styleId: 'imagery', zoom: 13, coord: ctx });
+  map.renderMapCard(root, { coord: ctx });
+  const btn2 = root.querySelector('#card-map').querySelectorAll('.map-zoom-btn');
+  assert.ok(!btn2[0].attrs.has('disabled'), 'imagery 在 z13 还能放大到 z19，不许禁用');
+});
+
+test('★到顶才说「此样式最高只到 N 级」，没到顶时一行都不许多占', () => {
+  const capCount = () => root.querySelector('#card-map').querySelectorAll('.map-cap').length;
+
+  // ① 未到顶（street z12，上限 13）→ 不许出现
+  map.setMapView({ styleId: 'street', zoom: 12, coord: ctx });
+  map.renderMapCard(root, { coord: ctx });
+  assert.equal(capCount(), 0, '没到顶就不许占一行（常驻就是永久噪声）');
+  assert.ok(
+    text(root.querySelector('#card-map')).indexOf(t('map.zoomMax', { z: 13 })) === -1,
+    '未到顶时不得出现这句话'
+  );
+
+  // ② 到顶（street z13）→ 必须出现，且文案里的 {z} 真的被替换
+  map.setMapView({ zoom: 13 });
+  map.renderMapCard(root, { coord: ctx });
+  assert.equal(capCount(), 1, '到顶必须有这一句，用户才知道加号不是坏了');
+  const cap = root.querySelector('#card-map').querySelector('.map-cap');
+  assert.equal(cap.textContent, t('map.zoomMax', { z: 13 }), '文案必须走 i18n，不许写死中文');
+
+  // ③ 换到 imagery：同样一句要求的 z 必须跟着样式变（不许沿用 street 的 13）
+  map.setMapView({ styleId: 'imagery', zoom: 19 });
+  map.renderMapCard(root, { coord: ctx });
+  assert.equal(capCount(), 1, 'imagery 顶到 z19 也要有这一句');
+  assert.equal(
+    root.querySelector('#card-map').querySelector('.map-cap').textContent,
+    t('map.zoomMax', { z: 19 }),
+    'imagery 的上限必须说 19，不许沿用上一个样式的数字'
+  );
+
+  // ④ 纯坐标模式没有缩放控件，就不许描述一个不存在的「到顶」
+  tiles.setMapMode(tiles.MAP_MODE.NO_MAP);
+  map.renderMapCard(root, { coord: ctx });
+  assert.equal(capCount(), 0, 'no-map 态没有 zoom 可言，不许说「已到上限」');
+  tiles.setMapMode(tiles.MAP_MODE.MAP);
+});
+
+test('★map.zoomMax 中英两张表都必须有，且 {z} 被真的替换', () => {
+  const zh = t('map.zoomMax', { z: 13 });
+  assert.notEqual(zh, 'map.zoomMax', '中文表缺这个键时 t() 会把键名直接上屏');
+  assert.ok(zh.includes('13'), `{z} 必须被替换，实际：${zh}`);
+  i18nModule.setLocale('en');
+  try {
+    const en = t('map.zoomMax', { z: 13 });
+    assert.notEqual(en, 'map.zoomMax', 'map.zoomMax 必须在英文表里存在');
+    assert.ok(en.includes('13'), `英文版 {z} 也必须被替换，实际：${en}`);
+    assert.notEqual(en, zh, '两条文案不许照抄');
+  } finally {
+    i18nModule.setLocale('zh');
+  }
+});
+
+test('★默认样式必须是 imagery（模块初值不能再是 street）', () => {
+  // 模块级初值会被别处的 setMapView 改掉，运行时抓不到，只能源码级钉。
+  const src = readFileSync(new URL('../src/ui/map.js', import.meta.url), 'utf8');
+  assert.match(src, /const _view = \{ styleId: DEFAULT_STYLE_ID,/, '初值必须取 DEFAULT_STYLE_ID 而不是写死某个样式');
+  assert.doesNotMatch(src, /const _view = \{ styleId: 'street'/, '不许再把 street 写死成默认（它在 z14 起是占位图）');
+  assert.equal(tiles.DEFAULT_STYLE_ID, 'imagery');
 });
 
 /* ------------------------------------------------------------------ */

@@ -2,6 +2,7 @@
  * data/tiles.js 独立验证
  *
  * 覆盖：三种样式 URL 拼装（重点验暗色那条路径层级）/ 未知样式回落 /
+ * 按样式的缩放上限 `maxZoomOf()`（street 13 / imagery 19 / dark 16，2026-10-31 实测）/
  * 指纹 SHA-256 前 16 位 hex 与 size-head 降级 / dedupeTiles 的 real·fake·unknown 判定 /
  * probeTile 成功取到 fp 与字节、失败不抛异常并置无地图模式 / sampleTiles 三位置互不重复。
  */
@@ -65,6 +66,70 @@ test('tileUrl 对非法 z/x/y（NaN、字符串）不会抛且不残留未替换
   const u = tiles.tileUrl('street', NaN, undefined, null);
   assert.ok(!u.includes('{'), `不得残留占位符：${u}`);
   assert.ok(u.startsWith(BASE));
+});
+
+/* ------------------------------------------------------------------ */
+/* 按样式的缩放上限（2026-10-31 北京实测：md5 三样本比对）                */
+/* ------------------------------------------------------------------ */
+
+test('★maxZoomOf 三个值 = 实测覆盖（street 13 / imagery 19 / dark 16）', () => {
+  // 判定方法：同一层级取北京 / 上海 / 成都三张瓦片，md5 全同即占位图。
+  // 占位图是 HTTP 200 + 合法 JPEG，所以「请求成功」不代表拿到了地图 —— 只能靠卡住层级。
+  assert.equal(tiles.maxZoomOf('street'), 13, 'street：北京 z14 起就返回占位图');
+  assert.equal(tiles.maxZoomOf('imagery'), 19, 'imagery：一路到 z19 都是真瓦片');
+  assert.equal(tiles.maxZoomOf('dark'), 16, 'dark：z17 起是占位图');
+  // 数字与 TILE_STYLES 里的配置必须是同一份（clamp 读的是配置，函数只是取值口）
+  for (const id of ['street', 'imagery', 'dark']) {
+    assert.equal(
+      tiles.maxZoomOf(id),
+      tiles.TILE_STYLES[id].maxZoom,
+      `${id}：maxZoomOf() 必须与 TILE_STYLES 里的配置一致（不许各存一份）`
+    );
+  }
+});
+
+test('★street 的上限单独钉一条（它是「默认样式换成影像」的全部理由）', () => {
+  // 旧代码用全局 MAX_ZOOM=16 去 clamp，street 会被放到 z14–z16 —— 那三档在北京全是
+  // "Map data not yet available" 占位图，界面还什么都不说。这条就是那次的一尸两命。
+  assert.equal(tiles.maxZoomOf('street'), 13);
+  assert.ok(
+    tiles.maxZoomOf('imagery') > tiles.maxZoomOf('street'),
+    '影像必须比街道放大得更深，否则默认样式的选择没有意义'
+  );
+});
+
+test('maxZoomOf：未知样式 / 脏配置退回 MIN_ZOOM（没有实测数据就不许放大）', () => {
+  assert.equal(tiles.maxZoomOf('nope'), tiles.MIN_ZOOM, '未知样式没有实测数据，保守到只能停在最低层级');
+  assert.equal(tiles.maxZoomOf(''), tiles.MIN_ZOOM);
+  assert.equal(tiles.maxZoomOf(undefined), tiles.MIN_ZOOM);
+  assert.equal(tiles.maxZoomOf(null), tiles.MIN_ZOOM);
+});
+
+test('★MAX_ZOOM 只是全仓的上界，不等于任何单个样式的可用上限', () => {
+  const all = ['street', 'imagery', 'dark'].map((id) => tiles.maxZoomOf(id));
+  assert.equal(tiles.MAX_ZOOM, Math.max(...all), 'MAX_ZOOM 必须是所有样式里最大的那个');
+  assert.equal(tiles.MAX_ZOOM, 19, '今天的上界来自 imagery');
+  // ★这条是语义本身：clamp 若用它，street / dark 都会越进占位图层级
+  for (const id of ['street', 'dark']) {
+    assert.ok(
+      tiles.maxZoomOf(id) < tiles.MAX_ZOOM,
+      `${id} 到不了 MAX_ZOOM —— clamp 一律走 maxZoomOf()，不许走 MAX_ZOOM`
+    );
+  }
+});
+
+test('★默认样式是 imagery，且 street 没有被删（仍有路名标注，用户可切回）', () => {
+  assert.equal(tiles.DEFAULT_STYLE_ID, 'imagery', '默认必须是能在国内放大到 z19 的那一路');
+  assert.ok(tiles.TILE_STYLES[tiles.DEFAULT_STYLE_ID], '默认样式必须真的在 TILE_STYLES 里');
+  assert.ok(tiles.TILE_STYLES.street, 'street 不许删：小比例尺下它是唯一有路名标注的一路');
+  // 默认层级下三个样式都必须有数据，否则 DEFAULT_ZOOM 要跟着改
+  for (const id of ['street', 'imagery', 'dark']) {
+    assert.ok(
+      tiles.DEFAULT_ZOOM <= tiles.maxZoomOf(id),
+      `${id} 必须在默认层级 z${tiles.DEFAULT_ZOOM} 有真瓦片`
+    );
+    assert.ok(tiles.MIN_ZOOM <= tiles.maxZoomOf(id), `${id} 的上限不得低于全局下界`);
+  }
 });
 
 test('fingerprint：crypto.subtle 可用时返回 SHA-256 前 16 位 hex', async () => {
