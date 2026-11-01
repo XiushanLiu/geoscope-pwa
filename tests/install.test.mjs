@@ -600,6 +600,164 @@ test('★pickInstallMode：canPrompt 用 === true 判等（false / "true" 都不
   );
 });
 
+/* ------------------------------------------------------------------ */
+/* copyText() / installEntryUrl()：复制网址这条兜底路                     */
+/* ------------------------------------------------------------------ */
+/*
+ * 为什么需要这两个：vivo 自带浏览器的菜单里**没有**「添加到桌面 / 安装应用」（用户真机
+ * 截图逐项读过），所以安卓档必须给一条不依赖浏览器的系统级出路 —— 长按桌面 → 网站快捷
+ * 方式 → 填网址。填网址要用户手打一长串英文是不现实的，所以要有复制按钮；而剪贴板在
+ * 非安全上下文 / 老浏览器里根本不存在，所以失败必须能被说出来而不是静默。
+ */
+
+/**
+ * 装一个可控的 clipboard（返回句柄可切换「不存在 / 成功 / 抛错」）。
+ *
+ * @param {{present?:boolean, throws?:boolean}} [opts] 行为编排。
+ * @returns {{restore:() => void, calls:string[]}} 控制句柄。
+ */
+function installClipboard(opts = {}) {
+  const spec = opts || {};
+  const nav = globalThis.navigator;
+  const saved = nav.clipboard;
+  const had = Object.prototype.hasOwnProperty.call(nav, 'clipboard');
+  const calls = [];
+
+  if (!spec.present) {
+    delete nav.clipboard;
+  } else {
+    nav.clipboard = {
+      writeText(value) {
+        calls.push(String(value));
+        if (spec.throws) return Promise.reject(new Error('NotAllowedError'));
+        return Promise.resolve();
+      },
+    };
+  }
+
+  return {
+    calls,
+    restore() {
+      if (had) nav.clipboard = saved;
+      else delete nav.clipboard;
+    },
+  };
+}
+
+/**
+ * 装一个假 location（只提供 origin，本模块只用这一个字段）。
+ *
+ * @param {string|undefined} origin origin；undefined 表示「没有 location」。
+ * @returns {() => void} 还原函数。
+ */
+function installLocation(origin) {
+  const saved = globalThis.location;
+  if (origin === undefined) {
+    Object.defineProperty(globalThis, 'location', { value: undefined, configurable: true, writable: true });
+  } else {
+    Object.defineProperty(globalThis, 'location', { value: { origin }, configurable: true, writable: true });
+  }
+  return () => {
+    Object.defineProperty(globalThis, 'location', { value: saved, configurable: true, writable: true });
+  };
+}
+
+test('copyText：clipboard 存在且成功 → true，且写入的是原文', async () => {
+  const { copyText } = await freshModule();
+  const clip = installClipboard({ present: true });
+  try {
+    assert.equal(await copyText('https://example.com/index.html'), true);
+    assert.deepEqual(clip.calls, ['https://example.com/index.html']);
+  } finally {
+    clip.restore();
+  }
+});
+
+test('★copyText：没有 navigator.clipboard（非安全上下文 / 老浏览器）→ false 且不抛', async () => {
+  const { copyText } = await freshModule();
+  const clip = installClipboard({ present: false });
+  try {
+    const out = await copyText('https://example.com/index.html');
+    assert.equal(out, false, '没有剪贴板 API 是正常环境不是错误 —— 返回 false，让界面改说「请长按手动选」');
+  } finally {
+    clip.restore();
+  }
+});
+
+test('★copyText：writeText 抛错（权限被拒 / 文档没聚焦）→ false 且不 reject', async () => {
+  const { copyText } = await freshModule();
+  const clip = installClipboard({ present: true, throws: true });
+  try {
+    const out = await copyText('https://example.com/index.html');
+    assert.equal(out, false, '异常必须被吞成 false，不许冒出去把页面搞白');
+  } finally {
+    clip.restore();
+  }
+});
+
+test('★copyText：入参非字符串 / 空串 → false，且一次都不碰剪贴板', async () => {
+  const { copyText } = await freshModule();
+  const clip = installClipboard({ present: true });
+  try {
+    assert.equal(await copyText(''), false, '空串没东西可复制');
+    assert.equal(await copyText(undefined), false);
+    assert.equal(await copyText(null), false);
+    assert.equal(await copyText(12345), false, '数字也按不可用处理');
+    assert.deepEqual(clip.calls, [], '★入参不合法时连 writeText 都不该调');
+  } finally {
+    clip.restore();
+  }
+});
+
+test('copyText：navigator 不存在 → false 且不抛', async () => {
+  const { copyText } = await freshModule();
+  const saved = globalThis.navigator;
+  Object.defineProperty(globalThis, 'navigator', { value: undefined, configurable: true, writable: true });
+  try {
+    assert.equal(await copyText('https://example.com/index.html'), false);
+  } finally {
+    Object.defineProperty(globalThis, 'navigator', { value: saved, configurable: true, writable: true });
+  }
+});
+
+test('★installEntryUrl：origin + /index.html（不是当前页 href）', async () => {
+  const { installEntryUrl } = await freshModule();
+  const restore = installLocation('https://example.com');
+  try {
+    assert.equal(
+      installEntryUrl(),
+      'https://example.com/index.html',
+      '★必须是入口页：这张卡在 settings.html 上，用 href 会复制出设置页，用户点开就直接进设置'
+    );
+  } finally {
+    restore();
+  }
+});
+
+test('installEntryUrl：file://（origin 是字符串 null）→ 空串', async () => {
+  const { installEntryUrl } = await freshModule();
+  const restore = installLocation('null');
+  try {
+    assert.equal(installEntryUrl(), '', 'file:// 给不出能粘进「网站快捷方式」的网址 → 如实给空串');
+  } finally {
+    restore();
+  }
+});
+
+test('installEntryUrl：location 不存在（Node / SSR 侧）→ 空串且不抛', async () => {
+  const { installEntryUrl } = await freshModule();
+  const restore = installLocation(undefined);
+  try {
+    let out = null;
+    assert.doesNotThrow(() => {
+      out = installEntryUrl();
+    });
+    assert.equal(out, '');
+  } finally {
+    restore();
+  }
+});
+
 test('★detectHostEnv：navigator 不存在（Node / SSR 侧）→ unknown 且不抛', async () => {
   const { detectHostEnv } = await freshModule();
   const saved = globalThis.navigator;
