@@ -66,10 +66,15 @@ function _nav() {
  * ★★判据的可靠程度不同，**下面逐条标注了哪些有实测支撑**，别把它们当成一样硬：
  *   - `'wechat'`（有真机行为佐证）：UA 含 `MicroMessenger`。这是微信专有 token，
  *     零误判风险。
- *   - `'qq'`（**仅 UA 约定，未实测**）：UA 含 ` QQ/`（**前导空格是关键**）。依据是
- *     QQ **内置** WebView 的 UA 形如 ` QQ/8.9.63`，而 QQ **浏览器**是 `QQBrowser` /
- *     `MQQBrowser`、不含 ` QQ/`。没有真机验证过，若判错本档会退化成 ios / android 档
- *     （那两条路径依然正确，不会把用户带错路），所以这是**可接受的降级**。
+ *   - `'qq'`（**仅 UA 约定，未实测**）：UA 含 ` QQ/`（**前导空格是关键**）。它的作用不是
+ *     「避开 QQ 浏览器」—— 实测 QQ 浏览器 UA（`QQBrowser` / `MQQBrowser`）里根本不含
+ *     `QQ/`，把空格去掉它也不会被误判成 `'qq'`（这一条由单测「QQ 浏览器 → android」
+ *     钉着）。带空格的真正理由是：` QQ/` 是一个**带前导空格的独立 token**，要求它前后
+ *     有边界，才能避免命中任何**以 `QQ/` 收尾**的其它 token（UA 是一串空格分隔片段，
+ *     没有边界约束的子串匹配迟早会在某个没见过的 UA 上误伤）。
+ *     依据是 QQ **内置** WebView 的 UA 形如 ` QQ/8.9.63`。**没有真机验证过**：若判错，
+ *     本档会退化成 ios / android 档（那两条路径依然正确，不会把用户带错路），
+ *     所以这是**可接受的降级**。
  *     ★不许自行扩大这条路 —— 加一个容器就要为它的真伪判据负责，没实测过的一律不加
  *     （钉钉 / 微博等一概不识）。
  *   - `'ios'`：UA 含 `iPhone` / `iPad` / `iPod`，**或** UA 含 `Macintosh` 且
@@ -104,6 +109,48 @@ export function detectHostEnv() {
   if (ua.indexOf('Android') !== -1) return 'android';
 
   return 'unknown';
+}
+
+/**
+ * 由「安装状态 + 宿主环境」这两个**事实**裁决：该显示哪一档。
+ *
+ * 为什么这个判定要住在 install.js 而不是 settings.js：它回答的是「事实是哪一档」，
+ *   不是「这一档画成什么样」。画成什么样是渲染（settings.js 建 DOM、i18n 给措辞），
+ *   而「该给哪一档」能在 Node 侧被直接单测 —— install.js 零 import，这正是它的优势。
+ *   放在 `_fillInstallCard()` 的 if/else 链里就测不到，只能靠下一次改这块的人自觉。
+ *
+ * ★★判定顺序（不许变）：**事实压推断**。
+ *   第 2 步之所以排在环境档之前，是因为「env === 'wechat' ⇒ 装不了」是一条**推断**
+ *   （建立在 UA 约定上，见 detectHostEnv() 的 JSDoc：QQ 那档压根没实测过），
+ *   而「手里真有一个 `beforeinstallprompt` 事件对象」是**事实** —— 事实永远压推断。
+ *   微信 / QQ 里 canPrompt() 必然是 false（它们压根不触发那个事件），所以两档在真机上
+ *   不会真的冲突；顺序留成「事件对象优先」，是本模块第一条纪律（没捕获到事件就不许
+ *   显示按钮）的镜像 —— 反过来排，就会在某个 UA 约定失灵的环境里，**把本来能装的
+ *   用户**推进「装不了」那一档。
+ *
+ * ★入参健壮性：缺字段 / 非对象 / 未知 env 一律走**保守档** —— `installed` 没给当没装、
+ *   `canPrompt` 没给当不能弹、env 不认识当 'manual-other'。**永不抛**。
+ *   ★判等一律用 `=== true`：写成 truthy 会把 undefined / 字符串 'false' 吃进来，
+ *     而 `!= null` 那类写法会把 `false` 也判成真 —— 两者都是「显示一个点了没反应的
+ *     按钮」的经典入口。
+ *
+ * @param {{installed?:boolean, canPrompt?:boolean, env?:string}} [input] 三个信号。
+ * @returns {'installed'|'prompt'|'blocked-wechat'|'blocked-qq'|'manual-ios'|'manual-android'|'manual-other'}
+ *   该显示的那一档。
+ */
+export function pickInstallMode(input) {
+  const src = input && typeof input === 'object' ? input : {};
+  const installed = src.installed === true;
+  const canPromptNow = src.canPrompt === true;
+  const env = typeof src.env === 'string' ? src.env : '';
+
+  if (installed) return 'installed';
+  if (canPromptNow) return 'prompt';
+  if (env === 'wechat') return 'blocked-wechat';
+  if (env === 'qq') return 'blocked-qq';
+  if (env === 'ios') return 'manual-ios';
+  if (env === 'android') return 'manual-android';
+  return 'manual-other';
 }
 
 /**

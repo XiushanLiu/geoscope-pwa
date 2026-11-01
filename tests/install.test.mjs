@@ -468,6 +468,138 @@ test('detectHostEnv：userAgent 不是字符串 → unknown 且不抛', async ()
   }
 });
 
+/* ------------------------------------------------------------------ */
+/* pickInstallMode()：该显示哪一档（事实压推断）                          */
+/* ------------------------------------------------------------------ */
+/*
+ * 为什么这一组必须有：三年前那条纪律「没捕获到 beforeinstallprompt 就不许显示按钮」，
+ *   落到七档分环境之后就变成了**两条顺序**（installed 压 canPrompt、canPrompt 压环境档）。
+ *   顺序只活在渲染函数里是测不到的 —— 本组钉的就是这两条顺序，以及「缺字段走保守档」。
+ */
+
+test('★pickInstallMode：{canPrompt:true, env:wechat} → prompt（事件对象优先于容器提示）', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(
+    pickInstallMode({ installed: false, canPrompt: true, env: 'wechat' }),
+    'prompt',
+    '★环境档是 UA 推断、手里的事件对象是事实 —— 事实压推断：这个浏览器真能装，就不许说装不了'
+  );
+});
+
+test('★pickInstallMode：{installed:true, canPrompt:true} → installed（已装不许再给按钮）', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(
+    pickInstallMode({ installed: true, canPrompt: true, env: 'android' }),
+    'installed',
+    '一次性动作：装完就该安静，不许再摆一个按钮'
+  );
+});
+
+test('★pickInstallMode：{installed:true, canPrompt:false, env:wechat} → installed（已装压一切）', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(pickInstallMode({ installed: true, canPrompt: false, env: 'wechat' }), 'installed');
+});
+
+test('pickInstallMode：wechat（没装、不能弹）→ blocked-wechat', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(pickInstallMode({ installed: false, canPrompt: false, env: 'wechat' }), 'blocked-wechat');
+});
+
+test('pickInstallMode：qq → blocked-qq', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(pickInstallMode({ canPrompt: false, env: 'qq' }), 'blocked-qq');
+});
+
+test('pickInstallMode：ios → manual-ios', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(pickInstallMode({ canPrompt: false, env: 'ios' }), 'manual-ios');
+});
+
+test('pickInstallMode：android → manual-android', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(pickInstallMode({ canPrompt: false, env: 'android' }), 'manual-android');
+});
+
+test('pickInstallMode：env unknown → manual-other', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(pickInstallMode({ canPrompt: false, env: 'unknown' }), 'manual-other');
+});
+
+test('pickInstallMode：env 是从没见过的字符串 → manual-other（不许抛，也不许跟丢默认值混淆）', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(
+    pickInstallMode({ canPrompt: false, env: 'harmonyos' }),
+    'manual-other',
+    '新增一个没识别的环境时，必须退化到「两条路都摆出来」那一档，而不是空白'
+  );
+});
+
+test('★pickInstallMode：空对象 {} → manual-other 且不抛', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  let out = null;
+  assert.doesNotThrow(() => {
+    out = pickInstallMode({});
+  });
+  assert.equal(out, 'manual-other', '缺字段一律走保守档：没装、不能弹、环境不认识');
+});
+
+test('★pickInstallMode：入参 undefined → manual-other 且不抛', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  let out = null;
+  assert.doesNotThrow(() => {
+    out = pickInstallMode(undefined);
+  });
+  assert.equal(out, 'manual-other');
+});
+
+test('pickInstallMode：入参不是对象（字符串 / null）→ manual-other 且不抛', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(pickInstallMode('wechat'), 'manual-other', '字符串入参不许被当成 { env }');
+  assert.equal(pickInstallMode(null), 'manual-other');
+});
+
+test('★pickInstallMode：installed 用 === true 判等（false / undefined / "true" 都不算已装）', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(
+    pickInstallMode({ installed: undefined, canPrompt: false, env: 'ios' }),
+    'manual-ios',
+    'installed 没给就当没装'
+  );
+  assert.equal(
+    pickInstallMode({ installed: 'true', canPrompt: false, env: 'ios' }),
+    'manual-ios',
+    '★字符串 "true" 不许被 truthy 吃进来'
+  );
+});
+
+test('★pickInstallMode：canPrompt 用 === true 判等（false / "true" 都不算能弹）', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(
+    pickInstallMode({ installed: false, canPrompt: 'true', env: 'wechat' }),
+    'blocked-wechat',
+    '★truthy 判等会把 "true" 当成有事件对象 → 在微信里显示一个点了没反应的按钮'
+  );
+  assert.equal(
+    pickInstallMode({ installed: false, canPrompt: undefined, env: 'qq' }),
+    'blocked-qq',
+    'canPrompt 没给就当不能弹'
+  );
+});
+
 test('★detectHostEnv：navigator 不存在（Node / SSR 侧）→ unknown 且不抛', async () => {
   const { detectHostEnv } = await freshModule();
   const saved = globalThis.navigator;

@@ -72,9 +72,16 @@ import '../data/sources.js';
 //   用户点「检查更新」→ 新壳 activate → 这里探测到 waiting → 出现提示条。
 import { watchShellUpdate } from './shellupdate.js';
 
-// 安装状态机：本页的「添加到桌面」卡只问它三个事实（装没装 / 能不能弹 / 弹的结果），
-//   可见文案一律留在本页走 t()（详见 install.js 文件头）。
-import { initInstallPrompt, isInstalled, canPrompt, promptInstall, detectHostEnv } from './install.js';
+// 安装状态机：本页的「添加到桌面」卡只问它**事实**（装没装 / 能不能弹 / 弹的结果 /
+//   当前环境是哪一类 / 该显示哪一档），可见文案一律留在本页走 t()（详见 install.js 文件头）。
+import {
+  initInstallPrompt,
+  isInstalled,
+  canPrompt,
+  promptInstall,
+  detectHostEnv,
+  pickInstallMode,
+} from './install.js';
 
 // 默认地点卡的决策层：只回答「能不能用 / 造出什么值 / 是不是出厂那份」，
 // 一个 DOM 都不建、一句文案都不出 —— 文案全在本页走 t()（详见 defaultplace.js 文件头）。
@@ -459,22 +466,20 @@ function _refreshInstallCard() {
 }
 
 /**
- * 填卡片内容（七档，判据全部来自 install.js，本页不自行读 UA、也不自行推断平台）。
+ * 填卡片内容（七档）。
  *
- *   1) 已安装（isInstalled()）            → 一行 settings.installedNote，无按钮；
- *   2) 能弹（canPrompt()）                → settings.installHint + 真按钮 installBtn；
- *   3) detectHostEnv() === 'wechat'       → settings.installBlockedWechat，无按钮；
- *   4) detectHostEnv() === 'qq'           → settings.installBlockedQq，无按钮；
- *   5) detectHostEnv() === 'ios'          → settings.installManualIos，无按钮；
- *   6) detectHostEnv() === 'android'      → settings.installManualAndroid，无按钮；
- *   7) 其余（桌面等判不出来的）            → settings.installManual（iOS / 安卓两条路都给）。
+ * ★本页**不做任何档位判定**：三个信号照旧从 install.js 取，交给 `pickInstallMode()`
+ *   裁决，本页只负责「mode → 文案 key → DOM」。理由同上个函数 —— 那一段 if/else 是
+ *   **事实判定**（该给哪一档）而不是渲染，放进零 import 的 install.js 才能被 Node 单测
+ *   钉住；留在渲染函数里，下次谁改这块就会悄悄退化。
  *
- * ★②③的顺序**不许**颠倒：canPrompt() 为真意味着手里真有事件对象、这个浏览器真能装，
- *   那就不许说「装不了」。微信 / QQ 里 canPrompt() 必然是 false（它们压根不触发
- *   `beforeinstallprompt`），所以两档不会真的冲突 —— 但顺序必须留成「事件对象优先」，
- *   这是 install.js 第一条纪律（没捕获到事件就不许显示按钮）的镜像。
+ * 七档与对应文案：
+ *   installed → installedNote（一行，无按钮）；prompt → installHint + 真按钮 installBtn；
+ *   blocked-wechat → installBlockedWechat；blocked-qq → installBlockedQq；
+ *   manual-ios → installManualIos；manual-android → installManualAndroid；
+ *   manual-other → installManual（判不出来，iOS / 安卓两条路都摆出来让用户对号入座）。
  *
- * ★为什么要分 3–6 这四档（2026 真机反馈）：用户在微信里点「…」→「添加到桌面」试了几次
+ * ★为什么要分后面那几档（2026 真机反馈）：用户在微信里点「…」→「添加到桌面」试了几次
  *   都没有；换真浏览器打开后「右上角…」又没了（那个 ⋮ 只有 Chrome / Edge 有，
  *   三星 / 小米 / 华为 / UC / 夸克的菜单在**底栏**，iOS 必须用 Safari 且入口在底部中间）。
  *   所以只给一条通用手动步骤不够 —— 得先说清「当前这个环境为什么装不了」，再说出路在哪。
@@ -486,15 +491,21 @@ function _fillInstallCard(card) {
   card.textContent = '';
   card.appendChild(h('p', { class: 'card-title', text: t('settings.installTitle') }));
 
-  if (isInstalled()) {
-    // ① 已经装好了：一行说明收尾，不再给任何按钮（一次性动作，装完就该安静）
+  const mode = pickInstallMode({
+    installed: isInstalled(),
+    canPrompt: canPrompt(),
+    env: detectHostEnv(),
+  });
+
+  // installed：已经装好了 —— 一行说明收尾，不再给任何按钮（一次性动作，装完就该安静）
+  if (mode === 'installed') {
     card.appendChild(h('p', { class: 'card-note', id: 'install-note', text: t('settings.installedNote') }));
     card.appendChild(h('p', { class: 'card-note', id: 'install-result', text: '' }));
     return;
   }
 
-  if (canPrompt()) {
-    // ② 手里真有事件对象：这一档的按钮才点了有反应
+  // prompt：手里真有事件对象 —— 这一档的按钮才点了有反应
+  if (mode === 'prompt') {
     const btn = h('button', { class: 'btn', type: 'button', id: 'btn-install', text: t('settings.installBtn') });
     btn.addEventListener('click', _onInstallClick);
     card.appendChild(h('p', { class: 'card-note', id: 'install-note', text: t('settings.installHint') }));
@@ -503,17 +514,15 @@ function _fillInstallCard(card) {
     return;
   }
 
-  // ③–⑦ 手里没有事件对象 → 按当前宿主环境给对应的那一档出路（判据在 detectHostEnv()）。
-  //    都复用现成 .card-note，**零新增 CSS**（不许为这几档加任何 color: 声明）。
-  // ★值在这里算、**键保持字面量形式**：写成本变量的字面量会被 tools/check.mjs 第 9 节
-  //   与 tests/sources.test.mjs 里的 i18n 反查当作真引用；拼成变量的键会绕过那双眼睛，
-  //   缺了哪个 key 就再也查不出来 —— 所以五档宁可各写一遍字面量。
-  const env = detectHostEnv();
-  let note = t('settings.installManual');  // ⑦ 判不出来（桌面等）：iOS / 安卓两条路都摆出来，让用户自己对号入座
-  if (env === 'wechat') note = t('settings.installBlockedWechat');
-  else if (env === 'qq') note = t('settings.installBlockedQq');
-  else if (env === 'ios') note = t('settings.installManualIos');
-  else if (env === 'android') note = t('settings.installManualAndroid');
+  // 余下五档都没有按钮（没事件对象就不许显示按钮）。
+  // ★i18n key **必须保持字面量**：拼成变量的键会绕过 tools/check.mjs 第 9 节与
+  //   tests/sources.test.mjs 的 i18n 反查，缺了哪个 key 就再也查不出来 —— 所以五档
+  //   宁可各写一遍。全部复用现成 .card-note，**零新增 CSS**（不许加任何 color: 声明）。
+  let note = t('settings.installManual');
+  if (mode === 'blocked-wechat') note = t('settings.installBlockedWechat');
+  else if (mode === 'blocked-qq') note = t('settings.installBlockedQq');
+  else if (mode === 'manual-ios') note = t('settings.installManualIos');
+  else if (mode === 'manual-android') note = t('settings.installManualAndroid');
 
   card.appendChild(h('p', { class: 'card-note', id: 'install-note', text: note }));
   card.appendChild(h('p', { class: 'card-note', id: 'install-result', text: '' }));
