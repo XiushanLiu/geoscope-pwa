@@ -471,7 +471,16 @@ export async function boot() {
   const coord = fromUrl || (await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS }));
   if (epoch !== _epoch) return; // 定位期间已被新一轮接管
 
-  const { base, isDefaultPlace } = resolveCoord(coord);
+  // ★两个 opts 都必须传（对照 ui/compass.js 同一行的写法，两边口径必须一致）：
+  //   - `defaultPlace`：定位兜底时用的地点，是**用户在「我的」页改过的那份**
+  //     （store.getDefaultPlace()）。不传的话 resolveCoord 会退回 core/geo.js 的出厂
+  //     DEFAULT_PLACE（北京天安门）—— 用户在设置页刚设好的默认地点在这一屏被无视，
+  //     于是「我的」页写着上海、此刻屏却显示北京，跨页不一致。
+  //   - `displayName`：地名翻译（出厂默认那个地名要跟着界面语言走）。
+  const { base, isDefaultPlace } = resolveCoord(coord, {
+    defaultPlace: getDefaultPlace(),
+    displayName: placeDisplayName,
+  });
   if (fromUrl) log('coord from url param', base.lat, base.lon, base.name);
 
   const snapshot = _blankSnapshot(base);

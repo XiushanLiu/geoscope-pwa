@@ -40,10 +40,16 @@ import {
   getFontScale,
   setFontScale,
   getLocale,
+  getDefaultPlace,
+  setDefaultPlace,
   getFavorites,
   removeFavorite,
   log,
 } from '../core/store.js';
+// 定位：本页「默认地点」卡的「用当前位置」按钮要自己问一次系统定位。
+// ★`GEO_TIMEOUT_MS` 从 core 取而不是在本页另写一个 8000：两处各写一份必然漂移，
+//   而「界面说超时了、core 其实还没到上限」是一句假话。
+import { getCurrentPosition, GEO_TIMEOUT_MS } from '../core/geo.js';
 import { exportBackup, inspectBackup, applyBackup, backupFilename } from '../core/backup.js';
 import { downloadJson, downloadText } from './download.js';
 import { h, applyI18n } from './now.js';
@@ -69,6 +75,19 @@ import { watchShellUpdate } from './shellupdate.js';
 // 安装状态机：本页的「添加到桌面」卡只问它三个事实（装没装 / 能不能弹 / 弹的结果），
 //   可见文案一律留在本页走 t()（详见 install.js 文件头）。
 import { initInstallPrompt, isInstalled, canPrompt, promptInstall } from './install.js';
+
+// 默认地点卡的决策层：只回答「能不能用 / 造出什么值 / 是不是出厂那份」，
+// 一个 DOM 都不建、一句文案都不出 —— 文案全在本页走 t()（详见 defaultplace.js 文件头）。
+import {
+  factoryDefault,
+  canAdoptGps,
+  adoptGps,
+  adoptFavorite,
+  isFactoryDefault,
+  gpsSupported,
+  queryGpsPermission,
+  classifyGpsFailure,
+} from './defaultplace.js';
 
 /** 主题模式选项（顺序即界面顺序）。 */
 export const THEME_MODES = ['system', 'light', 'dark'];
@@ -538,6 +557,208 @@ function _renderCompareCard() {
 }
 
 /**
+ * 渲染「默认地点」卡。
+ *
+ * 定位拿不到的时候（拒绝 / 超时 / 没信号 / 环境不支持），此刻屏与地理页显示的**就是
+ * 这里设的地点**。它是「我的」页里唯一一个会影响其它两页读数的设置，所以必须能在
+ * 界面上改 —— 之前只能靠导入备份改，等于没有。
+ *
+ * ★为什么放在安装卡**之后**、收藏卡**之前**（位置本身就是本单的内容之一）：
+ *   两条都属于「开始用之前先设好」的一次性设置，挨在一起才好找；而收藏卡是
+ *   「先有数据、再谈备份」这条动线的开头，不该被顶掉。
+ *   ★不放在整页最前面：上一轮的安装卡占了第一位，那是**可发现性缺陷**（真机反馈
+ *   「没找到」）；默认地点从来不是找不到，不享受这个待遇。
+ *
+ * @returns {HTMLElement} 卡片节点（id 稳定，供 _refreshDefaultPlaceCard 原地重画）。
+ */
+function _renderDefaultPlaceCard() {
+  const card = h('div', { class: 'card', id: 'default-place-card' });
+  _fillDefaultPlaceCard(card);
+  return card;
+}
+
+/**
+ * 按**当前**状态重画「默认地点」卡的内容（原地替换，不换卡片节点本身）。
+ *
+ * ★为什么写完之后必须重画：这张卡的第一行就是「现在是：xx · 坐标」。写完不重画，
+ *   用户点了「从收藏选」而第一行纹丝不动 —— 他会以为没生效，再点一次、再来一次，
+ *   而实际上每次点击都真的写进去了。位置没变、状态已变，这就是假话。
+ *
+ * @returns {void}
+ */
+function _refreshDefaultPlaceCard() {
+  const card = _el('default-place-card');
+  if (!card) return;  // 不在设置页（别的页面没有这张卡）→ 什么都不做
+  _fillDefaultPlaceCard(card);
+}
+
+/**
+ * 填「默认地点」卡的内容（现状行 + 三种改法 + 结果位）。
+ *
+ * 三条不许退化的规矩：
+ *   1) **出厂默认必须标注出来**：第一行写着「北京 · 天安门」却不说它是出厂那份，
+ *      用户会以为自己什么时候设过它（isFactoryDefault 的判据在 defaultplace.js）；
+ *   2) **收藏为空时不给死按钮**：只给一句空态文案，让用户知道该去哪儿收藏；
+ *   3) **定位失败如实报原因**，且不写入 —— 见 _onUseGps 的注释。
+ *
+ * @param {HTMLElement} card 卡片节点。
+ * @returns {void}
+ */
+function _fillDefaultPlaceCard(card) {
+  card.textContent = '';
+  card.appendChild(h('p', { class: 'card-title', text: t('settings.defaultPlaceTitle') }));
+  card.appendChild(h('p', { class: 'card-note', text: t('settings.defaultPlaceHint') }));
+
+  const place = getDefaultPlace();
+  const shown = placeDisplayName(place.name);
+  card.appendChild(
+    h('p', {
+      class: 'card-note',
+      id: 'dp-current',
+      text: t('settings.defaultPlaceCurrent', { name: shown, coord: fmt.coord(place.lat, place.lon) }),
+    })
+  );
+  // ★出厂默认必须额外标注：不写这一行，「北京 · 天安门」看着就像用户自己设的位置
+  if (isFactoryDefault(place)) {
+    card.appendChild(h('p', { class: 'card-note', id: 'dp-factory', text: t('settings.defaultPlaceFactoryNote') }));
+  }
+
+  // ① 用当前位置
+  const gpsBtn = h('button', {
+    class: 'btn',
+    type: 'button',
+    id: 'btn-dp-gps',
+    text: t('settings.defaultPlaceGpsBtn'),
+  });
+  gpsBtn.addEventListener('click', _onUseGps);
+  card.appendChild(h('div', { class: 'field field--row' }, [gpsBtn]));
+
+  // ② 从收藏选：每条收藏一个按钮；★收藏为空时只给空态文案，不给点了没用的死按钮
+  const favorites = getFavorites();
+  card.appendChild(h('p', { class: 'card-note', text: t('settings.defaultPlaceFavTitle') }));
+  if (favorites.length === 0) {
+    card.appendChild(h('p', { class: 'card-note', id: 'dp-fav-empty', text: t('settings.defaultPlaceFavEmpty') }));
+  } else {
+    const picks = favorites.map((f, i) => {
+      const btn = h('button', {
+        class: 'btn',
+        type: 'button',
+        'data-idx': String(i),
+        text: f.name ? String(f.name) : fmt.coord(f.lat, f.lon),
+      });
+      btn.addEventListener('click', () => {
+        // 点击期间禁用，防连点（重画之后是新按钮，可用态自然恢复）
+        btn.disabled = true;
+        _onPickFavorite(String(i));
+      });
+      return btn;
+    });
+    card.appendChild(h('div', { class: 'field field--row', id: 'dp-fav-list' }, picks));
+  }
+
+  // ③ 恢复出厂默认
+  const resetBtn = h('button', {
+    class: 'btn',
+    type: 'button',
+    id: 'btn-dp-reset',
+    text: t('settings.defaultPlaceResetBtn'),
+  });
+  resetBtn.addEventListener('click', _onResetFactory);
+  card.appendChild(h('div', { class: 'field field--row' }, [resetBtn]));
+
+  card.appendChild(h('p', { class: 'card-note', id: 'dp-result', text: '' }));
+}
+
+/**
+ * 「用当前位置」：问一次系统定位，拿到了才写入，拿不到如实报原因。
+ *
+ * ★★拿不到时**绝不写**。定位兜底出来的北京天安门是 `core/geo.js` 的占位坐标，
+ *   不是用户的位置；把它写进默认地点，等于把一句假话持久化进备份 JSON，还会随
+ *   导出 / 导入带到别的设备上继续冒充「你的位置」（纪律见 defaultplace.js 文件头）。
+ *
+ * ★失败要分三类说（拒绝 / 超时 / 环境不支持），落在哪一档由 `classifyGpsFailure()`
+ *   判定 —— 本页不自己推断，也不把三种并成一句含糊的「定位失败」。
+ *
+ * @returns {Promise<void>} 永不 reject（异常也只落到结果位）。
+ */
+async function _onUseGps() {
+  const btn = _el('btn-dp-gps');
+  if (btn) btn.disabled = true;  // 点击期间禁用，防连点
+
+  const started = Date.now();
+  const supported = gpsSupported();
+  // 权限裁决是**可选能力**：问不到就是 null，由 classifyGpsFailure 落到「原因不明」
+  const permission = supported ? await queryGpsPermission() : null;
+
+  let coord = null;
+  try {
+    coord = await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS });
+  } catch (err) {
+    // getCurrentPosition 本身永不 reject（内部已兜底），这里只是双保险：
+    // 真抛了也不能让卡片停在一个永远 disabled 的按钮上。
+    coord = null;
+  }
+  const elapsedMs = Date.now() - started;
+
+  if (canAdoptGps(coord)) {
+    const place = adoptGps(coord);
+    if (place) {
+      setDefaultPlace(place);
+      _refreshDefaultPlaceCard();
+      _setStatus('dp-result', t('settings.defaultPlaceGpsDone', { name: placeDisplayName(place.name) }));
+      // 导出卡概要里也写着默认地点，一并刷新（否则那一行立刻变成假话）
+      _refreshExport();
+      return;
+    }
+  }
+
+  // ★顺序不能反：重画会重建结果位，写在重画之前会被清掉
+  _refreshDefaultPlaceCard();
+  const why = classifyGpsFailure({ supported, permission, elapsedMs, timeoutMs: GEO_TIMEOUT_MS });
+  if (why === 'unsupported') _setStatus('dp-result', t('settings.defaultPlaceGpsUnsupported'));
+  else if (why === 'denied') _setStatus('dp-result', t('settings.defaultPlaceGpsDenied'));
+  else if (why === 'timeout') _setStatus('dp-result', t('settings.defaultPlaceGpsTimeout'));
+  else _setStatus('dp-result', t('settings.defaultPlaceGpsOther'));
+}
+
+/**
+ * 「从收藏选」：把选中的收藏写成默认地点。
+ *
+ * ★`adoptFavorite()` 找不到时返回 null（不回退出厂默认），那种情况只写一句结果、
+ *   一个字节都不动 —— 「没找到」不是「用默认值」。
+ *
+ * @param {string} id 收藏 id（本页传的是它在列表里的下标）。
+ * @returns {void}
+ */
+function _onPickFavorite(id) {
+  const place = adoptFavorite(getFavorites(), id);
+  if (!place) {
+    _setStatus('dp-result', t('settings.defaultPlaceFavMissing'));
+    return;
+  }
+  setDefaultPlace(place);
+  // ★写完必须重画：第一行「现在是：…」要立刻变，不能等下次进页面
+  _refreshDefaultPlaceCard();
+  _setStatus('dp-result', t('settings.defaultPlaceFavDone', { name: placeDisplayName(place.name) }));
+  _refreshExport();
+}
+
+/**
+ * 「恢复出厂默认」：写回出厂那份（副本），并重画。
+ *
+ * @returns {void}
+ */
+function _onResetFactory() {
+  const btn = _el('btn-dp-reset');
+  if (btn) btn.disabled = true;  // 点击期间禁用，防连点（重画后是新按钮）
+  const place = factoryDefault();
+  setDefaultPlace(place);
+  _refreshDefaultPlaceCard();
+  _setStatus('dp-result', t('settings.defaultPlaceResetDone', { name: placeDisplayName(place.name) }));
+  _refreshExport();
+}
+
+/**
  * 渲染收藏卡（列表容器先建好，内容由 _refreshFavorites 填）。
  *
  * @returns {HTMLElement} 卡片节点。
@@ -948,6 +1169,11 @@ function _renderPage() {
   // (0) 添加到桌面 / 主屏幕（压在收藏卡之前：真机反馈「没找到」，位置本身就是修复内容；
   //     装完这一卡折叠成一行，不会长期占地方。位置理由见 _renderInstallCard 的 JSDoc）
   app.appendChild(_renderInstallCard());
+
+  // (0b) 默认地点（紧跟安装卡：两条都是「开始用之前先设好」的一次性设置；
+  //      ★不占整页第一位 —— 安装卡占第一位是因为用户「没找到」，那是可发现性缺陷，
+  //      默认地点不享受这个待遇。位置理由见 _renderDefaultPlaceCard 的 JSDoc）
+  app.appendChild(_renderDefaultPlaceCard());
 
   // (a) 收藏地点（放在备份之前：先让用户有东西可收藏，再说怎么把它们带走）
   app.appendChild(_renderFavoriteCard());
