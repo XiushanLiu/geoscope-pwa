@@ -114,32 +114,39 @@ test('adoptGps() 非法输入返回 null（绝不把兜底坐标造出来给人�
     '★定位兜底出来的那份不许被 adopt 成用户的默认地点');
 });
 
-test('adoptFavorite() 按 id 找到就返回 place，找不到返回 null（不回退出厂默认）', () => {
+test('adoptFavorite() 按下标命中：下标 0 必须命中第一条（不许被当成「没传」）', () => {
   const list = [
     { lat: 24.4798, lon: 118.0894, name: '厦门' },
     { lat: 30.2741, lon: 120.1551, name: '杭州' },
   ];
+  // ★下标 0 是最容易翻车的一个：它 falsy，一旦写成 `if (!index) return null` 或
+  //   让空串 / null 转数字（都是 0）混进来，第一条收藏就永远选不到（或反过来被误选）。
   assert.deepEqual(dp.adoptFavorite(list, 0), { lat: 24.4798, lon: 118.0894, name: '厦门' });
+  assert.deepEqual(dp.adoptFavorite(list, '0'), { lat: 24.4798, lon: 118.0894, name: '厦门' });
+  assert.deepEqual(dp.adoptFavorite(list, 1), { lat: 30.2741, lon: 120.1551, name: '杭州' });
   assert.deepEqual(dp.adoptFavorite(list, '1'), { lat: 30.2741, lon: 120.1551, name: '杭州' });
-
-  // ★变异 ③：这里若回退出厂默认，等于把「没找到」说成「用了北京天安门」
-  assert.equal(dp.adoptFavorite(list, 9), null, '越界：找不到就是找不到');
-  assert.equal(dp.adoptFavorite(list, 'nope'), null);
-  assert.equal(dp.adoptFavorite(list, null), null);
-  assert.equal(dp.adoptFavorite(list, ''), null, '★空串转数字是 0，不许命中第一项');
-  assert.equal(dp.adoptFavorite([], 0), null);
-  assert.equal(dp.adoptFavorite(null, 0), null);
 });
 
-test('adoptFavorite() 收藏项自带 id 时按 id 命中（含数字 / 字符串两种写法）', () => {
+test('adoptFavorite() 越界 / 非法下标返回 null（不回退出厂默认）', () => {
   const list = [
-    { id: 'a1', lat: 24.4798, lon: 118.0894, name: '厦门' },
-    { id: 7, lat: 30.2741, lon: 120.1551, name: '杭州' },
+    { lat: 24.4798, lon: 118.0894, name: '厦门' },
+    { lat: 30.2741, lon: 120.1551, name: '杭州' },
   ];
-  assert.deepEqual(dp.adoptFavorite(list, 'a1'), { lat: 24.4798, lon: 118.0894, name: '厦门' });
-  assert.deepEqual(dp.adoptFavorite(list, 7), { lat: 30.2741, lon: 120.1551, name: '杭州' });
-  assert.deepEqual(dp.adoptFavorite(list, '7'), { lat: 30.2741, lon: 120.1551, name: '杭州' });
-  assert.equal(dp.adoptFavorite(list, 'zz'), null);
+  // ★变异（本组新增）：去掉越界判定里的 `>= list.length` 后，下面第一条就会拿到
+  //   `list[9] === undefined` 造出来的东西，或干脆把「没找到」当成找到了
+  assert.equal(dp.adoptFavorite(list, 2), null, '刚好越界一位');
+  assert.equal(dp.adoptFavorite(list, 9), null, '越界：找不到就是找不到');
+  assert.equal(dp.adoptFavorite(list, -1), null, '负数下标');
+  assert.equal(dp.adoptFavorite(list, 'nope'), null);
+  assert.equal(dp.adoptFavorite(list, null), null, '★Number(null) === 0，不许命中第一条');
+  assert.equal(dp.adoptFavorite(list, ''), null, '★空串转数字是 0，不许命中第一条');
+  assert.equal(dp.adoptFavorite(list, 1.5), null, '非整数下标');
+  assert.equal(dp.adoptFavorite([], 0), null);
+  assert.equal(dp.adoptFavorite(null, 0), null);
+
+  // ★变异 ③：这里若回退出厂默认，等于把「没找到」说成「用了北京天安门」
+  const factory = dp.factoryDefault();
+  assert.notDeepEqual(dp.adoptFavorite(list, 9), factory, '找不到时绝不许退回出厂默认');
 });
 
 test('isFactoryDefault() 只认出厂那份（界面据此标注「这不是你的位置」）', () => {
