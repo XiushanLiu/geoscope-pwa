@@ -330,6 +330,15 @@ export const EN = {
   'compass.sensorEnable': 'Enable orientation sensor',
   'compass.headingMag': 'Heading (magnetic) {deg}°',
   'compass.headingTrue': 'Heading (true) {deg}°',
+  // Real-device report: "which needle is true north and which is magnetic?" — a legend row
+  // under the dial. The dots take their colour from the very same CSS tokens as the needles
+  // (.compass-dot--mag / --true); the copy here only NAMES the colour, it never paints it.
+  // Hard-coding a hex here would let the legend lie the day a token changes.
+  'compass.legendMag': 'Red · magnetic north',
+  'compass.legendTrue': 'Teal · true north',
+  // Shown only when a declination exists: with no declination there is no true-north needle,
+  // so "the angle between the needles" would be a false statement.
+  'compass.needleHint': 'The angle between the needles is the declination: red points to magnetic north, teal to true north',
   'compass.compassNote': 'The needle comes from the device sensor, it is not calibrated — for reference only',
 
   // ---------- Tile styles ----------
@@ -358,7 +367,13 @@ export const EN = {
   // "Zoom maxed out" must be said out loud: before this, hitting the style's ceiling only greyed out
   // the + button — users could not tell a network failure from "this style simply has no finer data"
   // (streets cap at z13 in China, two taps in). Shown only when actually at the ceiling.
-  'map.zoomMax': 'This style supports up to zoom {z}',
+  // Real-device report: "imagery looks blurry at max zoom". This line must answer WHY, not
+  // just print a number. It states only two certain facts: (1) the style ceiling is reached,
+  // (2) zooming past it will not yield finer tiles. It must NOT promise "zoom in and it
+  // sharpens", and must NOT claim "there is no imagery here" — we only measured Beijing,
+  // and the screenshot came from somewhere else. Sharpness genuinely varies with the source
+  // coverage of the area, so say exactly that.
+  'map.zoomMax': 'Zoom {z} is the deepest this style has · zooming further will not reveal finer imagery; sharpness depends on the coverage of this area',
   'map.footnote': 'Tiles cached by URL for 7 days · requests only after you trust the source · 6 s timeout, no retry',
   'map.gridFootnote': 'Missing basemap tiles do not affect coordinates or values · grid still works offline',
   'map.credit': 'Basemap attribution',

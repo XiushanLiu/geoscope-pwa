@@ -785,6 +785,33 @@ function _dial(headingMagDeg, declinationDeg) {
 }
 
 /**
+ * 指针配色图例：两个色点 + 文字，回答「哪根针是磁北、哪根针是真北」。
+ *
+ * ★真机反馈：盘面上红（磁北）青（真北）两支针长得一模一样，只差颜色，用户分不出谁是谁。
+ *
+ * ★色点的颜色**不许在这里写死**：本函数只挂 `class`，取色全交给 styles/app.css 的
+ *   `.compass-dot--mag` / `.compass-dot--true`，而那两条规则用的是**与针完全相同**的 token
+ *   （`var(--c-state-failed)` / `var(--c-brand)`）。在这里复制一份十六进制，就等于埋一颗
+ *   「token 改了、图例还在撒谎」的雷 —— 而且这种雷不会报错，只会指错方向。
+ *
+ * ★文字只用 `.card-note`（已有的一条小字样式）：本节**不新增任何 color 声明** ——
+ *   `tools/contrast-audit.mjs` 全量扫的就是 styles/app.css 里的 `color:`。
+ *
+ * @returns {HTMLElement} 图例节点。
+ */
+function _legend() {
+  const item = (dotClass, key) =>
+    h('span', { class: 'compass-legend-item' }, [
+      h('span', { class: `compass-dot ${dotClass}` }),
+      h('span', { text: t(key) }),
+    ]);
+  return h('p', { class: 'card-note compass-legend' }, [
+    item('compass-dot--mag', 'compass.legendMag'),
+    item('compass-dot--true', 'compass.legendTrue'),
+  ]);
+}
+
+/**
  * 渲染罗盘卡（有传感器画指针，否则降级为说明文案）。
  *
  * 降级路径：不支持 / 未授权 / 等不到数据（桌面） → 一律显示
@@ -803,17 +830,28 @@ export function renderCompassCard(root, snapshot, opts = {}) {
   if (_sensor.state === 'on' && _sensor.headingMagDeg !== null) {
     const headingMag = _sensor.headingMagDeg;
     const decl = snapshot.mag ? snapshot.mag.declination : null;
+    // ★`Number(null) === 0` —— 直接 `Number.isFinite(Number(decl))` 会把「算不出磁偏角」
+    //   当成「磁偏角 = 0」，于是把磁朝向原样当成真朝向印上去（一条看着很像真的假数）。
+    //   判有限性之前必须先把 null / undefined / '' 挡掉。
+    const declOk =
+      decl !== null && decl !== undefined && decl !== '' && Number.isFinite(Number(decl));
     const nodes = [
       title,
-      _dial(headingMag, Number.isFinite(Number(decl)) ? Number(decl) : 0),
+      _dial(headingMag, declOk ? Number(decl) : 0),
+      // 图例紧贴盘面下方、两条「当前朝向」之上：先看颜色对上谁，再看数值。
+      _legend(),
       h('p', { class: 'compass-heading num', text: t('compass.headingMag', { deg: fmt.num(headingMag, 0) }) }),
     ];
-    if (Number.isFinite(Number(decl))) {
+    if (declOk) {
       nodes.push(
         h('p', {
           class: 'compass-heading num',
           text: t('compass.headingTrue', { deg: fmt.num(convertMagToTrue(headingMag, Number(decl)), 0) }),
-        })
+        }),
+        // ★「两针夹角即磁偏角」只在**真有第二支针**时才说：磁偏角算不出来时盘上只有
+        //   磁北针（真北针是叠在它上面的同一根），此时这句是假话。与 headingTrue 共用
+        //   同一个判据，两条永远同时出现或同时不出现。
+        h('p', { class: 'card-note', text: t('compass.needleHint') })
       );
     }
     nodes.push(h('p', { class: 'card-note', text: t('compass.compassNote') }));

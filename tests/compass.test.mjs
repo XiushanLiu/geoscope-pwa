@@ -953,3 +953,125 @@ test('★依赖方向：底图卡只准由地理页 import（now.js import map.j
   // 环的另一半：map.js 确实依赖 now.js
   assert.ok(/from\s+['"]\.\/now\.js['"]/.test(map), 'map.js 依赖 now.js 的 h()（这条是上面那条反向钉的前提）');
 });
+
+/* ------------------------------------------------------------------ */
+/* 指针配色图例（真机：红针 / 青针分不清谁是谁）                        */
+/* ------------------------------------------------------------------ */
+
+const APP_CSS = srcOf('styles/app.css');
+
+/**
+ * 取 app.css 里某条规则的声明体（花括号里那一段）。
+ *
+ * @param {string} selector 形如 `.compass-dot--mag` 的选择器。
+ * @returns {string|null} 声明体；找不到时 `null`。
+ */
+function cssBody(selector) {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = APP_CSS.match(new RegExp(`${esc}\\s*\\{([^}]*)\\}`));
+  return m ? m[1] : null;
+}
+
+/**
+ * 取声明体里 `background:` 的值（保留 `var(--x)` 原样，不解析成颜色）。
+ *
+ * @param {string} body 声明体。
+ * @returns {string|null} 值；没有 `background:` 时 `null`。
+ */
+function bgValue(body) {
+  const m = String(body === null || body === undefined ? '' : body).match(/background\s*:\s*([^;]+);?/);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * 装上可用的方向传感器、喂一次朝向，然后在已渲染的罗盘卡里跑断言。
+ *
+ * ★为什么必须走真传感器路径：图例只在「有传感器 && 有朝向」这条分支里画，
+ *   降级分支（无传感器）根本没有指针，谈配色会变成一句空话。
+ *
+ * @param {Object} snapshot 方位屏状态。
+ * @param {number} headingMagDeg 喂进去的磁朝向。
+ * @param {(box:Object) => void} fn 断言回调，收到罗盘卡容器。
+ * @returns {void}
+ */
+function withSensor(snapshot, headingMagDeg, fn) {
+  const listeners = new Map();
+  const saved = globalThis.window;
+  globalThis.window = {
+    DeviceOrientationEvent: function DeviceOrientationEvent() {},
+    addEventListener: (type, cb) => listeners.set(String(type), cb),
+    removeEventListener: () => {},
+  };
+  try {
+    compass.resetSensor();
+    compass.enableSensor(() => compass.renderSnapshot(dom.byId.app, snapshot));
+    const handler = listeners.get('deviceorientation');
+    assert.ok(handler, '必须挂上 deviceorientation 监听（否则指针分支根本没走到）');
+    handler({ webkitCompassHeading: headingMagDeg });
+    compass.renderSnapshot(dom.byId.app, snapshot);
+    fn(dom.byId.app.querySelector('#card-compass'));
+  } finally {
+    compass.resetSensor();
+    if (saved === undefined) delete globalThis.window;
+    else globalThis.window = saved;
+  }
+}
+
+test('★罗盘配色图例：两个色点必须与两支针取同一个 token（复制十六进制＝埋雷）', () => {
+  withSensor(snapshotAt(AT_2025), 90, (box) => {
+    const legend = box.querySelector('.compass-legend');
+    assert.ok(legend, '盘面下方必须有配色图例（真机反馈：分不清哪根针是磁北）');
+
+    assert.equal(box.querySelectorAll('.compass-dot').length, 2, '图例必须是两个色点');
+    assert.equal(box.querySelectorAll('.compass-dot--mag').length, 1, '磁北色点');
+    assert.equal(box.querySelectorAll('.compass-dot--true').length, 1, '真北色点');
+
+    const legendText = text(legend);
+    assert.ok(legendText.indexOf(t('compass.legendMag')) !== -1, `图例必须点名磁北针，实际：${legendText}`);
+    assert.ok(legendText.indexOf(t('compass.legendTrue')) !== -1, `图例必须点名真北针，实际：${legendText}`);
+
+    // ★交叉锚点（这条才是「图例不许撒谎」的钉子）：色点的取色必须与针**同一个表达式**
+    const magDot = bgValue(cssBody('.compass-dot--mag'));
+    const trueDot = bgValue(cssBody('.compass-dot--true'));
+    assert.equal(magDot, bgValue(cssBody('.compass-needle--mag')), '磁北色点必须与磁北针同色');
+    assert.equal(trueDot, bgValue(cssBody('.compass-needle--true')), '真北色点必须与真北针同色');
+
+    // 方向性：红 = 磁北（失败态色）、青 = 真北（品牌色）—— 对调即红
+    assert.equal(magDot, 'var(--c-state-failed)', '磁北色点必须取失败态色（红针）');
+    assert.equal(trueDot, 'var(--c-brand)', '真北色点必须取品牌色（青针）');
+
+    // ★不许写死十六进制：token 哪天改了，复制的那份就会指错方向，而且不报错
+    for (const sel of ['.compass-dot--mag', '.compass-dot--true']) {
+      assert.ok(
+        !/#[0-9a-fA-F]{3,8}\b/.test(cssBody(sel)),
+        `${sel} 不许写死十六进制色（必须走 token），实际：${cssBody(sel)}`
+      );
+    }
+
+    // 图例不许新增 color: 声明 —— tools/contrast-audit.mjs 全量扫的就是 app.css 的 color:
+    for (const sel of ['.compass-legend', '.compass-legend-item', '.compass-dot']) {
+      assert.ok(!/color\s*:/.test(cssBody(sel)), `${sel} 不许新增 color 声明（对比度审计全量扫 color:）`);
+    }
+  });
+});
+
+test('★「两针夹角即磁偏角」只在真有磁偏角时出现（没有第二支针时说夹角是假话）', () => {
+  // ① 有磁偏角 → 两针真的岔开，这句话成立
+  withSensor(snapshotAt(AT_2025), 90, (box) => {
+    const txt = text(box);
+    assert.ok(txt.indexOf(t('compass.needleHint')) !== -1, `有磁偏角时必须解释两针夹角，实际：${txt}`);
+    assert.ok(txt.indexOf(t('compass.legendMag')) !== -1, '图例与磁偏角无关，照常出现');
+  });
+
+  // ② 没有磁偏角 → 真北针叠在磁北针上（+0°），此时「两针夹角」是假话
+  const noDecl = snapshotAt(AT_2025);
+  noDecl.mag = null;
+  withSensor(noDecl, 90, (box) => {
+    const txt = text(box);
+    assert.ok(
+      txt.indexOf(t('compass.needleHint')) === -1,
+      '★没有磁偏角时不许出现「两针夹角即磁偏角」（盘上只有一支针，夹角无从谈起）'
+    );
+    assert.ok(txt.indexOf(t('compass.compassNote')) !== -1, '免责声明照常在');
+  });
+});
