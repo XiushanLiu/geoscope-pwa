@@ -21,8 +21,13 @@
  *        必须消失，而不是留一个按下去只会报 failed 的死按钮）。
  *
  * 依赖方向：本模块**一个 import 都没有**（连 i18n 的 t() 都不需要 —— 它只回答
- * 「能不能装 / 装没装 / 装的结果是什么」这三个事实，一句可见文案都没有，全部文案
- * 都在 settings.js 里走 t()）。这样它也能被 Node 侧单测直接加载，不必先装假 i18n。
+ * 「能不能装 / 装没装 / 弹的结果是什么 / 当前是哪一类环境」这四个**事实**（返回值全是
+ * 枚举或布尔），一句可见文案都没有，全部文案都在 settings.js 里走 t()）。这样它也能被
+ * Node 侧单测直接加载，不必先装假 i18n。
+ * ★这条纪律是刻意守的：`detectHostEnv()` 只许返回 'ios' / 'android' / 'wechat' /
+ *   'qq' / 'unknown' 这五种枚举之一，**不许带半句说明文案** —— 文案一进来本模块就得
+ *   import t()；而且「环境是什么」（事实）与「界面上怎么说」（措辞）必须分开，
+ *   前者可测，后者可调，混在一起两头都动不了。
  *
  * 零新增样式：本模块不建任何 DOM，类名是调用方（settings.js）的事。
  */
@@ -46,6 +51,59 @@ function _win() {
  */
 function _nav() {
   return typeof navigator !== 'undefined' && navigator ? navigator : null;
+}
+
+/**
+ * 判当前**宿主环境**是哪一类（用来决定「催收/A路」给哪一条）。
+ *
+ * 为什么需要它（2026 真机反馈）：用户在微信里点右上角「…」→「添加到桌面」，试了几次
+ * 桌面上都找不到，点左上角小房子却进了 WorkBuddy —— 原因是微信内置的是 **WebView
+ * 而不是浏览器**，根本不支持 PWA 安装；随后他在真浏览器里打开同一链接，右上角「…」
+ * 又没了（那个 ⋮ 只有 Chrome / Edge 有，三星 / 小米 / 华为 / UC / 夸克的菜单在**底栏**，
+ * iOS 更是必须用 Safari、入口在底部中间的分享）。所以「给一条手动步骤」不够，
+ * 必须**分环境**给：先说清当前环境为什么装不了，再说出路在哪。
+ *
+ * ★★判据的可靠程度不同，**下面逐条标注了哪些有实测支撑**，别把它们当成一样硬：
+ *   - `'wechat'`（有真机行为佐证）：UA 含 `MicroMessenger`。这是微信专有 token，
+ *     零误判风险。
+ *   - `'qq'`（**仅 UA 约定，未实测**）：UA 含 ` QQ/`（**前导空格是关键**）。依据是
+ *     QQ **内置** WebView 的 UA 形如 ` QQ/8.9.63`，而 QQ **浏览器**是 `QQBrowser` /
+ *     `MQQBrowser`、不含 ` QQ/`。没有真机验证过，若判错本档会退化成 ios / android 档
+ *     （那两条路径依然正确，不会把用户带错路），所以这是**可接受的降级**。
+ *     ★不许自行扩大这条路 —— 加一个容器就要为它的真伪判据负责，没实测过的一律不加
+ *     （钉钉 / 微博等一概不识）。
+ *   - `'ios'`：UA 含 `iPhone` / `iPad` / `iPod`，**或** UA 含 `Macintosh` 且
+ *     `navigator.maxTouchPoints > 1`。后半条是 iPadOS 13+ 的坑：iPad 上 Safari 默认
+ *     把自己伪装成 Macintosh，只认 `Macintosh` 会把 iPad 判成桌面，只认 `iPhone`
+ *     又会漏掉 iPad —— 两条都不许去掉。
+ *   - `'android'`：UA 含 `Android`。
+ *   - `'unknown'`：以上都不成立（桌面浏览器、Node 侧、拿不到 navigator）。
+ *
+ * ★顺序：**先判容器再判系统**。微信 / QQ 的 WebView UA 里同样带着 `iPhone` 或
+ *   `Android`，先判系统会把容器吃掉，那正是这次真机事故的形态。
+ *
+ * @returns {'ios'|'android'|'wechat'|'qq'|'unknown'} 宿主环境枚举。
+ */
+export function detectHostEnv() {
+  const nav = _nav();
+  if (!nav) return 'unknown';
+  const ua = typeof nav.userAgent === 'string' ? nav.userAgent : '';
+
+  // ① 容器（优先级最高：它们的 UA 里也带 iPhone / Android）
+  if (ua.indexOf('MicroMessenger') !== -1) return 'wechat';
+  if (ua.indexOf(' QQ/') !== -1) return 'qq';
+
+  // ② 系统
+  if (ua.indexOf('iPhone') !== -1 || ua.indexOf('iPad') !== -1 || ua.indexOf('iPod') !== -1) return 'ios';
+  // iPadOS 13+ 伪装成 Macintosh：只有「多点触控」能把 iPad 与真 Mac 分开。
+  // ★先排除 null / undefined —— Number(null) === 0 本项目已踩过四次，这里一旦
+  //   把「没这个属性」算成 0 还好，算成点数参与比较就会错判。
+  const rawTouch = nav.maxTouchPoints;
+  const touchPoints = rawTouch === null || rawTouch === undefined ? 0 : Number(rawTouch);
+  if (ua.indexOf('Macintosh') !== -1 && touchPoints > 1) return 'ios';
+  if (ua.indexOf('Android') !== -1) return 'android';
+
+  return 'unknown';
 }
 
 /**

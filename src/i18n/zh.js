@@ -438,6 +438,11 @@ export const ZH = {
   'settings.installAccepted': '已接受安装：系统会在桌面或主屏幕上加一个图标。',
   'settings.installDismissed': '这次没装：你在系统提示里点了取消。想再试可以刷新本页，或按上面的手动步骤添加。',
   'settings.installFailed': '这一步没能走完（多半是重复点击或浏览器不支持）。按上面的手动步骤一样能添加。',
+  // 宿主环境分档：先说清「为什么这里装不了」，再给出路。判据见 install.js 的 detectHostEnv()
+  'settings.installBlockedWechat': '你现在是在「微信内置的浏览器」里（不是 Chrome / Safari），它不支持把网页装到桌面 —— 所以这一步在微信里无论点多少次都不会有图标，跟本 App 本身没关系。唯一可行的出路：点右上角「…」→「在浏览器打开」，换系统浏览器打开本页，再按那边的菜单添加。',
+  'settings.installBlockedQq': '你现在是在「QQ 内置的浏览器」里（不是 Chrome / Safari），它不支持把网页装到桌面 —— 这一步在 QQ 里点不出来，跟本 App 本身没关系。出路：点右上角「…」→「在浏览器打开」，换系统浏览器打开本页，再按那边的菜单添加。',
+  'settings.installManualIos': 'iPhone / iPad 请用「Safari」打开本页：iOS 上的 Chrome、微信、QQ 用的都是同一套 WebKit 内核，只有 Safari 有这个入口。然后点屏幕「底部中间」的「分享」→ 在列表里下滑找到「添加到主屏幕」→ 右上角「添加」。',
+  'settings.installManualAndroid': '安卓请用「Chrome 或系统自带浏览器」打开本页 → 右上角「⋮」→「安装应用」或「添加到主屏幕」。注意：三星 / 小米 / 华为 / UC / 夸克的菜单不在右上角，它们在屏幕「底部的底栏」里 —— 去底栏找「菜单」，别只盯着右上角。',
 
   // 默认地点（定位拿不到时显示的就是它；出厂那份必须标注出来，它不是用户的位置）
   'settings.defaultPlaceTitle': '默认地点',

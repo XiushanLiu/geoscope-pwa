@@ -448,6 +448,12 @@ export const EN = {
   'settings.installAccepted': 'Install accepted: the system will add an icon to your desktop or home screen.',
   'settings.installDismissed': 'Not installed this time: you dismissed the system prompt. Reload this page to try again, or follow the manual steps above.',
   'settings.installFailed': 'This step did not go through (usually a repeated tap, or an unsupported browser). The manual steps above still work.',
+  // Per-host-environment branches: say why this environment cannot install, then give the way out.
+  // Criteria live in detectHostEnv() in install.js
+  'settings.installBlockedWechat': 'You are inside WeChat\'s built-in browser (not Chrome or Safari), and it cannot add a web page to the desktop — so no matter how many times you tap here, no icon will appear, and nothing is wrong with this app. The one way out: tap "…" at the top right → "Open in Browser", then continue in the system browser and use its menu.',
+  'settings.installBlockedQq': 'You are inside QQ\'s built-in browser (not Chrome or Safari), and it cannot add a web page to the desktop — this step simply does not exist there, and nothing is wrong with this app. The way out: tap "…" at the top right → "Open in Browser", then continue in the system browser and use its menu.',
+  'settings.installManualIos': 'On iPhone / iPad open this page in Safari: Chrome, WeChat and QQ on iOS all run on the same WebKit engine, and only Safari has this entry point. Then tap Share at the bottom centre of the screen → scroll down the list to Add to Home Screen → Add at the top right.',
+  'settings.installManualAndroid': 'On Android open this page in Chrome or your built-in browser → "⋮" at the top right → Install app or Add to Home Screen. Note: on Samsung, Xiaomi, Huawei, UC and Quark the menu is not at the top right but in the bottom bar — look for "Menu" down there instead of staring at the top right corner.',
 
   // Default place (this is what shows when location is unavailable; the factory one must be labelled — it is not the user's place)
   'settings.defaultPlaceTitle': 'Default place',
