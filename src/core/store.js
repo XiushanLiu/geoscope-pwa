@@ -15,7 +15,7 @@ import { DEFAULT_PLACE_NAME } from './geo.js';
 /**
  * **应用标识（文件格式用，不是品牌名）** —— 全称 'geoscope'。
  *
- * ★与品牌名 `APP_NAME`（i18n/index.js，现在是 'WayScope'）是**两回事，不许混用**：
+ * ★与品牌名 `APP_NAME`（i18n/index.js，现在是 'GeoScope'）是**两回事，不许混用**：
  *   · APP_ID   —— 写进导出文件、参与导入校验（`data.app !== APP_ID` 直接拒绝）。
  *                 **品牌改名时绝不许改它**，改了用户已有的备份 / 行程文件全部导不进来。
  *   · APP_NAME —— 界面上给人看的品牌名，改名时随品牌一起改。
@@ -396,7 +396,7 @@ export function setDebug(on) {
 export function log(...args) {
   if (!isDebug()) return;
   try {
-    console.log('[WayScope]', ...args);
+    console.log('[GeoScope]', ...args);
   } catch (err) {
     /* 环境无 console 时静默 */
   }

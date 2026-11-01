@@ -359,8 +359,9 @@ export async function runSelfCheck(opts = {}) {
   const report = {
     // ★用 APP_ID（'geoscope'）而不是 APP_NAME（品牌名）：这个字段是**导出文件的格式标识**，
     //   与文件名前缀 `geoscope-selfcheck-<stamp>.json`、以及 backup.js 的 `app: APP_ID`
-    //   是同一套口径。品牌改名（地候 GeoScope → 途候 WayScope）不该改变文件格式 ——
-    //   否则 `report.app` 会变成 'WayScope' 而文件名仍写着 geoscope，自己跟自己矛盾。
+    //   是同一套口径。**品牌名怎么改都不该改变文件格式** —— 否则 `report.app` 会跟着变成
+    //   品牌名（历史上曾一度叫 `途候 WayScope`，2026-11-01 又改回 `地候 GeoScope`），
+    //   而文件名仍写着 geoscope，自己跟自己矛盾。名字是给人看的，格式标识是给机器认的。
     app: APP_ID,
     version: APP_VERSION,
     generatedAt: Date.now(),

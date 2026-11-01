@@ -18,7 +18,7 @@
 /** 英文文案表：扁平 key → 字符串。 */
 export const EN = {
   // ---------- General ----------
-  'app.name': 'WayScope',
+  'app.name': 'GeoScope',
   'app.tagline': 'Here · Now',
   'app.loading': 'Loading…',
   'app.retry': 'Retry',
@@ -879,18 +879,18 @@ export const EN = {
   // Spots in the HTML shell with NO child element (meta description / iOS home-screen
   // name) plus the aria-labels a screen reader reads out. All of them are visible to
   // somebody — some just via the ears — so they go through i18n too.
-  'app.shortName': 'WayScope',
-  'app.description': 'WayScope — a personal weather and place glance: one screen of data, here and now.',
-  'desc.selfcheck': 'WayScope — source self-check: sample each source and see which ones answer.',
-  'desc.compass': 'WayScope — magnetic declination and true/magnetic bearing conversion, computed on device with WMM2025, offline.',
-  'desc.settings': 'WayScope — backup export and import, theme switching; data stays on this device, no network.',
-  'desc.compare': 'WayScope — compare places: the same readings for each saved place, side by side.',
+  'app.shortName': 'GeoScope',
+  'app.description': 'GeoScope — a personal weather and place glance: one screen of data, here and now.',
+  'desc.selfcheck': 'GeoScope — source self-check: sample each source and see which ones answer.',
+  'desc.compass': 'GeoScope — magnetic declination and true/magnetic bearing conversion, computed on device with WMM2025, offline.',
+  'desc.settings': 'GeoScope — backup export and import, theme switching; data stays on this device, no network.',
+  'desc.compare': 'GeoScope — compare places: the same readings for each saved place, side by side.',
   // Geo page (compass.html): place (elevation / coordinates / name) + basemap +
   // bearing & magnetic declination + the full compass.
   // 2026-10-17 nav restructure: the bearing page was promoted to the "Geo" main tab, so
   // the page description widened accordingly — the compass is still here, just no longer
   // the only subject.
-  'desc.geo': 'WayScope — geo: elevation, coordinates and place name, with a basemap, bearing & magnetic declination, and the full compass.',
+  'desc.geo': 'GeoScope — geo: elevation, coordinates and place name, with a basemap, bearing & magnetic declination, and the full compass.',
   'a11y.mainNav': 'Main navigation',
   'a11y.checkParams': 'Self-check parameters',
   // ---------- Interface language ----------
@@ -918,7 +918,7 @@ export const EN = {
   'backup.badJson': 'not valid JSON',
   'backup.notObject': 'the backup body is not a JSON object',
   'backup.badSchema': 'unsupported backup schema version (schema={schema})',
-  'backup.notGeoscope': 'not a WayScope backup file',
+  'backup.notGeoscope': 'not a GeoScope backup file',
   'backup.noPrefs': 'missing prefs',
   'backup.badDefaultPlace': 'defaultPlace coordinates are invalid (lat/lon must be finite numbers, latitude within ±90, longitude within ±180)',
   'backup.planNoDefaultPlace': 'the import plan has no valid defaultPlace (call inspectBackup first)',

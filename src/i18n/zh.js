@@ -20,7 +20,7 @@
 /** 中文文案表：扁平 key → 字符串。 */
 export const ZH = {
   // ---------- 通用 ----------
-  'app.name': '途候 WayScope',
+  'app.name': '地候 GeoScope',
   'app.tagline': '此刻 · 此地',
   'app.loading': '正在装载…',
   'app.retry': '重试',
@@ -850,16 +850,16 @@ export const ZH = {
   // ---------- 各页 <meta> 与读屏标签 ----------
   // HTML 外壳里那些**没有子元素**的位置（meta description / iOS 主屏名）与
   // 读屏软件念的 aria-label，同样看得见（只是有的用耳朵看），所以也走 i18n。
-  'app.shortName': '途候',
-  'app.description': '途候 WayScope —— 自用地理气象速览，此刻此地的一屏数据。',
-  'desc.selfcheck': '途候 WayScope —— 数据源自检：逐源取样，看清哪一路通、哪一路不通。',
-  'desc.compass': '途候 WayScope —— 磁偏角与真/磁方位换算，本机 WMM2025 计算，不联网。',
-  'desc.settings': '途候 WayScope —— 备份导出与导入、主题切换，数据只留本机，不联网。',
-  'desc.compare': '途候 WayScope —— 多地点对比：把收藏地点的同一批指标并排列出来。',
+  'app.shortName': '地候',
+  'app.description': '地候 GeoScope —— 自用地理气象速览，此刻此地的一屏数据。',
+  'desc.selfcheck': '地候 GeoScope —— 数据源自检：逐源取样，看清哪一路通、哪一路不通。',
+  'desc.compass': '地候 GeoScope —— 磁偏角与真/磁方位换算，本机 WMM2025 计算，不联网。',
+  'desc.settings': '地候 GeoScope —— 备份导出与导入、主题切换，数据只留本机，不联网。',
+  'desc.compare': '地候 GeoScope —— 多地点对比：把收藏地点的同一批指标并排列出来。',
   // ★地理页（compass.html）：地点（海拔 / 坐标 / 地名）+ 底图 + 方位·磁偏角 + 完整罗盘。
   //   2026-10-17 导航重构：方位页升级为「地理」主 tab，页面描述随之从「方位·磁偏角」
   //   扩到整页内容 —— 罗盘那部分仍在本页，只是不再是唯一的主题。
-  'desc.geo': '途候 WayScope —— 地理：海拔、坐标与地名，配底图、方位·磁偏角与完整罗盘。',
+  'desc.geo': '地候 GeoScope —— 地理：海拔、坐标与地名，配底图、方位·磁偏角与完整罗盘。',
   'a11y.mainNav': '主导航',
   'a11y.checkParams': '自检参数',
   // ---------- 界面语言 ----------
@@ -885,7 +885,7 @@ export const ZH = {
   'backup.badJson': '不是合法 JSON',
   'backup.notObject': '备份内容不是 JSON 对象',
   'backup.badSchema': '备份格式版本不支持（schema={schema}）',
-  'backup.notGeoscope': '不是途候的备份文件',
+  'backup.notGeoscope': '不是地候的备份文件',
   'backup.noPrefs': '缺少 prefs',
   'backup.badDefaultPlace': 'defaultPlace 坐标非法（lat/lon 必须是有限数字，纬度 ±90、经度 ±180 内）',
   'backup.planNoDefaultPlace': '导入计划里没有合法的 defaultPlace（请先调用 inspectBackup）',

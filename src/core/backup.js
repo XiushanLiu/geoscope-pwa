@@ -188,7 +188,7 @@ export function inspectBackup(input) {
     return { ok: false, reasonKey: 'backup.badSchema', reasonParams: { schema: String(data.schema) } };
   }
 
-  /* ---------- 3. 是不是途候的备份 ---------- */
+  /* ---------- 3. 是不是地候的备份 ---------- */
   if (data.app !== APP_ID) {
     return { ok: false, reasonKey: 'backup.notGeoscope' };
   }
