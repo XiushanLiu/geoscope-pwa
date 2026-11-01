@@ -452,6 +452,9 @@ export const EN = {
   'settings.defaultPlaceResetBtn': 'Restore factory default',
   'settings.defaultPlaceResetDone': 'Restored the factory default: {name}',
 
+  // First-screen segment timings (one whole sentence as the template, numbers only; missing segments show "—", never 0, never dropped)
+  'settings.bootTiming': 'First screen: location {geo} · weather {weather} · air {air} · elevation {elevation} · background {background} · total {total}',
+
   'settings.exportTitle': 'Export backup',
   'settings.exportBtn': 'Export backup file',
   'settings.exportCurrent': 'Ready to export: default place {place} · {count} saved places · weather snapshot {snapshot}',

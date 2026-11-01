@@ -65,7 +65,10 @@ import {
   renderSnapshot,
   renderClimateCard,
   applyI18n,
+  h,
 } from './now.js';
+// 时延格式化：boot 分段耗时那一行只插值数字，格式交给 fmt.latency()（'123 ms' / '—'）。
+import * as fmt from '../core/format.js';
 // ★「取数 → 记账 → 溯源」的唯一实现：与地理页 `compass.js` 共用，不许在这里再抄一份
 //   （2026-10-17 之前这两页各有一份副本，靠测试钉不住行为，见 ui/pull.js 文件头）。
 import { pullSource, safePull } from './pull.js';
@@ -89,6 +92,104 @@ applyLocale(getLocale());
 
 /** 定位超时（毫秒）。 */
 const GEO_TIMEOUT_MS = 8000;
+
+/**
+ * 上一轮 boot() 的分段耗时（毫秒）；还没有跑完过一整轮时为 null。
+ *
+ * ★为什么对外只给「上一轮」：本行是在 boot **中途**上屏的（溯源卡之后、后台段之前），
+ *   那一瞬间本轮的后台段与合计都还没跑完 —— 拿本轮的半成品上屏，等于把「还没测」
+ *   说成「已经测到了」。所以界面读的是**上一轮整轮跑完**的那一份；第一次进入时没有
+ *   上一轮，六个位置全部显示 '—'（那是真话：确实还没测过）。
+ *
+ * ★本单只做**测量**，不做任何优化：首屏串行是设计上刻意的（全局并发 1，
+ *   见 core/http.js 的 _chain），没有真机分段数据之前不许调超时、不许砍路数。
+ */
+let _timings = null;
+
+/**
+ * 造一份空的分段耗时表。
+ *
+ * ★每段初始为 null 而不是 0：0 会把「本轮没跑到这一段」说成「这一段耗时 0 ms」——
+ *   与溯源卡同一条纪律（命中缓存时显示「缓存命中」、不显示 0 ms，见 now.js 里
+ *   prov.cacheHit 那条注释）。
+ *
+ * @returns {{geo:number|null, weather:number|null, air:number|null,
+ *            elevation:number|null, background:number|null, total:number|null}} 空表。
+ */
+function _blankTimings() {
+  return { geo: null, weather: null, air: null, elevation: null, background: null, total: null };
+}
+
+/**
+ * 收尾：记上合计，并把本轮发布为「上一轮」。
+ *
+ * ★只在**正常结束**的出口调用。被 epoch 丢弃的轮次（用户又刷新了一次）不发布 ——
+ *   它的数据是残缺的，而且真正跑完的那一轮随后会覆盖它。
+ *
+ * ★合计是**墙钟**（boot 起点 → 终点），不是各段之和：各段之间有渲染与判定开销，
+ *   相加会漏掉它们；更不允许把没跑到的段当 0 加进去。
+ *
+ * @param {Object} timings 本轮分段表。
+ * @param {number} bootStart boot 起点（performance.now 时基）。
+ * @returns {void}
+ */
+function _publishTimings(timings, bootStart) {
+  timings.total = performance.now() - bootStart;
+  _timings = timings;
+}
+
+/**
+ * 上一轮 boot() 的分段耗时（副本）；还没跑完过一整轮时返回 null。
+ *
+ * ★给副本：调用方改一个字段就会改掉模块级状态，而这种改动不会有任何报错。
+ *
+ * @returns {{geo:number|null, weather:number|null, air:number|null,
+ *            elevation:number|null, background:number|null, total:number|null}|null} 副本或 null。
+ */
+export function bootTimings() {
+  if (_timings === null) return null;
+  return { geo: _timings.geo, weather: _timings.weather, air: _timings.air, elevation: _timings.elevation, background: _timings.background, total: _timings.total };
+}
+
+/**
+ * 在溯源卡后面追加一行「首屏耗时」（只在这一屏：index.html）。
+ *
+ * ★缺段显示 '—'（fmt.latency(null) 出占位符），**不显示 0、也不省略整段**：
+ *   省略整段，看不出那一跳到底跑没跑；显示 0，等于把「没测」说成「测到 0 ms」。
+ *
+ * ★整句走一条文案模板，只往里插值数字（本项目「语序陷阱」的规矩：「体感 26°」
+ *   不许拼片段）—— 英文那句的语序由英文模板自己决定。
+ *
+ * @param {HTMLElement} root 根容器。
+ * @returns {void}
+ */
+function _renderBootTiming(root) {
+  const box = root && typeof root.querySelector === 'function' ? root.querySelector('#card-prov') : null;
+  if (!box) return;
+  // ★重画安全（真 bug，不是洁癖）：`_background()` 末尾会**再画一次溯源卡**
+  //   （renderProvenance 走 _fill，先清空容器），挂在里面的一切都被抹掉 —— 不摘旧行、
+  //   再补新行，界面上就会先闪一行、然后在后台段结束时彻底消失。
+  const stale = root.querySelector('#boot-timing');
+  if (stale && stale.parentNode && typeof stale.parentNode.removeChild === 'function') {
+    stale.parentNode.removeChild(stale);
+  }
+  const tm = bootTimings();
+  const seg = (k) => fmt.latency(tm ? tm[k] : null);
+  box.appendChild(
+    h('p', {
+      class: 'card-note',
+      id: 'boot-timing',
+      text: t('settings.bootTiming', {
+        geo: seg('geo'),
+        weather: seg('weather'),
+        air: seg('air'),
+        elevation: seg('elevation'),
+        background: seg('background'),
+        total: seg('total'),
+      }),
+    })
+  );
+}
 
 /**
  * 轮次号：每次 boot() 自增。
@@ -464,11 +565,19 @@ export async function boot() {
   //   也不再有 renderMapSkeleton() 这一步。
   renderSkeleton(root);
 
+  // ---- 分段耗时打点（只测量，不改任何时序）----
+  // 起点取在骨架上屏之后：前面的主题 / 语言引导与骨架渲染都是同步的、且发生在首屏
+  // 像素之前，算进来只会稀释真正要观测的那几跳。
+  const timings = _blankTimings();
+  const bootStart = performance.now();
+
   // ① URL 指定地点（从收藏列表跳过来）优先：用户已经明确选了这个地点，
   //    再去要一次系统定位既慢（最多 8 s）又是和用户意图对着干 —— 直接跳过 geo.js。
   //    参数缺失/非法时 parsePlaceParam 返回 null，退回原有定位流程，行为不变。
+  const geoStart = performance.now();
   const fromUrl = parsePlaceParam();
   const coord = fromUrl || (await getCurrentPosition({ timeoutMs: GEO_TIMEOUT_MS }));
+  timings.geo = performance.now() - geoStart;
   if (epoch !== _epoch) return; // 定位期间已被新一轮接管
 
   // ★两个 opts 都必须传（对照 ui/compass.js 同一行的写法，两边口径必须一致）：
@@ -492,6 +601,9 @@ export async function boot() {
   // 离线：不发任何请求
   if (!isOnline()) {
     _renderOffline(root, bannerEl, snapshot, isDefaultPlace);
+    // 离线也是**正常结束**的一轮：weather / air / elevation / background 四段压根没跑，
+    //   如实留 null（上屏出 '—'），合计照记 —— 这一轮确实花了这么久才上屏。
+    _publishTimings(timings, bootStart);
     return;
   }
 
@@ -500,6 +612,7 @@ export async function boot() {
 
   // ---- 首屏串行：weather → air → elevation，出一张渲染一张 ----
   // 每路都独立 try/catch：任一源抛错只废自己那张卡，绝不留下永久骨架屏。
+  const weatherStart = performance.now();
   await safePull(
     snapshot,
     'weather',
@@ -523,8 +636,10 @@ export async function boot() {
       }
     }
   );
+  timings.weather = performance.now() - weatherStart;
   if (epoch !== _epoch) return;
 
+  const airStart = performance.now();
   await safePull(
     snapshot,
     'air',
@@ -537,8 +652,10 @@ export async function boot() {
       else renderAirCard(root, snapshot);
     }
   );
+  timings.air = performance.now() - airStart;
   if (epoch !== _epoch) return;
 
+  const elevationStart = performance.now();
   await safePull(
     snapshot,
     'elevation',
@@ -553,24 +670,35 @@ export async function boot() {
       renderHeader(root, snapshot, { isDefaultPlace });
     }
   );
+  timings.elevation = performance.now() - elevationStart;
   if (epoch !== _epoch) return;
 
   // 首屏完成：落一份本机快照，供离线冷启动降级
   setLastSnapshot(snapshot);
   renderBanner(bannerEl, _bannerMode(), { staleAgeMs: _maxStaleAge(snapshot) });
   renderProvenance(root, snapshot);
+  // ★打点那一行挂在溯源卡里：读的是**上一轮**的耗时（本轮后台段与合计此刻还没跑完，
+  //   拿本轮半成品上屏就是把「还没测」说成「已经测到了」）。
+  _renderBootTiming(root);
 
   // ---- 后台补齐 ----
   // 说明：三张首屏卡此时**已经上屏**，这里补齐的是地名与瓦片探测结论，不会再阻塞首屏观感。
   // 仍然 await 住它：保证「无地图模式」在本轮内就依据真实探测结果定下（成功复位 / 失败置位），
   // 否则下一轮读到的是上一轮的结论，横幅会一直谎称「底图不可用」。
+  const bgStart = performance.now();
   try {
     await _background(snapshot, root, bannerEl, isDefaultPlace, epoch);
   } catch (err) {
     log('background failed', err && err.message);
   }
+  // ★就算后台段抛错也要记耗时：它确实跑了那么久，写成 '—' 等于把几秒的卡顿藏起来
+  timings.background = performance.now() - bgStart;
   if (epoch !== _epoch) return;
   setLastSnapshot(snapshot);
+  // ★后台段末尾重画过一次溯源卡（上面那行已经被抹掉了），这里补回来 —— 同一次 boot
+  //   里只留一行：_renderBootTiming() 会先摘掉旧行（见那里的注释）。
+  _renderBootTiming(root);
+  _publishTimings(timings, bootStart);
 }
 
 /**

@@ -445,6 +445,9 @@ export const ZH = {
   'settings.defaultPlaceResetBtn': '恢复出厂默认',
   'settings.defaultPlaceResetDone': '已恢复出厂默认：{name}',
 
+  // 首屏分段耗时（整句成模板，只插值数字；缺段显示「—」，不许显示 0 也不许省略整段）
+  'settings.bootTiming': '首屏耗时：定位 {geo} · 天气 {weather} · 空气 {air} · 海拔 {elevation} · 后台 {background} · 合计 {total}',
+
   'settings.exportTitle': '备份导出',
   'settings.exportBtn': '导出备份文件',
   'settings.exportCurrent': '当前可导出：默认地点 {place} · 收藏 {count} 条 · 天气快照 {snapshot}',

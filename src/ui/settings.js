@@ -727,11 +727,11 @@ async function _onUseGps() {
  * ★`adoptFavorite()` 找不到时返回 null（不回退出厂默认），那种情况只写一句结果、
  *   一个字节都不动 —— 「没找到」不是「用默认值」。
  *
- * @param {string} id 收藏 id（本页传的是它在列表里的下标）。
+ * @param {string} index 收藏在列表里的下标（adoptFavorite 只认下标：收藏项没有 id 字段）。
  * @returns {void}
  */
-function _onPickFavorite(id) {
-  const place = adoptFavorite(getFavorites(), id);
+function _onPickFavorite(index) {
+  const place = adoptFavorite(getFavorites(), index);
   if (!place) {
     _setStatus('dp-result', t('settings.defaultPlaceFavMissing'));
     return;

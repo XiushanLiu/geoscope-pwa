@@ -45,36 +45,6 @@ function _finite(v) {
 }
 
 /**
- * 判断一个值是不是「有意义的 id」（数字、或非空字符串）。
- *
- * @param {*} v 任意值。
- * @returns {boolean} 有意义则 true。
- */
-function _hasValue(v) {
-  if (typeof v === 'number') return Number.isFinite(v);
-  if (typeof v === 'string') return v.trim() !== '';
-  return false;
-}
-
-/**
- * 把一个「查找 id」解释成列表下标；解释不出来返回 null。
- *
- * ★同样的 `Number(null) === 0` 陷阱：空串 / null 转数字都是 0，不先挡掉的话
- *   「没传 id」会命中列表第 0 项 —— 表现为「什么都没选却选中了第一个收藏」。
- *
- * @param {*} id 查找 id。
- * @returns {number|null} 下标或 null。
- */
-function _asIndex(id) {
-  if (typeof id === 'number') return Number.isInteger(id) && id >= 0 ? id : null;
-  if (typeof id === 'string' && id.trim() !== '') {
-    const n = Number(id.trim());
-    return Number.isInteger(n) && n >= 0 ? n : null;
-  }
-  return null;
-}
-
-/**
  * 由一条收藏造出可写入 store 的 place 对象（坐标一律 round4，与缓存键同一口径）。
  *
  * 收藏项没有名字时（用户收藏时没拿到地名）退回格式化坐标串 —— 那至少是真的坐标，
@@ -147,34 +117,34 @@ export function adoptGps(coord) {
 }
 
 /**
- * 从收藏里按 id 取一条，造出可写入 store 的 place 对象。
+ * 从收藏里按下标取一条，造出可写入 store 的 place 对象。
  *
- * 两种 id 都认，先认收藏项自带的 `id` 字段（严格比对，数字与字符串两种写法都算命中），
- * 再认「它在列表里的下标」—— 本仓的收藏项**没有 id 字段**（store 用 lat + lon 去重），
- * 界面上传下来的就是下标。
+ * ★只认下标，不认「收藏项自带的 id 字段」—— 本仓的收藏项**没有 id 字段**
+ *   （store 的 addFavorite 推入 `{ lat, lon, name }`，去重靠 lat + lon 精确相等），
+ *   为它留一条匹配分支就是一条**永远不会走到的死代码**；更糟的是它埋了个类型陷阱：
+ *   入参既能当 id 又能当下标时，将来收藏项真有了 id 字段，传下标 `1` 会被拿去和
+ *   `String(f.id)` 比，可能命中错误的条目。等真有了 id 再说，现在不许提前实现。
  *
  * ★找不到就返回 null，**不回退出厂默认**：「没找到」与「用默认值」是两件事，
  *   后者会把北京天安门写成用户的位置（见本模块文件头第一条纪律）。
  *
  * @param {Array<Object>} favorites 收藏列表。
- * @param {string|number} id 收藏 id（自带 id 字段优先；否则按下标）。
- * @returns {{lat:number, lon:number, name:string}|null} place 对象；找不到 / 非法时 null。
+ * @param {string|number} index 收藏在列表里的下标（界面传字符串，纯逻辑可传数字）。
+ * @returns {{lat:number, lon:number, name:string}|null} place 对象；下标非法 / 越界时 null。
  */
-export function adoptFavorite(favorites, id) {
+export function adoptFavorite(favorites, index) {
   const list = Array.isArray(favorites) ? favorites : [];
-  if (list.length === 0) return null;
-
-  if (_hasValue(id)) {
-    const wanted = String(id);
-    for (const f of list) {
-      if (!f || typeof f !== 'object') continue;
-      if (_hasValue(f.id) && String(f.id) === wanted) return _placeFrom(f);
-    }
+  // ★`Number(null)` 与 `Number('')` 都是 0：不先排除 null / undefined / 空串，
+  //   「没传下标」会命中列表第 0 条 —— 表现为「什么都没选却选中了第一个收藏」。
+  let at = null;
+  if (typeof index === 'number') {
+    if (Number.isInteger(index)) at = index;
+  } else if (typeof index === 'string' && index.trim() !== '') {
+    const n = Number(index.trim());
+    if (Number.isInteger(n)) at = n;
   }
-
-  const idx = _asIndex(id);
-  if (idx === null || idx >= list.length) return null;
-  return _placeFrom(list[idx]);
+  if (at === null || at < 0 || at >= list.length) return null;
+  return _placeFrom(list[at]);
 }
 
 /**
