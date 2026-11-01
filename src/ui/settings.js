@@ -81,6 +81,8 @@ import {
   promptInstall,
   detectHostEnv,
   pickInstallMode,
+  installEntryUrl,
+  copyText,
 } from './install.js';
 
 // 默认地点卡的决策层：只回答「能不能用 / 造出什么值 / 是不是出厂那份」，
@@ -514,18 +516,51 @@ function _fillInstallCard(card) {
     return;
   }
 
-  // 余下五档都没有按钮（没事件对象就不许显示按钮）。
+  // 余下五档都没有「安装」按钮（没事件对象就不许显示按钮）。
   // ★i18n key **必须保持字面量**：拼成变量的键会绕过 tools/check.mjs 第 9 节与
   //   tests/sources.test.mjs 的 i18n 反查，缺了哪个 key 就再也查不出来 —— 所以五档
   //   宁可各写一遍。全部复用现成 .card-note，**零新增 CSS**（不许加任何 color: 声明）。
+  //
+  // 网址：取**入口页**而不是当前页（理由见 install.js 的 installEntryUrl），
+  //   拿不到时为空串 —— 那时不许把它塞进带 {url} 的模板（t() 缺参会留下字面占位符）。
+  const url = installEntryUrl();
   let note = t('settings.installManual');
   if (mode === 'blocked-wechat') note = t('settings.installBlockedWechat');
   else if (mode === 'blocked-qq') note = t('settings.installBlockedQq');
   else if (mode === 'manual-ios') note = t('settings.installManualIos');
-  else if (mode === 'manual-android') note = t('settings.installManualAndroid');
+  else if (mode === 'manual-android') {
+    note = url ? t('settings.installManualAndroid', { url, app: t('app.name') }) : t('settings.installManualAndroidNoUrl', { app: t('app.name') });
+  }
 
   card.appendChild(h('p', { class: 'card-note', id: 'install-note', text: note }));
+
+  // 网址行 + 「复制网址」按钮：只在**手动步骤**那三档出现。
+  // ★为什么给按钮而不只是写一行网址：兜底那条路要用户把网址填进系统弹窗，
+  //   一长串英文靠手打必错；而 URL 行本身留着，是为了按钮失效（不少浏览器
+  //   不给网页剪贴板权限）时还能长按手动选中。
+  // ★url 为空时整块不显示：没东西可复制，按钮就是个点了没反应的按钮。
+  if (url && (mode === 'manual-ios' || mode === 'manual-android' || mode === 'manual-other')) {
+    card.appendChild(h('p', { class: 'card-note', id: 'install-url', text: url }));
+    const copyBtn = h('button', { class: 'btn', type: 'button', id: 'btn-copy-url', text: t('settings.installCopyUrl') });
+    copyBtn.addEventListener('click', _onCopyUrlClick);
+    card.appendChild(h('div', { class: 'field field--row' }, [copyBtn]));
+  }
+
   card.appendChild(h('p', { class: 'card-note', id: 'install-result', text: '' }));
+}
+
+/**
+ * 「复制网址」按钮点击：复制入口页网址，把结果写进结果位。
+ *
+ * ★复制失败也要**说出来**（「这个浏览器不允许网页自动复制，请长按手动选」）：
+ *   静默失败等于一个点了没反应的按钮，那正是本模块第一条纪律要防的东西。
+ *
+ * @returns {Promise<void>} 永不 reject（copyText() 自己吞异常）。
+ */
+async function _onCopyUrlClick() {
+  const url = installEntryUrl();
+  const ok = await copyText(url);
+  _setStatus('install-result', ok ? t('settings.installCopied', { url }) : t('settings.installCopyFailed'));
 }
 
 /**

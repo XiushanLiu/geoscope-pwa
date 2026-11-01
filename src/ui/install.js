@@ -252,3 +252,53 @@ export async function promptInstall() {
     return { outcome: 'failed', error };
   }
 }
+
+/**
+ * 本站在**入口页**上的绝对网址（用户粘到「网站快捷方式」里用的就是它）。
+ *
+ * ★必须是 `origin + '/index.html'` 而不是 `location.href`：`manifest.webmanifest` 的
+ *   `start_url` 就是 index.html，那是用户点开 App 的**正门**；而这张卡在 settings.html
+ *   上，用 href 会复制出一个设置页地址 —— 用户在桌面上点开就直接进设置，且地址栏
+ *   显示的是那一页，等于把人带错门。
+ *
+ * 拿不到 location（Node 侧）或 origin 为空 / 为字符串 'null'（file:// 下就是它）
+ * → 返回空串。★空串是「没有这个事实」，调用方**不许**把它塞进带占位符的模板 ——
+ *   t() 缺参会留下字面占位符，那是一条坏文案。
+ *
+ * @returns {string} 入口页绝对网址；拿不到则空串。
+ */
+export function installEntryUrl() {
+  if (typeof location === 'undefined' || !location) return '';
+  const origin = typeof location.origin === 'string' ? location.origin : '';
+  if (!origin || origin === 'null') return '';
+  return `${origin}/index.html`;
+}
+
+/**
+ * 把一段文本写进剪贴板。
+ *
+ * ★失败一律返回 **false**（不是抛）：`navigator.clipboard` 在非安全上下文、file://、
+ *   老浏览器里根本不存在，那是**正常环境**不是错误。返回 false 是为了让调用方有机会
+ *   说一句「这个浏览器不允许网页复制，请长按手动选」—— 本模块零文案，那句话由
+ *   调用方（settings.js）走 t() 说。
+ *   ★做不到就说做不到，这是本模块第一条纪律的同一面：宁可不给按钮，也不给一个
+ *     点了没反应（或偷偷失败）的按钮。
+ *
+ * @param {string} text 要复制的文本；非字符串或空串直接 false（没东西可复制）。
+ * @returns {Promise<boolean>} 是否复制成功；**永不 reject、永不抛**。
+ */
+export async function copyText(text) {
+  if (typeof text !== 'string' || text === '') return false;
+
+  const nav = _nav();
+  const clip = nav && nav.clipboard ? nav.clipboard : null;
+  if (!clip || typeof clip.writeText !== 'function') return false;
+
+  try {
+    await clip.writeText(text);
+    return true;
+  } catch (err) {
+    // 权限被拒、文档没聚焦、浏览器实现抛错 —— 都是「复制没成」这一件事
+    return false;
+  }
+}
