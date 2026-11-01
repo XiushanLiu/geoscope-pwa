@@ -38,6 +38,19 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  */
 const read = (p) => normalizeEol(readFileSync(resolve(ROOT, p), 'utf8'));
 
+/**
+ * 单文件产物专用的内联 favicon（SVG data-URI）。
+ *
+ * ★只能内联：selfcheck-standalone.html 是发到手机单独打开的，没有服务器，
+ *   任何指向 `icons/*.png` 的相对引用都会 404。其余 5 页用真实 PNG（PWA 安装流程
+ *   只认位图），单文件诊断页用这份内联 SVG —— 两者**必须分开**，这是硬约定，
+ *   `tests/icons.test.mjs` 会断言产物里仍然是 data-URI。
+ *
+ * @type {string}
+ */
+const INLINE_FAVICON =
+  "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%231E9C8C'/%3E%3Ccircle%20cx='256'%20cy='256'%20r='120'%20fill='none'%20stroke='%23ffffff'%20stroke-width='24'/%3E%3Cpath%20d='M256%2096v320M96%20256h320'%20stroke='%23ffffff'%20stroke-width='16'%20opacity='.85'/%3E%3C/svg%3E";
+
 /** 入口模块 */
 const ENTRY = 'src/ui/selfcheck.js';
 
@@ -289,6 +302,18 @@ ${moduleMap}
 
 /** 以 selfcheck.html 为模板改造 */
 let html = read('selfcheck.html');
+
+// 0. 图标 → 内联 data-URI。
+//    ★单文件产物必须自包含：它是发到手机单独打开的（file:// 或内容分享），没有服务器，
+//    `icons/icon-192.png` 这种相对引用必然 404 → 退化成空白页图标。
+//    selfcheck.html 现在指向真实 PNG（供其余 4 页与 PWA 安装流程用），所以这里把它
+//    换回一份内联 SVG —— 浏览器标签页/书签图标用 SVG data-URI 完全够用，且零字节外链。
+//    apple-touch-icon 只被 iOS 主屏读取，单文件诊断页用不上，直接删。
+html = html.replace(/\s*<link rel="apple-touch-icon"[^>]*\/>/g, '');
+html = html.replace(
+  /<link rel="icon" href="[^"]*"\s*\/>/,
+  `<link rel="icon" href="${INLINE_FAVICON}" />`
+);
 
 // 1. 两个样式表 → 内联 <style>
 html = html.replace(

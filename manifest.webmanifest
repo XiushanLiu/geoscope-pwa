@@ -12,15 +12,21 @@
   "dir": "ltr",
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%231E9C8C'/%3E%3Ccircle%20cx='256'%20cy='256'%20r='120'%20fill='none'%20stroke='%23ffffff'%20stroke-width='24'/%3E%3Cpath%20d='M256%2096v320M96%20256h320'%20stroke='%23ffffff'%20stroke-width='16'%20opacity='.85'/%3E%3C/svg%3E",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20fill='%231E9C8C'/%3E%3Ccircle%20cx='256'%20cy='256'%20r='140'%20fill='none'%20stroke='%23ffffff'%20stroke-width='28'/%3E%3Cpath%20d='M256%20116v280M116%20256h280'%20stroke='%23ffffff'%20stroke-width='20'%20opacity='.85'/%3E%3C/svg%3E",
+      "src": "icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ]
