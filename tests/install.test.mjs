@@ -80,7 +80,11 @@ function makePromptEvent(opts = {}) {
 }
 
 /**
- * 复位环境：清掉监听、回到「没有 standalone 信号」、navigator 不带 standalone。
+ * 复位环境：清掉监听、回到「没有 standalone 信号」、navigator 恢复成 harness 那份默认。
+ *
+ * ★UA 注入一律**改属性、不换全局对象** —— 整体替换 globalThis.navigator 会让 harness
+ *   里其它替身（含 installNavigator 装上的那个对象）失去同一性，而且 restored 顺序一乱
+ *   就污染后面的用例；这里只动 userAgent / maxTouchPoints 两个字段。
  *
  * @returns {void}
  */
@@ -89,6 +93,32 @@ function resetEnv() {
   fakeWindow.standaloneMatches = false;
   fakeWindow.matchMediaCalls = [];
   globalThis.navigator.standalone = undefined;
+  globalThis.navigator.userAgent = 'Mozilla/5.0 (QA-FakeBrowser)';
+  delete globalThis.navigator.maxTouchPoints;
+}
+
+/**
+ * 装一段 UA（可选连 maxTouchPoints 一起），返回一个还原函数。
+ *
+ * @param {string} ua userAgent。
+ * @param {number|undefined} touch maxTouchPoints；不传表示「设备没有这个属性」。
+ * @returns {() => void} 还原函数。
+ */
+function withUa(ua, touch) {
+  const nav = globalThis.navigator;
+  const savedUa = nav.userAgent;
+  const savedTouch = nav.maxTouchPoints;
+  const hadTouch = Object.prototype.hasOwnProperty.call(nav, 'maxTouchPoints');
+
+  nav.userAgent = ua;
+  if (touch === undefined) delete nav.maxTouchPoints;
+  else nav.maxTouchPoints = touch;
+
+  return () => {
+    nav.userAgent = savedUa;
+    if (hadTouch) nav.maxTouchPoints = savedTouch;
+    else delete nav.maxTouchPoints;
+  };
 }
 
 beforeEach(resetEnv);
@@ -267,5 +297,188 @@ test('★window 不存在（Node / SSR 侧）→ 全程不抛，状态一律「�
     assert.equal(res.outcome, 'unavailable');
   } finally {
     Object.defineProperty(globalThis, 'window', { value: saved, configurable: true, writable: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* detectHostEnv()：宿主环境判定                                         */
+/* ------------------------------------------------------------------ */
+/*
+ * ★这些 UA 是**按各家的公开格式拼出来的样本**，不是从真机抓的包 —— 本文件要钉的是
+ *   「给定一段 UA，检出哪一档」这个**映射关系**，而不是某台设备当时的 UA 原文。
+ *   判据本身的可靠程度见 install.js 的 detectHostEnv() JSDoc：微信那条有真机行为佐证，
+ *   QQ 那条**只有 UA 约定、没实测过**，这里钉的是「照约定」，不代表验证过约定成立。
+ */
+
+/** 微信 iPhone（含 MicroMessenger，且 UA 里同样带 iPhone）。 */
+const UA_WECHAT_IPHONE =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.40(0x18002832) NetType/WIFI Language/zh_CN';
+
+/** 微信安卓（含 MicroMessenger，且 UA 里同样带 Android）。 */
+const UA_WECHAT_ANDROID =
+  'Mozilla/5.0 (Linux; Android 13; SM-S9080 Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/104.0.5112.97 Mobile Safari/537.36 MicroMessenger/8.0.40.2420(0x28002851) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64';
+
+/** QQ 内置 WebView：带 ` QQ/`（前导空格）且同时带 MQQBrowser。 */
+const UA_QQ_INAPP =
+  'Mozilla/5.0 (Linux; Android 12; V2154A Build/SP1A.210812.003; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/89.0.4389.72 MQQBrowser/6.2 TBS/046240 Mobile Safari/537.36 V1_AND_SQ_8.9.63_4662_YYB_D QQ/8.9.63.12110 NetType/WIFI WebP/0.3.0 Pixel/1080 StatusBarHeight/44 QQTheme/1000';
+
+/** QQ 浏览器（不是内置 WebView）：只有 MQQBrowser，没有 ` QQ/`。 */
+const UA_QQ_BROWSER =
+  'Mozilla/5.0 (Linux; Android 12; V2154A) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.0.0 MQQBrowser/13.5 Mobile Safari/537.36';
+
+const UA_IPHONE =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+const UA_IPAD =
+  'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+/** iPadOS 13+「请求桌面网站」时的 UA：伪装成 Macintosh，只有 maxTouchPoints 能把它认出来。 */
+const UA_IPAD_DESKTOP =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+
+const UA_ANDROID =
+  'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36';
+
+const UA_DESKTOP_MAC =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36';
+
+test('detectHostEnv：微信内置（iPhone）→ wechat（容器优先于系统）', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_WECHAT_IPHONE);
+  try {
+    assert.equal(detectHostEnv(), 'wechat', 'UA 里同时有 iPhone 与 MicroMessenger，必须先判容器');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：微信内置（安卓）→ wechat', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_WECHAT_ANDROID);
+  try {
+    assert.equal(detectHostEnv(), 'wechat');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：QQ 内置 WebView（UA 含 ` QQ/`）→ qq', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_QQ_INAPP);
+  try {
+    assert.equal(detectHostEnv(), 'qq', '★判据是按 UA 约定的，未在真机上验证过');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：QQ 浏览器（只有 MQQBrowser、没有 ` QQ/`）→ android，不许误判成 qq', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_QQ_BROWSER);
+  try {
+    assert.equal(detectHostEnv(), 'android', 'QQ 浏览器是**能装**的浏览器，判成 qq 会把用户引向一条错的路');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：iPhone → ios', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_IPHONE);
+  try {
+    assert.equal(detectHostEnv(), 'ios');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：iPad → ios', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_IPAD);
+  try {
+    assert.equal(detectHostEnv(), 'ios');
+  } finally {
+    restore();
+  }
+});
+
+test('★detectHostEnv：iPadOS 伪装成 Macintosh + maxTouchPoints 2 → ios', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_IPAD_DESKTOP, 2);
+  try {
+    assert.equal(detectHostEnv(), 'ios', 'iPad 请求桌面网站时 UA 里没有 iPad —— 漏了这条就等于漏掉所有 iPad');
+  } finally {
+    restore();
+  }
+});
+
+test('★detectHostEnv：真 Mac（Macintosh + maxTouchPoints 0）→ unknown，不许判成 ios', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_DESKTOP_MAC, 0);
+  try {
+    assert.equal(detectHostEnv(), 'unknown', '桌面 Mac 也带 Macintosh，只有「多点触控」能把 iPad 与它分开');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：Macintosh 但设备没有 maxTouchPoints 属性 → unknown', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_DESKTOP_MAC, undefined);
+  try {
+    assert.equal(detectHostEnv(), 'unknown', '★属性缺失不是 0：不许把「没这个属性」当成有效点数参与比较');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：安卓 Chrome → android', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_ANDROID);
+  try {
+    assert.equal(detectHostEnv(), 'android');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：空 UA → unknown', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa('');
+  try {
+    assert.equal(detectHostEnv(), 'unknown', '拿不到 UA 就是不知道，不许猜');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：userAgent 不是字符串 → unknown 且不抛', async () => {
+  const { detectHostEnv } = await freshModule();
+  const nav = globalThis.navigator;
+  const saved = nav.userAgent;
+  nav.userAgent = null;
+  try {
+    let out = null;
+    assert.doesNotThrow(() => {
+      out = detectHostEnv();
+    }, 'UA 形态异常只当「这条信号拿不到」');
+    assert.equal(out, 'unknown');
+  } finally {
+    nav.userAgent = saved;
+  }
+});
+
+test('★detectHostEnv：navigator 不存在（Node / SSR 侧）→ unknown 且不抛', async () => {
+  const { detectHostEnv } = await freshModule();
+  const saved = globalThis.navigator;
+  Object.defineProperty(globalThis, 'navigator', { value: undefined, configurable: true, writable: true });
+  try {
+    let out = null;
+    assert.doesNotThrow(() => {
+      out = detectHostEnv();
+    });
+    assert.equal(out, 'unknown');
+  } finally {
+    Object.defineProperty(globalThis, 'navigator', { value: saved, configurable: true, writable: true });
   }
 });
