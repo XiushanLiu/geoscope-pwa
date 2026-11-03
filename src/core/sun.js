@@ -73,16 +73,23 @@ function _dayOfYear(d) {
  * @param {{lat:number, lon:number, dateUTC:number, zenith?:number}} args 入参。
  *   lat 纬度（-90..90）；lon 经度（-180..180）；
  *   dateUTC 基准时刻，支持 ms epoch / Date / ISO 字符串三种形态（无法解析则整体降级为 null）；
- *   zenith 太阳天顶角（默认 90.833，注意显式传 0 会被 `||` 当成未提供 —— 见函数内注释）。
+ *   zenith 太阳天顶角（默认 90.833；显式传 0 生效，非数字 / 未提供回落默认值）；
  * @returns {{sunriseAt:number|null, sunsetAt:number|null, solarNoonAt:number, dayLengthMs:number|null,
  *            polar:'none'|'polar-day'|'polar-night'}} 结果（ms epoch，UTC 语义）。
  */
 export function sunriseSunset(args) {
   const lat = Number(args && args.lat);
   const lon = Number(args && args.lon);
-  // 已知边界（QA 已固化为回归用例，保留现状）：`|| 90.833` 会让显式传入的 zenith=0
-  // 被当成「未提供」而回落默认值（理想写法是 ??，但改了会破坏既有断言，等 QA 同步改用例）。
-  const zenith = Number(args && args.zenith) || 90.833;
+  // ★显式传 0 必须生效：旧写法 `Number(...) || 90.833` 会把 0 当成「未提供」。
+  //   但也不能直接换成 `??` —— Number(undefined) 是 NaN，而 NaN **不是** nullish，
+  //   那样「没传」反而不回落默认值，静默把整条计算送进 NaN。所以两步分开：
+  //   ① 先判「未提供」（null / undefined / 空串）→ 用默认值；
+  //   ② 再把非数字（含 NaN、Infinity）也挡回默认值，保留原来 `||` 的容错。
+  const zenithRaw = args && args.zenith;
+  const zenithNum = (zenithRaw === null || zenithRaw === undefined || zenithRaw === '')
+    ? 90.833
+    : Number(zenithRaw);
+  const zenith = Number.isFinite(zenithNum) ? zenithNum : 90.833;
   // dateUTC 三种形态一视同仁：ms epoch / Date / ISO 字符串；解析不出时间就降级为 NaN，
   // 由下面的有限性校验统一返回 null（绝不抛异常，调用方是首屏渲染路径）。
   const dateUTC = _toMs(args && args.dateUTC);

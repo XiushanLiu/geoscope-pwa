@@ -160,8 +160,35 @@ test('同纬度不同经度：东经比西经更早日出（经度参与计算�
   assert.notEqual(hhmm(east.sunriseAt), hhmm(west.sunriseAt), '不同经度必须给出不同的日出时刻');
 });
 
-test('zenith=0 会被 || 默认化（已知行为，见报告建议项）', () => {
+test('zenith=0 是显式取值，不许回落默认值', () => {
   const def = at(39.9, 116.4, '2025-06-21');
   const zero = sun.sunriseSunset({ lat: 39.9, lon: 116.4, dateUTC: utc('2025-06-21'), zenith: 0 });
-  assert.equal(zero.sunriseAt, def.sunriseAt, 'zenith=0 被当成未提供，回落到 90.833（建议改 ?? 判断）');
+  assert.notEqual(
+    zero.sunriseAt,
+    def.sunriseAt,
+    '★显式传 0 必须生效：旧写法 || 会把它当成「未提供」而回落 90.833'
+  );
+  assert.ok(zero && typeof zero === 'object', '不许抛异常，返回结构仍完整');
+  assert.ok('sunriseAt' in zero && 'sunsetAt' in zero && 'dayLengthMs' in zero);
+});
+
+test('zenith 未提供 / null / 空串 / 非数字 → 回落 90.833（原容错不许丢）', () => {
+  const def = at(39.9, 116.4, '2025-06-21');
+  const base = { lat: 39.9, lon: 116.4, dateUTC: utc('2025-06-21') };
+  const cases = [
+    sun.sunriseSunset({ ...base }),
+    sun.sunriseSunset({ ...base, zenith: 'abc' }),
+    sun.sunriseSunset({ ...base, zenith: null }),
+    sun.sunriseSunset({ ...base, zenith: '' }),
+    sun.sunriseSunset({ ...base, zenith: NaN }),
+  ];
+  for (const r of cases) {
+    assert.equal(r.sunriseAt, def.sunriseAt, '未提供或无效值必须回落默认 90.833');
+  }
+});
+
+test('zenith=90.833 与不传等价（默认值本身没被改动）', () => {
+  const def = at(39.9, 116.4, '2025-06-21');
+  const explicit = sun.sunriseSunset({ lat: 39.9, lon: 116.4, dateUTC: utc('2025-06-21'), zenith: 90.833 });
+  assert.equal(explicit.sunriseAt, def.sunriseAt);
 });
