@@ -77,6 +77,12 @@ function _nav() {
  *     所以这是**可接受的降级**。
  *     ★不许自行扩大这条路 —— 加一个容器就要为它的真伪判据负责，没实测过的一律不加
  *     （钉钉 / 微博等一概不识）。
+ *   - `'oppo'`（**有真机 UA 佐证**，本项目第一条）：UA 含 `HeyTapBrowser`。这是 OPPO
+ *     自带浏览器（ColorOS）的专有 token。真机日志：机型 PKC110 / Android 17，
+ *     UA 尾巴 `... Mobile Safari/537.36 HeyTapBrowser/40.10.24.1`。
+ *     它**不是容器**（能装东西），只是入口藏在两跳里（底部三道横线 → 添加收藏 →
+ *     书签收藏 → 长按书签 → 添加到桌面），所以给的是步骤而不是「装不了」。
+ *     必须排在 android 之前 —— 它的 UA 里同样带 `Android`。
  *   - `'ios'`：UA 含 `iPhone` / `iPad` / `iPod`，**或** UA 含 `Macintosh` 且
  *     `navigator.maxTouchPoints > 1`。后半条是 iPadOS 13+ 的坑：iPad 上 Safari 默认
  *     把自己伪装成 Macintosh，只认 `Macintosh` 会把 iPad 判成桌面，只认 `iPhone`
@@ -87,7 +93,7 @@ function _nav() {
  * ★顺序：**先判容器再判系统**。微信 / QQ 的 WebView UA 里同样带着 `iPhone` 或
  *   `Android`，先判系统会把容器吃掉，那正是这次真机事故的形态。
  *
- * @returns {'ios'|'android'|'wechat'|'qq'|'unknown'} 宿主环境枚举。
+ * @returns {'ios'|'android'|'oppo'|'wechat'|'qq'|'unknown'} 宿主环境枚举。
  */
 export function detectHostEnv() {
   const nav = _nav();
@@ -98,7 +104,15 @@ export function detectHostEnv() {
   if (ua.indexOf('MicroMessenger') !== -1) return 'wechat';
   if (ua.indexOf(' QQ/') !== -1) return 'qq';
 
-  // ② 系统
+  // ② OPPO 自带浏览器（ColorOS 的 HeyTapBrowser）。它**不是容器**（能装东西，
+  //    只是入口藏在底部工具栏 + 书签长按两跳里），但必须排在 android 之前 ——
+  //    它的 UA 里同样带 Android，先判系统就永远走不到这一档。
+  // ★判据有真机实测：2026-11-03 用户自检页日志里的 UA 尾巴是
+  //    `... Mobile Safari/537.36 HeyTapBrowser/40.10.24.1`（机型 PKC110 / Android 17）。
+  //    这是本项目第一条「有真机 UA 佐证」的浏览器档 —— 不再是从公开资料推的。
+  if (ua.indexOf('HeyTapBrowser') !== -1) return 'oppo';
+
+  // ③ 系统
   if (ua.indexOf('iPhone') !== -1 || ua.indexOf('iPad') !== -1 || ua.indexOf('iPod') !== -1) return 'ios';
   // iPadOS 13+ 伪装成 Macintosh：只有「多点触控」能把 iPad 与真 Mac 分开。
   // ★先排除 null / undefined —— Number(null) === 0 本项目已踩过四次，这里一旦
@@ -135,7 +149,7 @@ export function detectHostEnv() {
  *     按钮」的经典入口。
  *
  * @param {{installed?:boolean, canPrompt?:boolean, env?:string}} [input] 三个信号。
- * @returns {'installed'|'prompt'|'blocked-wechat'|'blocked-qq'|'manual-ios'|'manual-android'|'manual-other'}
+ * @returns {'installed'|'prompt'|'blocked-wechat'|'blocked-qq'|'manual-oppo'|'manual-ios'|'manual-android'|'manual-other'}
  *   该显示的那一档。
  */
 export function pickInstallMode(input) {
@@ -148,6 +162,7 @@ export function pickInstallMode(input) {
   if (canPromptNow) return 'prompt';
   if (env === 'wechat') return 'blocked-wechat';
   if (env === 'qq') return 'blocked-qq';
+  if (env === 'oppo') return 'manual-oppo';
   if (env === 'ios') return 'manual-ios';
   if (env === 'android') return 'manual-android';
   return 'manual-other';

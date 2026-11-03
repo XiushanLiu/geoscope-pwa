@@ -304,10 +304,12 @@ test('★window 不存在（Node / SSR 侧）→ 全程不抛，状态一律「�
 /* detectHostEnv()：宿主环境判定                                         */
 /* ------------------------------------------------------------------ */
 /*
- * ★这些 UA 是**按各家的公开格式拼出来的样本**，不是从真机抓的包 —— 本文件要钉的是
- *   「给定一段 UA，检出哪一档」这个**映射关系**，而不是某台设备当时的 UA 原文。
- *   判据本身的可靠程度见 install.js 的 detectHostEnv() JSDoc：微信那条有真机行为佐证，
- *   QQ 那条**只有 UA 约定、没实测过**，这里钉的是「照约定」，不代表验证过约定成立。
+ * ★下面这些 UA 里**只有两条有真机来源**：微信（有真机行为佐证）与 OPPO 浏览器
+ *   （2026-11-03 用户自检页日志原文，见 UA_OPPO_BROWSER）。其余都是按各家公开格式
+ *   **拼出来的样本**，不是从真机抓的包 —— 本文件要钉的是「给定一段 UA，检出哪一档」
+ *   这个**映射关系**，而不是某台设备当时的 UA 原文。
+ *   判据本身的可靠程度见 install.js 的 detectHostEnv() JSDoc：QQ 那条**只有 UA 约定、
+ *   没实测过**，这里钉的是「照约定」，不代表验证过约定成立。
  */
 
 /** 微信 iPhone（含 MicroMessenger，且 UA 里同样带 iPhone）。 */
@@ -338,6 +340,16 @@ const UA_IPAD_DESKTOP =
 
 const UA_ANDROID =
   'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36';
+
+/**
+ * OPPO 自带浏览器（ColorOS 的 HeyTapBrowser）。
+ *
+ * ★★这一条**不是拼出来的样本，是从真机抓的原文**（2026-11-03 用户自检页日志，
+ *   机型 PKC110 / Android 17）。本文件其它 UA 都是按公开格式拼的样本，只有这条
+ *   和微信那条有真机来源 —— 改它之前先想清楚你在改什么。
+ */
+const UA_OPPO_BROWSER =
+  'Mozilla/5.0 (Linux; U; Android 17; zh-cn; PKC110 Build/CP2A.260605.016) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/115.0.5790.168 Mobile Safari/537.36 HeyTapBrowser/40.10.24.1';
 
 const UA_DESKTOP_MAC =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36';
@@ -377,6 +389,20 @@ test('detectHostEnv：QQ 浏览器（只有 MQQBrowser、没有 ` QQ/`）→ and
   const restore = withUa(UA_QQ_BROWSER);
   try {
     assert.equal(detectHostEnv(), 'android', 'QQ 浏览器是**能装**的浏览器，判成 qq 会把用户引向一条错的路');
+  } finally {
+    restore();
+  }
+});
+
+test('detectHostEnv：OPPO 自带浏览器（UA 含 HeyTapBrowser）→ oppo，不许落到 android', async () => {
+  const { detectHostEnv } = await freshModule();
+  const restore = withUa(UA_OPPO_BROWSER);
+  try {
+    assert.equal(
+      detectHostEnv(),
+      'oppo',
+      '★这条 UA 同时带 Android —— 落进 android 就等于「没认出 OPPO」，会把用户送回那条他已经试过、没有入口的路'
+    );
   } finally {
     restore();
   }
@@ -519,6 +545,17 @@ test('pickInstallMode：ios → manual-ios', async () => {
   const { pickInstallMode } = await freshModule();
 
   assert.equal(pickInstallMode({ canPrompt: false, env: 'ios' }), 'manual-ios');
+});
+
+test('pickInstallMode：oppo → manual-oppo（不是 manual-android）', async () => {
+  const { pickInstallMode } = await freshModule();
+
+  assert.equal(
+    pickInstallMode({ canPrompt: false, env: 'oppo' }),
+    'manual-oppo',
+    'OPPO 有自己那条走通的路径（书签长按），混进 android 通用档等于让用户重走一遍死路'
+  );
+  assert.equal(pickInstallMode({ installed: false, canPrompt: true, env: 'oppo' }), 'prompt', '事实仍然压推断');
 });
 
 test('pickInstallMode：android → manual-android', async () => {

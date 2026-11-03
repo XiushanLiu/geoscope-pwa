@@ -516,9 +516,9 @@ function _fillInstallCard(card) {
     return;
   }
 
-  // 余下五档都没有「安装」按钮（没事件对象就不许显示按钮）。
+  // 余下六档都没有「安装」按钮（没事件对象就不许显示按钮）。
   // ★i18n key **必须保持字面量**：拼成变量的键会绕过 tools/check.mjs 第 9 节与
-  //   tests/sources.test.mjs 的 i18n 反查，缺了哪个 key 就再也查不出来 —— 所以五档
+  //   tests/sources.test.mjs 的 i18n 反查，缺了哪个 key 就再也查不出来 —— 所以六档
   //   宁可各写一遍。全部复用现成 .card-note，**零新增 CSS**（不许加任何 color: 声明）。
   //
   // 网址：取**入口页**而不是当前页（理由见 install.js 的 installEntryUrl），
@@ -527,6 +527,7 @@ function _fillInstallCard(card) {
   let note = t('settings.installManual');
   if (mode === 'blocked-wechat') note = t('settings.installBlockedWechat');
   else if (mode === 'blocked-qq') note = t('settings.installBlockedQq');
+  else if (mode === 'manual-oppo') note = t('settings.installManualOppo');
   else if (mode === 'manual-ios') note = t('settings.installManualIos');
   else if (mode === 'manual-android') {
     note = url ? t('settings.installManualAndroid', { url, app: t('app.name') }) : t('settings.installManualAndroidNoUrl', { app: t('app.name') });
