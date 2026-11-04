@@ -581,7 +581,7 @@ export function renderHeader(root, snapshot) {
   _fill(hd, [
     h('div', {}, [
       h('div', { class: 'hd-place-row' }, [
-        h('h1', { class: 'hd-place', text: snapshot.placeName || coordText }),
+        h('h1', { class: 'hd-place', text: fmt.placeTitle(snapshot.placeName || coordText) }),
         searchButton(root),
       ]),
       h('p', { class: 'hd-coord num', text: snapshot.coord ? coordText : t('app.dash') }),

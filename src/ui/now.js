@@ -464,7 +464,7 @@ function _searchItem(place) {
   const btn = h('button', { type: 'button', class: 'search-item' }, [
     h('span', { class: 'search-item-name', text: name || t('search.unnamed') }),
   ]);
-  if (sub) btn.appendChild(h('span', { class: 'search-item-sub', text: sub }));
+  if (sub) btn.appendChild(h('span', { class: 'search-item-sub', text: fmt.placeTitle(sub) }));
   btn.addEventListener('click', () => _search().pick(p));
   return btn;
 }
@@ -575,7 +575,7 @@ export function renderHeader(root, snapshot, opts = {}) {
     h('div', {}, [
       // 地名与搜索入口同一行：地名本身的位置与层级不变，只是在它右侧多一颗按钮
       h('div', { class: 'hd-place-row' }, [
-        h('h1', { class: 'hd-place', text: placeName }),
+        h('h1', { class: 'hd-place', text: fmt.placeTitle(placeName) }),
         searchButton(root),
       ]),
       h('p', { class: 'hd-coord num', text: snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.dash') }),

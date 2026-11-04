@@ -171,3 +171,54 @@ test('空白串 / 空数组 / 空白数组必须视为缺失（硬规则：缺�
   assert.equal(fmt.tempC('23'), '23°');
   assert.equal(fmt.num('23.4', 1), '23.4');
 });
+
+/* ---------- placeTitle：页头地名标题的排版加固（间隔号不落行首） ---------- */
+
+test('placeTitle：间隔号前必为 NBSP，普通空格 + 间隔号的组合不复存在', () => {
+  const s = '林溪别墅社区 · 百善镇 · 北京市 · 中国';
+  const out = fmt.placeTitle(s);
+  // 折行时「·」不会再落在行首：每处间隔号前是 NBSP（不可断），断点被挤到间隔号之后
+  assert.equal(/ · /.test(out), false, '结果里不得再出现「普通空格 + 间隔号」的组合');
+  const outArr = [...out];
+  outArr.forEach((ch, i) => {
+    if (ch === '·') {
+      assert.equal(outArr[i - 1], '\u00A0', `第 ${i} 位间隔号前必须是 NBSP`);
+    }
+  });
+  // 语义抽查：完整形态逐字符对照（3 处替换，其余原样）
+  assert.equal(out, '林溪别墅社区\u00A0· 百善镇\u00A0· 北京市\u00A0· 中国');
+});
+
+test('placeTitle：幂等 —— 重复调用逐字节等价，不会出现连续 NBSP', () => {
+  for (const x of ['林溪别墅社区 · 百善镇 · 北京市 · 中国', 'a · b · c', '北京市', '']) {
+    const once = fmt.placeTitle(x);
+    assert.equal(fmt.placeTitle(once), once, `placeTitle 应幂等：${JSON.stringify(x)}`);
+    assert.equal(once.includes('\u00A0\u00A0'), false, '不得出现连续 NBSP');
+  }
+});
+
+test('placeTitle：无间隔号的普通串原样返回（含坐标串）', () => {
+  assert.equal(fmt.placeTitle('北京市'), '北京市');
+  assert.equal(fmt.placeTitle('圣安东尼奥德洛斯巴尼奥斯'), '圣安东尼奥德洛斯巴尼奥斯');
+  assert.equal(fmt.placeTitle(fmt.coord(39.9087, 116.3975)), fmt.coord(39.9087, 116.3975));
+  // 行首/行末的孤立间隔号（无两侧空格）不属于替换模式，原样保留
+  assert.equal(fmt.placeTitle('·'), '·');
+  assert.equal(fmt.placeTitle('a·b'), 'a·b');
+});
+
+test('placeTitle：null / undefined / 数字 / 空串不抛异常，返回合理值', () => {
+  // 调用方是首屏渲染路径，本函数永不抛
+  assert.equal(fmt.placeTitle(null), '');
+  assert.equal(fmt.placeTitle(undefined), '');
+  assert.equal(fmt.placeTitle(''), '');
+  assert.equal(fmt.placeTitle(123), '123');
+  assert.equal(fmt.placeTitle(0), '0');
+  // 数字转串里若真带分隔模式也照常处理
+  assert.equal(fmt.placeTitle(12), '12');
+});
+
+test('placeTitle：替换是 1:1 的，结果长度与入参相同', () => {
+  for (const x of ['林溪别墅社区 · 百善镇 · 北京市 · 中国', 'a · b', 'abc', '']) {
+    assert.equal(fmt.placeTitle(x).length, x.length, `长度应逐字符相等：${JSON.stringify(x)}`);
+  }
+});

@@ -380,7 +380,10 @@ test('★端到端：点开 → 输入 → 出结果，次行显示 admin1 · co
   assert.equal(items.length, 1, `应渲染 1 条结果，实际 ${items.length}`);
   const t = text(items[0]);
   assert.match(t, /北京/, '主行必须是地名');
-  assert.match(t, /北京市 · 中国/, '★次行必须是 admin1 · country —— 同名多地全靠它分开');
+  // ★次行的消歧信息不变，只是分隔符经 fmt.placeTitle() 加固：间隔号前是 NBSP
+  //（普通空格 + 间隔号」的组合已被 placeTitle 替换掉，钉住这个形态等于钉住修复本身）。
+  assert.match(t, /北京市\u00A0· 中国/, '★次行必须是 admin1 · country —— 同名多地全靠它分开');
+  assert.ok(!/ · /.test(t), '次行不得再出现「普通空格 + 间隔号」（会折到行首）');
 });
 
 test('端到端：admin1 / country 全为 null 时不渲染 "null"，也不留孤立的 " · "', async () => {

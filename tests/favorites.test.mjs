@@ -273,7 +273,9 @@ test('★boot 带收藏参数：跳过定位、渲染该地点，且不出现「
     full.indexOf('未取得定位') === -1,
     `从收藏跳过去绝不能显示「未取得定位，正在显示默认地点」，实际：${full.slice(0, 200)}`
   );
-  assert.ok(full.indexOf('上海 · 人民广场') !== -1, `URL 上的名字必须显示出来，实际：${full.slice(0, 200)}`);
+  // 2026-11-05 起地名经 fmt.placeTitle() 排版加固：间隔号前是不换行空格（NBSP），
+  // 断言必须钉住新形态 —— 「·」不许再出现在行首（中文行首禁则）。
+  assert.ok(full.indexOf('上海\u00A0· 人民广场') !== -1, `URL 上的名字必须显示出来，实际：${full.slice(0, 200)}`);
   globalThis.navigator.onLine = true;
 });
 
