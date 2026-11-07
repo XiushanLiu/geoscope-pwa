@@ -124,6 +124,15 @@ export const EN = {
   'now.observeAt': 'Observed at {time}',
 
   'card.weather': 'Weather',
+  // The curve covers **today 00:00–23:00 local** (the upstream hourly series starts at local
+  // midnight, see slice(0,24) in openmeteo.js) — not a rolling 24 h window. The title has to
+  // say "today", otherwise at 20:00 the chart reads as if it ran into tomorrow.
+  'card.hourly': 'Hourly today',
+  'hourly.hint': 'Tap the curve to inspect an hour',
+  'hourly.empty': 'Hourly data unavailable',
+  'hourly.at': '{hour}:00',
+  'hourly.nowLabel': 'Now',
+  'hourly.a11y': 'Hourly temperature today, high {max}, low {min}',
   'card.air': 'Air',
   // ★2026-10 device: the number comes from `european_aqi` (bands 20/40/60/80/100), while the
   //   level words read like China's national standard — a Chinese user reads EAQI 74 as "良"
@@ -331,6 +340,8 @@ export const EN = {
   'compass.sensorEnable': 'Enable orientation sensor',
   'compass.headingMag': 'Heading (magnetic) {deg}°',
   'compass.headingTrue': 'Heading (true) {deg}°',
+  // Mountain name is derived from the magnetic heading — same basis as the dial ticks.
+  'compass.shanNow': '24 Mountains: {name}',
   // Real-device report: "which needle is true north and which is magnetic?" — a legend row
   // under the dial. The dots take their colour from the very same CSS tokens as the needles
   // (.compass-dot--mag / --true); the copy here only NAMES the colour, it never paints it.

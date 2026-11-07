@@ -65,6 +65,7 @@ import {
   renderSlotEmpty,
   renderSnapshot,
   renderClimateCard,
+  renderHourlyCard,
   applyI18n,
   announce,
   h,
@@ -634,9 +635,12 @@ export async function boot() {
     (res) => {
       if (res === null) {
         renderSlotEmpty(root, 'weather', t('mode.empty'), () => refresh());
+        renderHourlyCard(root, snapshot); // 空态也要占位，避免卡片位置上下跳
       } else {
         renderHeader(root, snapshot, { isDefaultPlace });
         renderWeatherCard(root, snapshot);
+        // 逐时曲线紧跟天气卡：同一份 weather 数据，另一层读法
+        renderHourlyCard(root, snapshot);
         if (snapshot.weather === null) {
           renderSlotEmpty(root, 'weather', t('mode.empty'), () => refresh());
         }

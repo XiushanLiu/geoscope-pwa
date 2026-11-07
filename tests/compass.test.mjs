@@ -234,6 +234,11 @@ test('有方向传感器：挂上监听并收到数据后才画指针盘（磁�
     assert.equal(rose.length, 1, '有数据时才画盘面');
     assert.match(rose[0].getAttribute('style'), /rotate\(-90\.0deg\)/, '盘面应转 −heading，让设备朝向指向盘顶');
     assert.equal(dom.byId.app.querySelectorAll('.compass-needle').length, 2, '磁北针 + 真北针');
+
+    // 二十四山：24 条刻度必须与盘面同层（跟着一起转），当前山名按磁方位读出
+    assert.equal(dom.byId.app.querySelectorAll('.compass-shan-tick').length, 24, '盘面必须有 24 条山向刻度');
+    assert.equal(rose[0].querySelectorAll('.compass-shan-tick').length, 24, '刻度必须在 .compass-rose 内，才会随盘面转动');
+    assert.ok(txt.includes(t('compass.shanNow', { name: '卯' })), `磁朝向 90° 应读出「卯」山，实际：${txt.slice(0, 200)}`);
   } finally {
     compass.resetSensor();
     delete globalThis.window;

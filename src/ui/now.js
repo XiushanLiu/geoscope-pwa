@@ -725,6 +725,240 @@ export function renderWeatherCard(root, snapshot) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 逐时曲线卡（阶段二：今日 24 小时温度 + 降水概率）                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 创建 SVG 元素。
+ *
+ * ★必须走 createElementNS：h() 用的是 createElement，建 `svg` / `path` 只会得到
+ *   HTMLUnknownElement，浏览器既不渲染也不报错（排查起来极费时间）。
+ *
+ * @param {string} tag 标签名。
+ * @param {Object} [attrs] 属性表。
+ * @param {Array<Node>} [children] 子节点。
+ * @returns {SVGElement} 元素。
+ */
+function _svg(tag, attrs = {}, children = []) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.keys(attrs || {}).forEach((k) => {
+    const v = attrs[k];
+    if (v === null || v === undefined || v === false) return;
+    el.setAttribute(k, String(v));
+  });
+  (children || []).forEach((c) => c && el.appendChild(c));
+  return el;
+}
+
+/**
+ * 渲染「今日逐时」曲线卡：温度折线 + 降水概率柱 + 现在位置高亮。
+ *
+ * ★口径三条（破了就是造假）：
+ *   1) 只画取回来的 `hourlyTempC` / `hourlyPopPct`（今日 0–23 点各 24 个），不插值、不外推；
+ *   2) 某点为 null 就**断开**折线，绝不跨过空洞连成一条「看起来很连续」的假线；
+ *   3) 降水那条是**概率（%）**，不是降水量（mm）—— 两者在天气卡里是两个不同的量。
+ *
+ * 横轴文字不放 SVG 里：`preserveAspectRatio="none"` 会连同文字一起横向压扁，
+ * 所以刻度与提示行都用 HTML 画，SVG 只负责图形。
+ *
+ * @param {HTMLElement} root 根容器。
+ * @param {Object} snapshot NowSnapshot。
+ * @returns {void}
+ */
+export function renderHourlyCard(root, snapshot) {
+  const box = _slot(root, 'hourly');
+  if (!box) return;
+  // 槽位默认被 append 到末尾，这里挪到天气卡正后方：曲线是天气卡的延伸读法，
+  // 排到空气/溯源之后会让「温度走势」和「当前温度」隔好几屏。
+  const wBox = root.querySelector('#card-weather');
+  if (wBox && wBox.parentNode && wBox.nextSibling !== box) {
+    wBox.parentNode.insertBefore(box, wBox.nextSibling);
+  }
+  const w = snapshot && snapshot.weather;
+  const temps = w && Array.isArray(w.hourlyTempC) ? w.hourlyTempC : [];
+  const pops = w && Array.isArray(w.hourlyPopPct) ? w.hourlyPopPct : [];
+
+  /** 把任意值收敛成「有限数字或 null」—— null 是「不知道」，不是 0。 */
+  const num = (v) => {
+    const n = Number(v);
+    return v === null || v === undefined || !Number.isFinite(n) ? null : n;
+  };
+  const pts = temps.map(num);
+  const vals = pts.filter((v) => v !== null);
+
+  // 少于 2 个有效点画不出线：如实说没取到，不画一条平线糊弄
+  if (!w || vals.length < 2) {
+    _fill(box, [
+      h('div', { class: 'card card--hourly' }, [
+        h('p', { class: 'card-title', text: t('card.hourly') }),
+        h('p', { class: 'hourly-empty', text: t('hourly.empty') }),
+      ]),
+    ]);
+    return;
+  }
+
+  // 画布几何（viewBox 固定，CSS 拉满宽度）
+  const W = 320;
+  const H = 104;
+  const plotTop = 10;
+  const plotBottom = 70; // 温度绘制区 10–70，下方 70–104 留给降水柱与留白
+  const plotH = plotBottom - plotTop;
+
+  // y 范围：真实极值上下各留 2℃；全天近乎等温时给 ±1℃，避免除零
+  let min = Math.min(...vals);
+  let max = Math.max(...vals);
+  if (max - min < 0.5) {
+    min -= 1;
+    max += 1;
+  } else {
+    min -= 2;
+    max += 2;
+  }
+  const xOf = (i) => (W * i) / Math.max(1, pts.length - 1);
+  const yOf = (v) => plotTop + ((max - v) / (max - min)) * plotH;
+
+  // 折线：null 处断开（重新起一段 M）
+  let d = '';
+  let open = false;
+  pts.forEach((v, i) => {
+    if (v === null) {
+      open = false;
+      return;
+    }
+    d += `${open ? ' L' : ' M'}${xOf(i).toFixed(1)} ${yOf(v).toFixed(1)}`;
+    open = true;
+  });
+
+  // 面积只在**无断点**时填充：有空洞还填，等于把「不知道的那几小时」也涂成有数据
+  const hasGap = pts.some((v) => v === null);
+  const areaD = hasGap ? '' : `${d} L${xOf(pts.length - 1).toFixed(1)} ${plotBottom} L0 ${plotBottom} Z`;
+
+  // 降水概率柱：只在有值且 >0 的小时出柱（0% 出 1.5px 细线会被误读成「有一点点」）
+  const barBase = 98;
+  const bars = pops
+    .map((v, i) => {
+      const p = num(v);
+      if (p === null || p <= 0) return null;
+      const hgt = Math.max(2, (Math.min(100, p) / 100) * 20);
+      return _svg('rect', {
+        x: (xOf(i) - 3).toFixed(1),
+        y: (barBase - hgt).toFixed(1),
+        width: 6,
+        height: hgt.toFixed(1),
+        rx: 1.5,
+        class: 'hourly-bar',
+      });
+    })
+    .filter(Boolean);
+
+  // 「现在」落在今日哪一小时：atMs 是 UTC 毫秒，加时区偏移后取 UTC 小时 = 当地墙钟小时
+  const tzOffset = Number(w.tzOffsetSec) || 0;
+  const baseMs = Number(snapshot.atMs) || Number(w.atMs) || Date.now();
+  const nowHour = Math.min(pts.length - 1, Math.max(0, new Date(baseMs + tzOffset * 1000).getUTCHours()));
+
+  // 高亮组：一条竖虚线 + 一个圆点，交互时整体平移（只改 transform，不重绘）
+  const hlLine = _svg('line', {
+    x1: 0, y1: plotTop, x2: 0, y2: plotBottom, class: 'hourly-hl-line',
+  });
+  const hlDot = _svg('circle', { cx: 0, cy: 0, r: 3, class: 'hourly-hl-dot', hidden: 'hidden' });
+  const hl = _svg('g', { class: 'hourly-hl' }, [hlLine, hlDot]);
+
+  const svg = _svg(
+    'svg',
+    {
+      class: 'hourly-svg',
+      viewBox: `0 0 ${W} ${H}`,
+      preserveAspectRatio: 'none',
+      role: 'img',
+      'aria-label': t('hourly.a11y', { max: fmt.tempC(max - 2), min: fmt.tempC(min + 2) }),
+    },
+    [
+      _svg('defs', {}, [
+        _svg('linearGradient', { id: 'hourlyFill', x1: 0, y1: 0, x2: 0, y2: 1 }, [
+          _svg('stop', { offset: '0', class: 'hourly-fill-top' }),
+          _svg('stop', { offset: '1', class: 'hourly-fill-bottom' }),
+        ]),
+      ]),
+      areaD ? _svg('path', { d: areaD, class: 'hourly-area' }) : null,
+      _svg('path', { d, class: 'hourly-line' }),
+      ...bars,
+      hl,
+      // 命中层：透明、铺满整张图，所有指针事件都落在它上面
+      _svg('rect', { x: 0, y: 0, width: W, height: H, class: 'hourly-hit' }),
+    ].filter(Boolean)
+  );
+
+  // 提示行：默认显示「现在」那一小时
+  const tip = h('p', { class: 'hourly-tip' });
+
+  /**
+   * 把高亮移到第 i 小时，并刷新提示行。
+   *
+   * @param {number} i 小时下标 0–23。
+   * @returns {void}
+   */
+  function pick(i) {
+    const idx = Math.min(pts.length - 1, Math.max(0, i));
+    const x = xOf(idx);
+    hlLine.setAttribute('x1', x.toFixed(1));
+    hlLine.setAttribute('x2', x.toFixed(1));
+    const v = pts[idx];
+    if (v === null) {
+      hlDot.setAttribute('hidden', 'hidden');
+    } else {
+      hlDot.removeAttribute('hidden');
+      hlDot.setAttribute('cx', x.toFixed(1));
+      hlDot.setAttribute('cy', yOf(v).toFixed(1));
+    }
+    const hourLabel = idx === nowHour ? t('hourly.nowLabel') : t('hourly.at', { hour: idx });
+    const parts = [hourLabel, v === null ? t('app.dash') : fmt.tempC(v)];
+    const p = num(pops[idx]);
+    // 概率缺失就不写这一段：写 0% 会被读成「确定不下雨」
+    if (p !== null) parts.push(`${t('w.pop')} ${fmt.percent(p)}`);
+    tip.textContent = parts.join(' · ');
+  }
+
+  // 指针交互：按下与拖动都跟随。用 offsetX/宽度换算，不依赖 SVG 的 preserveAspectRatio 缩放
+  const onPoint = (ev) => {
+    const r = svg.getBoundingClientRect();
+    if (!r.width) return;
+    const ratio = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+    pick(Math.round(ratio * (pts.length - 1)));
+  };
+  svg.addEventListener('pointerdown', (ev) => {
+    onPoint(ev);
+    if (svg.setPointerCapture && ev.pointerId !== undefined) {
+      try {
+        svg.setPointerCapture(ev.pointerId);
+      } catch (err) {
+        /* 老浏览器不支持指针捕获：不影响拖动外的点击 */
+      }
+    }
+  });
+  svg.addEventListener('pointermove', (ev) => {
+    if (ev.buttons) onPoint(ev); // 只有按住拖动才跟随，避免鼠标划过就乱跳
+  });
+
+  pick(nowHour);
+
+  _fill(box, [
+    h('div', { class: 'card card--hourly' }, [
+      h('p', { class: 'card-title', text: t('card.hourly') }),
+      svg,
+      tip,
+      h('div', { class: 'hourly-axis' }, [
+        h('span', { text: t('hourly.at', { hour: 0 }) }),
+        h('span', { text: t('hourly.at', { hour: 6 }) }),
+        h('span', { text: t('hourly.at', { hour: 12 }) }),
+        h('span', { text: t('hourly.at', { hour: 18 }) }),
+        h('span', { text: t('hourly.at', { hour: pts.length - 1 }) }),
+      ]),
+      h('p', { class: 'hourly-hint', text: t('hourly.hint') }),
+    ]),
+  ]);
+}
+
+/* ------------------------------------------------------------------ */
 /* 空气卡                                                               */
 /* ------------------------------------------------------------------ */
 

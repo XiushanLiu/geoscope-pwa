@@ -426,6 +426,11 @@ class FakeNode {
         this.value = String(v);
       }
     }
+    // ★class 属性 ↔ className 在真实 DOM 里是同一个词：`setAttribute('class', x)` 之后
+    //   `el.className` 就是 x，`classList.contains()` 也立刻为真。替身原来只写 attrs，
+    //   于是 SVG 元素（只能走 setAttribute，没有 el.className 可赋）的 class 永远查不到 ——
+    //   `_svg()` 建的每个节点都会「看起来没有 class」。同一类坑 value/disabled 各踩过一次。
+    if (key === 'class') this.className = String(v);
   }
 
   getAttribute(k) {
@@ -654,6 +659,12 @@ export function createFakeDom(ids = []) {
   }
 
   document.createElement = (tag) => new FakeNode(tag);
+  // ★SVG 必须走 createElementNS（真实 DOM 里 createElement('svg') 只得到
+  //   HTMLUnknownElement：不渲染、也不报错）。替身原先没有这个方法，于是逐时曲线卡
+  //   在 UI 集成测试里会直接 TypeError —— 而 app.js 把每张卡包在 per-source try/catch
+  //   里，表现只是「这张卡没出现」，只测「有没有天气卡」的用例根本看不见。
+  //   替身不真 = 假绿，所以补在替身侧。
+  document.createElementNS = (ns, tag) => new FakeNode(tag);
   document.createTextNode = (txt) => {
     const n = new FakeNode('#text');
     n._text = String(txt);

@@ -345,6 +345,90 @@ body[data-page="compare"] {
   letter-spacing: 0.02em;
 }
 
+/* 今日逐时曲线：温度折线 + 降水概率柱（阶段二） */
+.card--hourly {
+  gap: var(--sp-1);
+}
+
+.hourly-svg {
+  display: block;
+  width: 100%;
+  height: 104px; /* 与 now.js 的 viewBox 高度同口径；高度固定才能保证拉伸比例稳定 */
+  /* 竖向滑动仍交给页面滚动，横向按下拖动归图表 */
+  touch-action: pan-y;
+}
+
+.hourly-line {
+  fill: none;
+  stroke: var(--c-brand-dark);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* preserveAspectRatio="none" 会把图形横向拉伸，描边必须声明为非缩放，否则线宽跟着变形 */
+  vector-effect: non-scaling-stroke;
+}
+
+.hourly-area {
+  fill: url(#hourlyFill);
+  stroke: none;
+}
+
+.hourly-fill-top {
+  stop-color: var(--c-brand);
+  stop-opacity: 0.28;
+}
+
+.hourly-fill-bottom {
+  stop-color: var(--c-brand);
+  stop-opacity: 0;
+}
+
+.hourly-bar {
+  fill: var(--c-cold);
+  opacity: 0.5;
+}
+
+.hourly-hl-line {
+  stroke: var(--c-text-3);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.8;
+}
+
+.hourly-hl-dot {
+  fill: var(--c-brand-solid);
+  stroke: var(--c-card-fill);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.hourly-hit {
+  fill: transparent;
+}
+
+.hourly-tip {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--c-text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.hourly-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.hourly-hint,
+.hourly-empty {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
 .card--row {
   flex-direction: row;
   align-items: center;
@@ -1047,6 +1131,33 @@ body[data-page="compare"] {
    红只作填充（不是文字色），符合「状态色只做填充与徽点」的红线。 */
 .compass-needle--mag { background: var(--c-state-failed); }
 .compass-needle--true { background: var(--c-brand); }
+
+/* 二十四山刻度：每山 15°，随盘面一起转（因此放在 .compass-rose 内）。
+   刻度用 ::before 画在元素顶端，元素本身 inset:0 后整体 rotate —— 转心天然是盘面中心，
+   盘面尺寸改了也不用改这里的偏移；若用 transform-origin 写死半宽，改尺寸就会错位。
+   本节只写 background，不写 color：tools/contrast-audit.mjs 全量扫本文件的 color: 声明。 */
+.compass-shan,
+.compass-shan-tick {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.compass-shan-tick::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 5px;
+  width: 1px;
+  height: 6px;
+  margin-left: -0.5px;
+  background: var(--c-card-stroke);
+}
+/* 每 45°（子 / 巽 / 午 / 乾）一条长刻度：分钟级别的小偏角不用数细线 */
+.compass-shan-tick--major::before {
+  top: 4px;
+  height: 10px;
+  background: var(--c-text-3);
+}
 
 /* 配色图例：盘面下两个色点，回答「红针是谁、青针是谁」。
    ★两条 --mag / --true 必须与上面两支针**取同一个 token**：图例复制一份十六进制，

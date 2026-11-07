@@ -125,6 +125,14 @@ export const ZH = {
   'now.observeAt': '观测时刻 {time}',
 
   'card.weather': '天气',
+  // 逐时曲线：画的是**今日 0–23 点**（上游 hourly 从当地 00:00 起，见 openmeteo.js 的 slice(0,24)），
+  // 不是「未来 24 小时」—— 标题必须说清是「今日」，否则 20 点看这张图会误以为跨到明天。
+  'card.hourly': '今日逐时',
+  'hourly.hint': '点按曲线查看某一小时',
+  'hourly.empty': '逐时数据未取到',
+  'hourly.at': '{hour} 时',
+  'hourly.nowLabel': '现在',
+  'hourly.a11y': '今日逐时温度曲线，最高 {max}，最低 {min}',
   'card.air': '空气',
   // ★2026-10 真机：空气卡上的数取自 `european_aqi`（欧洲 AQI，档位 20/40/60/80/100），
   //   等级词却和国标用同一套字 —— 中国用户会把 EAQI 74 读成国标的「良」（51–100），
@@ -329,6 +337,8 @@ export const ZH = {
   'compass.sensorEnable': '启用方向传感器',
   'compass.headingMag': '当前朝向（磁）{deg}°',
   'compass.headingTrue': '当前朝向（真）{deg}°',
+  // ★山名按**磁方位**取（与盘面刻度同源）：用真方位会整体错一个磁偏角
+  'compass.shanNow': '二十四山：{name}',
   // ★真机问题「红蓝两针不知道哪个是真北哪个是磁北」——盘面下方给一行图例。
   //   色点**只由 CSS token 取色**（.compass-dot--mag / --true），文案这里只负责命名：
   //   写死十六进制，哪天 token 改了图例就会撒谎。

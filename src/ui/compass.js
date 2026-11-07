@@ -44,6 +44,8 @@
 
 import { t } from '../i18n/index.js';
 import * as fmt from '../core/format.js';
+// 二十四山：纯数据表 + 角度换算，与罗盘刻度同源，避免 UI 里再抄一份山序
+import { shanOf } from '../core/shan24.js';
 import {
   getDefaultPlace,
   getThemeMode,
@@ -765,6 +767,25 @@ function _convertRow(dir, declinationDeg) {
 }
 
 /**
+ * 二十四山刻度层：每山 15°，每 45°（三山）一条长刻度。
+ *
+ * ★刻度必须放进 `.compass-rose`（随盘面一起转）：山向是刻在罗盘盘面上的固定方位，
+ *   若放在 `.compass-dial` 层就会变成「盘转、刻度不转」，读数与针尖对不上。
+ * ★只画刻度不画 24 个山名：176 px 盘面上排 24 个字必然糊成一片，当前山名在卡内文字行给出。
+ *
+ * @returns {HTMLElement} 刻度层节点。
+ */
+function _shanTicks() {
+  const ticks = [];
+  for (let i = 0; i < 24; i += 1) {
+    // 0°/45°/90°…（子、巽、午、乾…）加长加粗，方便一眼定位四个正向
+    const cls = i % 3 === 0 ? 'compass-shan-tick compass-shan-tick--major' : 'compass-shan-tick';
+    ticks.push(h('span', { class: cls, style: `transform: rotate(${i * 15}deg)` }));
+  }
+  return h('div', { class: 'compass-shan' }, ticks);
+}
+
+/**
  * 罗盘指针盘面（有传感器时才画）。
  *
  * @param {number} headingMagDeg 设备当前朝向（磁方位）。
@@ -781,6 +802,8 @@ function _dial(headingMagDeg, declinationDeg) {
     h('span', { class: 'compass-mark compass-mark--s', text: 'S' }),
     h('span', { class: 'compass-mark compass-mark--w', text: 'W' }),
     h('div', { class: 'compass-rose', style: roseStyle }, [
+      // 二十四山刻度垫在指针下面（DOM 顺序即层叠顺序），针尖不会被刻度挡住读数
+      _shanTicks(),
       h('span', { class: 'compass-needle compass-needle--mag' }),
       h('span', { class: 'compass-needle compass-needle--true', style: trueStyle }),
     ]),
@@ -838,12 +861,16 @@ export function renderCompassCard(root, snapshot, opts = {}) {
     //   判有限性之前必须先把 null / undefined / '' 挡掉。
     const declOk =
       decl !== null && decl !== undefined && decl !== '' && Number.isFinite(Number(decl));
+    // 二十四山取**磁方位**：盘面上的山向本来就与磁针一起读，用真方位会整体错一个磁偏角
+    const shan = shanOf(headingMag);
     const nodes = [
       title,
       _dial(headingMag, declOk ? Number(decl) : 0),
       // 图例紧贴盘面下方、两条「当前朝向」之上：先看颜色对上谁，再看数值。
       _legend(),
       h('p', { class: 'compass-heading num', text: t('compass.headingMag', { deg: fmt.num(headingMag, 0) }) }),
+      // 当前山名紧跟磁朝向：两行同源（都来自磁方位），放在一起才不会读混
+      h('p', { class: 'card-note compass-shan-now', text: t('compass.shanNow', { name: shan ? shan.name : '—' }) }),
     ];
     if (declOk) {
       nodes.push(

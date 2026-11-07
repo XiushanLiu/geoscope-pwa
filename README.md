@@ -225,19 +225,22 @@ docs/stage1-architecture.md 架构与接口契约
 
 ---
 
-## 8. 阶段二 / 三扩展点（本阶段不实现，已留位）
+## 8. 阶段二 / 三扩展点
 
-| 能力 | 预留位置 |
-|---|---|
-| POI（Overpass） | `src/data/overpass.js`；`sources.js` 注册表追加条目即可 |
-| 多地点对比 | `src/ui/compare.js`；`store.favorites` 已有 schema |
-| 图表交互（24h 温度 / 降水概率） | `hourlyTempC` / `hourlyPopPct` 已在 `WeatherNow` 中输出 |
-| 分享海报 | `src/core/share.js` |
+> ★2026-11-07 核对：本表此前有三处与代码不符（POI 标「预留」但已删、多地点对比与英文包
+> 标「预留/不建文件」但已完整实现）。下面按**实际文件**重列，改前请复核。
+
+| 能力 | 状态 | 实际位置 / 说明 |
+|---|---|---|
+| POI（Overpass） | ⛔ **已下线** | 2026-10-17 自驾两路（路线规划 / POI 候选）从全量表摘除时一并删除，**无** `src/data/overpass.js`。恢复需重新设计源与限流 |
+| 多地点对比 | ✅ **已落地** | `src/ui/compare.js` + `compare.html`（串行取数、单点失败就地标注、不带 tabbar） |
+| 图表交互（24h 温度 / 降水概率） | ✅ **已落地**（2026-11-07） | `src/ui/now.js` 的 `renderHourlyCard()`：24h 温度折线（空缺断开、不铺面积）+ 降水概率柱；指针拖动/触摸查看逐时数值，样式见 `styles/app.css` 的 `.card--hourly` |
+| 分享海报 | ❌ **未做** | 无 `src/core/share.js` |
 | 导出 CSV | ✅**已落地**：`src/core/csv.js`（RFC 4180 转义 + UTF-8 BOM + CRLF），入口在「我的」页 |
-| 英文包 | `src/i18n/en.js`（与 `zh.js` 同构 key）；本阶段不建文件，已定稿的一条先记在这里：`mode.grid` = "Some tiles failed · grid only" |
+| 英文包 | ✅ **已落地** | `src/i18n/en.js`（与 `zh.js` **逐键同构**，`tools/check.mjs` 第 14 节双向校验）；切换入口在「我的」页 |
 | 磁偏角 WMM2025 | ✅**已落地**：`src/core/mag.js`（通用球谐算法）+ `src/data/wmm2025.js`（该版本系数）；UI 见 `compass.html` + `src/ui/compass.js` |
 | 罗盘（指针） | ✅**已落地**（传感器可用时）：`src/ui/compass.js` 的 `renderCompassCard()`；无传感器降级为「仅显示计算值与手动换算」 |
-| 二十四山 | `src/core/compass.js`（未开工，方位屏未做此层） |
+| 二十四山 | ✅ **已落地**（2026-11-07） | `src/core/shan24.js`（`SHAN24` + `shanIndexOf()` / `shanOf()`）+ `src/ui/compass.js` 的 `_dial()`（24 条 15° 刻度，每 45° 加长）与「二十四山：X」行；按**磁方位**取山，无传感器时不显示 |
 | 无障碍字号三档 | ✅**已落地**：`styles/tokens.css` 的 `--fs-scale` 乘数 + `<html data-fs>`；见下方 §8.1 |
 | Pad 横屏 | ✅**已落地**：`styles/app.css` 末尾 `@media (min-width: 768px)` 块 |
 
