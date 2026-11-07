@@ -637,7 +637,8 @@ test('★县/镇/村去后缀：「乌镇镇」上游 0 条 → 去「镇」问�
 
   assert.equal(ctl.status, 'ok', `乌镇镇必须搜得到，实际 ${ctl.status}`);
   assert.equal(ctl.results[0].name, '乌镇');
-  assert.deepEqual(calls, ['乌镇镇', '乌镇', '烏鎮'], `实际：${calls.join(' → ')}`);
+  // ★去后缀得「乌镇」→ 繁体「烏鎮」；再补一轮拼音兜底「wuzhen」（去后缀后在拼音表里查得到）
+  assert.deepEqual(calls, ['乌镇镇', '乌镇', '烏鎮', 'wuzhen'], `实际：${calls.join(' → ')}`);
   ctl.dispose();
 });
 
@@ -779,9 +780,9 @@ test('★中文上游 0 条：补发拼音版本（「乌镇」0 条 → 「wuzh
 /* 9. 混合输入拆解（含空格/逗号：拆词并行搜，拆出的词也走别名表）          */
 /* ------------------------------------------------------------------ */
 
-test('★混合输入「纽约， New York」：拆出「纽约」并命中其别名 New York City', async () => {
+test('★混合输入「纽约， New York」：按逗号拆段，「New York」整段保留不许拆成 New/York', async () => {
   const { calls, fetch } = keywordFetch({
-    '纽约， New York': [], 纽约: [], 'New York City': [NEW_YORK_CITY], 纽约市: [], 紐約市: [], New: [],
+    '纽约， New York': [], 纽约: [], 'New York City': [NEW_YORK_CITY], 纽约市: [], 紐約市: [], 'New York': [],
   });
   const ctl = ps.createPlaceSearch({ fetch });
 
@@ -789,12 +790,43 @@ test('★混合输入「纽约， New York」：拆出「纽约」并命中其�
 
   assert.equal(ctl.status, 'ok', `混合输入必须搜得到，实际 ${ctl.status}`);
   assert.equal(ctl.results[0].name, '紐約市');
-  // ★诚实记账：整词 1 次 + 拆词兜底 5 次（「New」是拆出的碎词，无害但如实记录）
+  // ★变异验证：退回「无脑按空格拆」，这里会出现 `New` 与 `York` 两个全废的请求
   assert.deepEqual(
     calls,
-    ['纽约， New York', '纽约', 'New York City', '纽约市', '紐約市', 'New'],
+    ['纽约， New York', '纽约', 'New York City', '纽约市', '紐約市', 'New York'],
     `实际：${calls.join(' → ')}`,
   );
+  ctl.dispose();
+});
+
+test('★纯英文含空格不拆：「New York」整词只查一次（拆成 New/York 全是废请求）', async () => {
+  const NYC = {
+    name: 'New York City', lat: 40.71427, lon: -74.00597, country: '美国', admin1: '纽约州', population: 8804190,
+  };
+  const { calls, fetch } = keywordFetch({ 'New York': [NYC] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('New York');
+
+  assert.equal(ctl.status, 'ok');
+  assert.equal(ctl.results[0].name, 'New York City');
+  assert.deepEqual(calls, ['New York'], `★整词命中即止，实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+test('★分词拼音「heng dian」：映射回「横店」（拼音表键必须归一成无空格）', async () => {
+  const HD = {
+    name: '横店', lat: 29.1478, lon: 120.3164, country: '中国', admin1: '浙江', population: null,
+  };
+  const { calls, fetch } = keywordFetch({ 'heng dian': [], 横店: [HD] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('heng dian');
+
+  assert.equal(ctl.status, 'ok', `分词拼音必须搜得到，实际 ${ctl.status}`);
+  assert.equal(ctl.results[0].name, '横店');
+  // ★变异验证：拼音表里写成 `'heng dian'` 这种带空格的键时，这条会红（永远查不到）
+  assert.deepEqual(calls, ['heng dian', '横店'], `实际：${calls.join(' → ')}`);
   ctl.dispose();
 });
 

@@ -334,9 +334,16 @@ export function createPlaceSearch(opts = {}) {
       if (zh) push(zh);
     }
 
-    // ④ 混合输入拆解（含空格或逗号）：如「New York 纽约」→ 拆成两个词并行搜
-    if (/[\s,，、]+/.test(kw)) {
-      const parts = kw.split(/[\s,，、]+/).filter((p) => p.length >= 2 && p !== kw);
+    // ④ 混合输入拆解（如「纽约， New York」→ 拆成两个词并行搜）
+    // ★只在含中文时拆：纯英文含空格本身就是完整地名或拼音词组（`New York`、
+    //   `heng dian`），按空格拆只会得到 `New` / `York` 这种全废的碎词。
+    if (/[㐀-鿿]/.test(kw) && /[\s,，、]+/.test(kw)) {
+      // 逗号/顿号是明确的分隔符，优先按它切（能保住「New York」这一整段）；
+      // 没有逗号时才退回按空格切，且只保留含中文的段（英文段拆开没意义）。
+      const segs = kw.split(/[,，、]+/).map((s) => s.trim()).filter((s) => s.length >= 2);
+      const parts = segs.length > 1
+        ? segs
+        : kw.split(/\s+/).filter((s) => s.length >= 2 && /[㐀-鿿]/.test(s));
       for (const part of parts.slice(0, 2)) { // 最多拆 2 个，避免请求爆炸
         push(part);
         // 拆解后的词也走一遍别名表
@@ -633,8 +640,11 @@ export function createPlaceSearch(opts = {}) {
     async loadAliases(url = 'src/data/search-alias.json') {
       // 离线短路：与 http.js 同口径，离线零请求（真机离线回退内置表，内容与 JSON 同步）
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+      // 弱网兜底：3 s 内拿不到就放弃（别名表是锦上添花，不能长期占着连接）
+      const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 3000) : null;
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
         if (!res.ok) return false;
         // ★用 text()+JSON.parse 而不是 res.json()：harness 的假响应只实现 text()，
         //   且解析失败与网络失败走同一条 catch，回退路径只有一条
@@ -646,6 +656,8 @@ export function createPlaceSearch(opts = {}) {
         return false;
       } catch (err) {
         return false;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     },
 

@@ -2,7 +2,8 @@
  * 拼音 → 中文地名映射（高频县/镇/村/城市）
  *
  * 只放实测过的：上游 geocoding 对拼音输入 0 条，但用户可能直接打拼音。
- * 键必须小写、无空格、无声调。
+ * ★键必须是「小写、无空格、无声调」的归一形态 —— 查表前会把空格/连字符/下划线
+ *   全部去掉，写成 `'heng dian'` 的键永远命中不了（v95 就踩过这个坑）。
  *
  * 覆盖原则：
  *   ① 知名县/镇/村（上游有中文条目，但拼音 0 条）
@@ -14,8 +15,8 @@ const PINYIN_TABLE = {
   // —— 县/镇/村（上游有中文，拼音 0 条）——
   'wuzhen': '乌镇',
   'huaxicun': '华西村',
-  'heng dian': '横店',
-  'heng dian zhen': '横店镇',
+  'hengdian': '横店',
+  'hengdianzhen': '横店镇',
   'zhouzhuang': '周庄',
   'tongli': '同里',
   'xidi': '西递',
@@ -73,6 +74,33 @@ const PINYIN_TABLE = {
 };
 
 /**
+ * 归一化：trim + 小写 + 去掉空格/连字符/下划线。
+ *
+ * @param {string} s 原始输入。
+ * @returns {string} 归一后的键。
+ */
+function _norm(s) {
+  return String(s).trim().toLowerCase().replace(/[\s\-_]+/g, '');
+}
+
+/** 反向索引（中文 → 拼音），惰性构建：避免每次反查都遍历全表。 */
+let _reverse = null;
+
+/**
+ * @returns {Map<string,string>} 中文 → 拼音。
+ */
+function _reverseTable() {
+  if (!_reverse) {
+    _reverse = new Map();
+    // 同一个中文若有多个拼音键，保留先登记的（表内顺序即优先级）
+    for (const [py, zh] of Object.entries(PINYIN_TABLE)) {
+      if (!_reverse.has(zh)) _reverse.set(zh, py);
+    }
+  }
+  return _reverse;
+}
+
+/**
  * 拼音转中文地名。
  *
  * @param {string} input 输入（任意大小写、可含空格/连字符）。
@@ -80,29 +108,31 @@ const PINYIN_TABLE = {
  */
 export function pinyinToChinese(input) {
   if (!input || typeof input !== 'string') return null;
-  const key = input.trim().toLowerCase().replace(/[\s\-_]+/g, '');
-  return PINYIN_TABLE[key] || null;
+  return PINYIN_TABLE[_norm(input)] || null;
 }
 
 /**
  * 中文地名转拼音（用于兜底查询：用户输入中文，同时发拼音版本给上游）。
  *
- * 只处理高频词，生僻词返回 null。
+ * ★带行政后缀的词先按原词查，查不到再去后缀重查（乌镇镇 → 乌镇 → wuzhen），
+ *   否则「XX镇」「XX村」这类最需要拼音兜底的地名恰恰拿不到兜底词。
  *
  * @param {string} chinese 中文地名。
  * @returns {string|null} 拼音（小写、无空格）；无映射时 null。
  */
 export function chineseToPinyin(chinese) {
   if (!chinese || typeof chinese !== 'string') return null;
+  const rev = _reverseTable();
   const key = chinese.trim();
-  for (const [py, zh] of Object.entries(PINYIN_TABLE)) {
-    if (zh === key) return py;
-  }
+  if (rev.has(key)) return rev.get(key);
+  const bare = key.replace(/(市|区|县|镇|乡|村)$/, '');
+  if (bare !== key && bare.length >= 2 && rev.has(bare)) return rev.get(bare);
   return null;
 }
 
 /**
- * 判断输入是否像拼音（纯 ASCII 字母、无空格、长度 >= 2）。
+ * 判断输入是否像拼音：纯 ASCII 字母，或「两段字母 + 一个空格/连字符」的分词拼音
+ * （如 `heng dian`）。每段至少 2 个字母。
  *
  * @param {string} input 输入。
  * @returns {boolean} 是否像拼音。
@@ -110,5 +140,5 @@ export function chineseToPinyin(chinese) {
 export function looksLikePinyin(input) {
   if (!input || typeof input !== 'string') return false;
   const s = input.trim();
-  return /^[a-zA-Z]+$/.test(s) && s.length >= 2;
+  return /^[a-zA-Z]{2,}$/.test(s) || /^[a-zA-Z]{2,}[\s-][a-zA-Z]{2,}$/.test(s);
 }
