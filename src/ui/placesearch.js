@@ -323,7 +323,7 @@ export function createPlaceSearch(opts = {}) {
         if (tradBare && tradBare !== bare && tradBare.length >= 2) push(tradBare);
       }
 
-      // ②d 中文 → 拼音（上游对拼音输入 0 条，但用户可能直接打拼音）
+      // ②d 中文 → 拼音（上游对拼音有索引且常比中文别名更全，中文 0 条时值得再试一次）
       const py = chineseToPinyin(kw);
       if (py) push(py);
     }
