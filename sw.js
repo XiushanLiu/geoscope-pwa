@@ -13,7 +13,7 @@
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v102';
+const SHELL_CACHE = 'geoscope-shell-v103';
 
 /**
  * 壳资产指纹：SHELL_ASSETS 全部文件内容按清单顺序拼接后的 sha256 前 16 位（CRLF 已规范为 LF）。
@@ -22,7 +22,7 @@ const SHELL_CACHE = 'geoscope-shell-v102';
  *   真机会一直用旧壳 —— 而且**没有任何报错**。tools/check.mjs 第 22 节拿它重算比对，
  *   不一致就报红；改完壳资产跑一次 node tools/bump-shell.mjs 即可（本脚本自动维护它）。
  */
-const SHELL_FINGERPRINT = 'd20b8f97bafe7537';
+const SHELL_FINGERPRINT = '927beb5ce253f53e';
 
 /** 瓦片缓存名：由壳版本派生，壳一升版旧瓦片缓存就在 activate 里被清掉。 */
 const TILE_CACHE = SHELL_CACHE.replace('shell', 'tiles');
@@ -243,8 +243,14 @@ self.addEventListener('fetch', (event) => {
       } catch (err) {
         // 断网且无缓存：导航请求按**请求的页面**回退对应的静态壳，
         // 否则断网点开 selfcheck.html 会被送回此刻屏（页面与预期不符）。
+        // ★路径必须相对**本 SW 的作用域**取，不能直接 `'.' + url.pathname`：
+        //   站点部署在子路径时（GitHub Pages 即 /geoscope-pwa/），pathname 已含该前缀，
+        //   再拼 './' 会解析成 /geoscope-pwa/geoscope-pwa/compass.html —— 必然 miss，
+        //   于是断网打开任意页面都被送回此刻屏，与这里要修的老毛病一模一样。
         if (request.mode === 'navigate') {
-          const wanted = url.pathname.endsWith('.html') ? `.${url.pathname}` : './index.html';
+          const scopePath = new URL('./', self.location.href).pathname;
+          const rel = url.pathname.startsWith(scopePath) ? url.pathname.slice(scopePath.length) : '';
+          const wanted = rel.endsWith('.html') ? `./${rel}` : './index.html';
           const hit = await cache.match(wanted);
           if (hit) return hit;
           const shell = await cache.match('./index.html');

@@ -251,7 +251,7 @@ export function setSourceResolver(fn): void;   // ★新增：注入 getSource�
 - 超时用 `AbortController`，超时后 `code:'TIMEOUT'`；用户主动取消为 `'ABORT'`。
 - 命中 `fresh` 缓存 → `fromCache:true, attempts:0, latencyMs:0`，**不发请求**。
 - `stale` 兜底的写入时机：`request()` 在重试耗尽仍失败后，再查一次 `cache.getWithState(key)`；命中 `stale` 则把旧值放进 `data`、并把 `meta.cacheState='stale'` 与 `meta.staleAgeMs` 一并改写后才返回（`stale` 字段由二者推导）。
-- **`requestRaw()` 不过 `isOnline()` 检查**（已知契约缝隙，见 §8）：只有 `request()` 有离线短路。自检页走 `requestRaw` 时若设备离线，会真实发出请求并失败，不会提前返回 `OFFLINE`。调用方（`selfcheck.js`）自行在外层判 `navigator.onLine` 决定整轮 verdict。
+- **`requestRaw()` 与 `request()` 同一口径做 `isOnline()` 短路**（v103 起）：离线时立即返回 `OFFLINE`、不发请求、不占串行队列，`opts.force === true` 是唯一逃逸口。当前唯一调用方是 `data/tiles.js` 的 `probeTile()`（不带 force）—— 断网时瓦片探测立即得 `OFFLINE`，不会白占队列槽位把后续请求堵住。
 
 ### 3.3 缓存 `src/core/cache.js`
 
@@ -780,12 +780,12 @@ sequenceDiagram
     U->>SC: 点击[开始自检]
     SC->>Http: resetQueue()
     SC->>Hl: resetHealth()
-    SC->>SC: 外层先判 navigator.onLine（requestRaw 不做离线短路）
+    SC->>SC: 外层先判 navigator.onLine 决定整轮 verdict（内层 request 带 force，不短路）
     loop 5 路 kind==='api' 源，按 apiSources() 顺序串行
-        SC->>Http: requestRaw(build(ctx), {timeoutMs, retry:0})  预热 1 次
+        SC->>Http: request(sourceId, ctx, {force:true})  预热 1 次（跳过缓存与离线短路）
         Http-->>SC: 结果丢弃(不计入 samples)
         loop samples = 1/3/5 次正式取样
-            SC->>Http: requestRaw(...)  不读缓存、不判离线
+            SC->>Http: request(sourceId, ctx, {force:true})  不读缓存
             Http-->>SC: SourceResult{ok, latencyMs, httpStatus, error}
             SC->>Hl: recordResult(result) + addSample(id, latencyMs)
             SC->>U: 增量上屏该行(时延 ms / 状态徽标 / i/n 进度)
@@ -879,10 +879,10 @@ v1 提出的 5 条在实现中已全部由主理人拍板，**不再是悬而未
 |---|---|---|---|
 | 1 | `src/core/sun.js` | `zenith` 参数用 `\|\|` 取默认，显式传 `0` 会被当成 falsy 回落到 `90.833` | 改用 `??`（或显式 `zenith === undefined` 判空）。当前无调用点传 0，不影响阶段一 |
 | 2 | `src/core/format.js:195` | 死代码 `if (diff < 0) diff;`（表达式无副作用） | 删除该行，或补上原本意图的时间戳归一处理；需先确认意图再删 |
-| 3 | `src/core/http.js` `requestRaw()` | 不过 `isOnline()` 检查（契约缝隙）——自检页以外的调用方若在离线时用它，会真实发请求再失败，而非即时返回 `OFFLINE` | 要么在 `requestRaw` 内补短路，要么在文档/类型上标明「仅自检页可用」。阶段二若有新调用方务必先确认 |
+| 3 | `src/core/http.js` `requestRaw()` | ~~不过 `isOnline()` 检查~~ → **已修（v103）**：离线时立即回 `OFFLINE`、不发请求、不占队列；`opts.force` 为唯一逃逸口。唯一调用方是瓦片探测 | 已落地，`tests/http.test.mjs` 锁死「离线零请求 + force 放行」 |
 | 4 | 错误码 `ABORT` | `SourceError.code` 枚举里有 `ABORT`，但当前无任何对外取消入口能触发它（无 AbortSignal 外抛） | 阶段二做「下拉刷新可中断」或「切换地点取消在途请求」时启用；否则视为预留枚举 |
-| 5 | `index.html` | 存在一个空的 `<li data-i18n>` 节点 | 已补渲染兜底；阶段二复核是否彻底移除该占位 |
-| 6 | `sw.js` | 离线导航兜底已按 URL 回对应页面（`index.html` ↔ `selfcheck.html`） | 逻辑已正确；阶段二新增页面时同步维护这份映射，别漏 |
+| 5 | `index.html` | 存在一个空的 `<li data-i18n>` 节点 | **已移除（v103 复核）**：五个页面均无空的 `data-i18n` 节点，`<li>` 一律带中文兜底文案 |
+| 6 | `sw.js` | 离线导航兜底原先用 `'.' + url.pathname` 拼缓存键 —— 站点部署在子路径（GitHub Pages `/geoscope-pwa/`）时会拼成 `/geoscope-pwa/geoscope-pwa/x.html` 必然 miss，断网打开任意页面都被送回此刻屏（**已修 v103**：改为相对 `self.location` 作用域取页面名） | 新增页面无需改映射（按请求的页面自动回对应壳），只须进 `SHELL_ASSETS` |
 
 ---
 

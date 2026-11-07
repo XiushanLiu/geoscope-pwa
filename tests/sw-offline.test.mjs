@@ -46,9 +46,9 @@ const SHELL_ASSETS = (SW_SOURCE.match(/const SHELL_ASSETS = \[([\s\S]*?)\];/)[1]
   .map((literal) => literal.slice(1, -1));
 
 /** Cache 的键：一律归一化成绝对 URL（浏览器里相对 URL 按 SW 作用域解析）。 */
-function resolveUrl(input) {
+function resolveUrl(input, base = BASE) {
   const raw = typeof input === 'string' ? input : input.url;
-  return new URL(raw, BASE).href;
+  return new URL(raw, base).href;
 }
 
 /**
@@ -103,8 +103,14 @@ function tagOf(res) {
 
 /**
  * 建一个跑 sw.js 的沙箱。每个用例都新建，状态天然隔离。
+ *
+ * @param {{scopePath?:string}} [opts] scopePath = SW 作用域路径（默认 '/',
+ *   传 '/geoscope-pwa/' 即模拟 GitHub Pages 那样的子路径部署）。
  */
-function createSandbox() {
+function createSandbox(opts = {}) {
+  const scopePath = (opts && opts.scopePath) || '/';
+  // 沙箱内的 BASE：SW 所在的站点基准（子路径部署时带前缀）
+  const base = `${ORIGIN}${scopePath}`;
   const listeners = new Map();
   const stores = new Map(); // cacheName -> Map<absoluteUrl, Response>
 
@@ -131,17 +137,17 @@ function createSandbox() {
     const store = storeOf(name);
     return {
       async match(input) {
-        const key = resolveUrl(input);
+        const key = resolveUrl(input, base);
         state.matchCalls.push(key);
         return store.get(key);
       },
       async put(input, res) {
-        const key = resolveUrl(input);
+        const key = resolveUrl(input, base);
         state.putCalls.push({ url: key, status: res ? res.status : null });
         store.set(key, res);
       },
       async add(input) {
-        const key = resolveUrl(input);
+        const key = resolveUrl(input, base);
         state.addCalls.push(key);
         if (state.failAdd.has(key)) {
           throw new TypeError(`Failed to fetch: ${key}`);
@@ -153,7 +159,7 @@ function createSandbox() {
       },
       // 瓦片缓存裁剪依赖 Cache.delete；CacheStorage.delete 在下面的 caches 对象里
       async delete(input) {
-        return store.delete(resolveUrl(input));
+        return store.delete(resolveUrl(input, base));
       },
     };
   }
@@ -173,7 +179,8 @@ function createSandbox() {
   };
 
   const self = {
-    location: { origin: ORIGIN, href: BASE, pathname: '/' },
+    // href / pathname 与真实 SW 一致：sw.js 自身就在作用域根下
+    location: { origin: ORIGIN, href: `${base}sw.js`, pathname: `${scopePath}sw.js` },
     addEventListener(type, fn) {
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type).push(fn);
@@ -191,7 +198,7 @@ function createSandbox() {
   };
 
   async function fakeFetch(input) {
-    const url = resolveUrl(input);
+    const url = resolveUrl(input, base);
     state.fetchCalls.push(url);
     if (!state.online) {
       throw new TypeError(`Failed to fetch: ${url} (offline)`);
@@ -269,7 +276,7 @@ function createSandbox() {
     seed(cacheName, entries) {
       const store = storeOf(cacheName);
       for (const [key, tag] of Object.entries(entries)) {
-        store.set(resolveUrl(key), makeResponse(tag));
+        store.set(resolveUrl(key, base), makeResponse(tag));
       }
       return store;
     },
@@ -624,6 +631,25 @@ describe('sw.js 离线壳行为', () => {
     const res = await sb.settle(record);
 
     assert.equal(tagOf(res), 'INDEX-SHELL', '根导航最终应回退到 index.html');
+  });
+
+  test('断网 + 子路径部署（/geoscope-pwa/）：按作用域取页面名，不能拼成双层前缀', async () => {
+    const sb = createSandbox({ scopePath: '/geoscope-pwa/' });
+    sb.seed(SHELL_CACHE, {
+      './index.html': 'INDEX-SHELL',
+      './compass.html': 'COMPASS-SHELL',
+    });
+    sb.setOnline(false);
+
+    // 带 query 的导航 → cache-first miss → 走断网回退分支（v80 起的 GitHub Pages 子路径场景）
+    const record = sb.dispatchFetch(navRequest('/geoscope-pwa/compass.html?from=shortcut'));
+    const res = await sb.settle(record);
+
+    assert.equal(tagOf(res), 'COMPASS-SHELL', '子路径部署下必须回 compass 的壳');
+    assert.ok(
+      sb.state.matchCalls.includes(`${ORIGIN}/geoscope-pwa/compass.html`),
+      '回退查的缓存键必须是作用域内的页面地址（不能出现 /geoscope-pwa/geoscope-pwa/）'
+    );
   });
 });
 

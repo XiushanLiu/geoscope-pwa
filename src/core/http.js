@@ -570,7 +570,8 @@ export async function request(sourceId, ctx = {}, opts = {}) {
  * 原始请求（自检页 / 瓦片探测专用）：不走缓存、不做源解析，但仍走全局串行队列。
  *
  * @param {{url:string, params?:Object, responseType?:'json'|'bytes', sourceId?:string}|string} spec RequestSpec 或裸 URL。
- * @param {{timeoutMs?:number, retry?:number, responseType?:'json'|'bytes'}} [opts] 参数。
+ * @param {{timeoutMs?:number, retry?:number, responseType?:'json'|'bytes', force?:boolean}} [opts] 参数。
+ *   force=true 跳过离线短路（仅需要在离线时验证真实链路的调用方使用）。
  * @returns {Promise<{ok:boolean, sourceId:string, data:*, error:Object|null, meta:Object, stale:boolean}>} SourceResult。
  */
 export async function requestRaw(spec, opts = {}) {
@@ -584,6 +585,15 @@ export async function requestRaw(spec, opts = {}) {
   const meta = _blankMeta();
   meta.requestUrl = url;
   meta.cacheState = 'n/a';
+
+  // ★离线短路与 request() 同一口径（契约：离线禁止发请求）。
+  //   本函数不碰缓存，没有旧值可兜，故直接回 OFFLINE；也不占串行队列，
+  //   否则断网时瓦片探测会白占 3 个队列槽位、把后续请求全堵在后面。
+  if (!(opts && opts.force) && !isOnline()) {
+    meta.finishedAt = Date.now();
+    log('offline-shortcircuit-raw', sourceId);
+    return _result(false, sourceId, null, makeError('OFFLINE', sourceId), meta);
+  }
 
   const enqueuedAt = Date.now();
   return enqueue(async () => {

@@ -268,11 +268,18 @@ test('8 个错误码均可构造，字段齐全且文案键可被 i18n 翻译（
   assert.ok(t(noStatus.messageKey, noStatus.messageParams).includes('{status}'), '缺失 status 时保留占位符（已知行为）');
 });
 
-test('契约缺口：requestRaw 不检查 isOnline，离线时非自检调用方仍会发请求', async () => {
+test('requestRaw 也做离线短路：零请求、不占队列，force 才放行', async () => {
   globalThis.navigator.onLine = false;
   const r = await http.requestRaw('https://example.invalid/raw', { timeoutMs: 300, retry: 0 });
-  assert.equal(r.ok, true);
-  assert.equal(fetchMock.count, 1, 'requestRaw 绕过了离线短路（契约第 6.9 条：离线禁止发请求）');
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, 'OFFLINE');
+  assert.equal(fetchMock.count, 0, '离线时 requestRaw 不得发请求');
+  assert.equal(http.queueLength(), 0, '离线短路不得占用串行队列');
+
+  // force 是唯一逃逸口（需要在离线时验证真实链路的调用方才用）
+  const forced = await http.requestRaw('https://example.invalid/raw', { timeoutMs: 300, retry: 0, force: true });
+  assert.equal(forced.ok, true);
+  assert.equal(fetchMock.count, 1, 'force=true 时照常发请求');
 });
 
 test('风险：resetQueue 打断在飞任务的串行链，可导致瞬间并发 >1', async () => {
