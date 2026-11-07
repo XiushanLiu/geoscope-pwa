@@ -628,6 +628,32 @@ body[data-page="compare"] {
   line-height: 1.6;
 }
 
+/* 开发者署名：英文的「+」是上标，字号取 --fs-sm（与正文同档、比浏览器默认 sup 的 0.83em 更大），
+   用 token 而不是裸 px / em —— 后者切字号档时不会跟着放大（check.mjs 会报红） */
+.about-dev {
+  margin: var(--sp-3) 0 0;
+}
+
+.about-dev-name {
+  color: var(--c-text-2);
+  font-weight: 600;
+}
+
+.about-dev-plus {
+  font-size: var(--fs-sm);
+  line-height: 0;
+  vertical-align: super;
+}
+
+/* 中文名「善哉」不带「+」 */
+:lang(zh) .about-dev-plus { display: none; }
+
+/* 页脚「查看使用说明」入口（另两页跳到 settings.html#help） */
+.about-link {
+  color: var(--c-brand);
+  font-weight: 600;
+}
+
 /* ---------------- 底部胶囊 Tab ---------------- */
 
 .tabbar {

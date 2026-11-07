@@ -391,6 +391,21 @@ export const EN = {
   // sources = eight"; it is now "the six self-check sources (SOURCE_LIST) + the climate
   // normals source = SEVEN" (see SOURCE_TABLE in data/sources.js).
   'about.privacy': 'Apart from the declared data sources (seven at present), this app contacts no other domain; your coordinates are not uploaded anywhere beyond those sources.',
+  // Developer credit: the "+" after "Best" lives in the HTML as a <sup> (see .about-dev-plus),
+  //   NOT in this string — applyI18n overwrites textContent and would erase it.
+  'about.developerLabel': 'Developer: ',
+  'about.developer': 'Best',
+
+  // ---------- How to use (static #help block in settings.html) ----------
+  'help.title': 'How to use',
+  'help.step1': 'Three tabs at the bottom: Geo / Climate / Me. The home-screen icon opens the Geo page.',
+  'help.step2': 'Location: the app asks for your position on first open; if you decline or it times out it falls back to the default place. Change it under Me → Default place, or search a place name on the Climate page.',
+  'help.step3': 'Geo: the magnetic declination is computed on this device from the WMM2025 model and works offline. The basemap switches between street, imagery and dark; zoom with the Zoom in / Zoom out buttons. If your phone has an orientation sensor, tap Enable orientation sensor to get the compass.',
+  'help.step4': 'Climate: weather, air quality, today and the days ahead, plus Show monthly averages for 1991–2020 climate normals. Cached data is still shown and marked as updated, never left blank.',
+  'help.step5': 'Add to home screen: use Add to Home screen in the browser menu. The built-in OPPO browser has no such menu — open the same URL in 360 or Chrome instead.',
+  'help.step6': 'Backup: data stays on this device. Me → Export backup writes a JSON file; Import backup restores it on a new phone. CSV export is also available.',
+  'help.tip': 'Declination and the grid basemap work offline; when offline, weather shows the last cached values together with their update time.',
+  'help.entry': 'Read the guide',
 
   // ---------- Favorites ----------
   // A favourite is a PLACE, not a weather snapshot: it stores a name + lat/lon only.

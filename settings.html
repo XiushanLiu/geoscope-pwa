@@ -39,10 +39,25 @@
   <!-- 顶部降级横幅：由 ui/settings.js 填充，无降级时隐藏 -->
   <div id="banner" class="banner" hidden></div>
 
-  <main id="app" class="app" aria-live="polite">
+  <main id="app" class="app">
     <!-- 骨架屏在 settings.js 挂载前由内联样式占位，避免白屏 -->
     <div class="skeleton-note" data-i18n="app.loading">正在装载…</div>
   </main>
+
+  <!-- 使用说明（在线帮助）：静态区块，由 settings.js 的 applyI18n() 填充；
+       入口是页面底部「关于」上方的这块内容 + 另两页页脚的同名链接 -->
+  <section id="help" class="about">
+    <h2 class="about-title" data-i18n="help.title">使用说明</h2>
+    <ol class="about-list">
+      <li data-i18n="help.step1">三个页面：底部胶囊切换「地理 / 气候 / 我的」。桌面图标直接落在「地理」页。</li>
+      <li data-i18n="help.step2">定位与地点：首次打开会请求定位；拒绝或超时会用默认地点。可在「我的 → 默认地点」改，或在「气候」页的搜索框按地名查找。</li>
+      <li data-i18n="help.step3">地理页：磁偏角由 WMM2025 模型在本机算出，断网也能用；底图可在街道 / 影像 / 暗色三种样式间切换，用「放大 / 缩小」按钮缩放；手机有方向传感器时可点「启用方向传感器」看罗盘。</li>
+      <li data-i18n="help.step4">气候页：天气、空气、今日与未来，以及「查看月平均」取 1991–2020 气候常态。有旧缓存时照常显示并标注「更新于 …」，不会留空白。</li>
+      <li data-i18n="help.step5">添加到桌面：在浏览器菜单里选「添加到桌面 / 添加到主屏幕」。OPPO 自带浏览器没有这个菜单，请改用 360 或 Chrome 打开同一个网址。</li>
+      <li data-i18n="help.step6">备份：数据只存本机。「我的 → 备份导出」生成 JSON，换机后用「备份导入」恢复；也可以导出 CSV 表格。</li>
+    </ol>
+    <p class="about-note" data-i18n="help.tip">磁偏角与网格底图离线可用；离线时天气显示的是上一次的缓存值，并标明更新时间。</p>
+  </section>
 
   <!-- 关于与边界：文案全部来自 i18n，由 settings.js 的 applyI18n() 填充 -->
   <footer id="about" class="about">
@@ -53,7 +68,12 @@
       <li data-i18n="about.noE2ee">不做端到端加密同步：数据只存本机 localStorage，搬家靠导出 JSON。</li>
       <li data-i18n="about.noAlert">预警不采购数据源：本阶段不实现预警推送。</li>
     </ul>
-    <p class="about-note" data-i18n="about.privacy">除六路数据源之外，本应用不向任何域名发起请求；你的坐标不会被上传到数据源以外的地方。</p>
+    <p class="about-note" data-i18n="about.privacy">除已声明的数据源（现有七路）之外，本应用不向任何域名发起请求；你的坐标不会被上传到数据源以外的地方。</p>
+    <!-- 开发者署名：中文「善哉」，英文「Best」+ 上标（由 :lang(zh) 隐藏「+」） -->
+    <p class="about-dev">
+      <span data-i18n="about.developerLabel">开发者：</span>
+      <span class="about-dev-name"><span data-i18n="about.developer">善哉</span><sup class="about-dev-plus">+</sup></span>
+    </p>
   </footer>
 
   <!-- 底部自绘玻璃胶囊 Tab：选中态实心青 -->

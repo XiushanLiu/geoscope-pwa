@@ -298,7 +298,9 @@ function extractHtmlRefs(src) {
     const v = m[1];
     if (v.startsWith('data:')) continue;
     if (/^https?:\/\//i.test(v)) continue;
-    out.push(v);
+    // 页内锚点（settings.html#help）：片段不进文件系统，校验前先剥掉，
+    // 否则「文件明明在」也会被判 404。
+    out.push(v.split('#')[0]);
   }
   return out;
 }

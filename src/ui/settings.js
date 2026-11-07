@@ -1554,6 +1554,9 @@ function _bindControls() {
       return;
     }
     _renderPage();
+    // 页脚「关于」与 #help 是 #app 之外的静态节点，_renderPage() 碰不到它们；
+    // 不补这一次 applyI18n，切换语言后这两块仍停在旧语言，直到刷新页面。
+    applyI18n(document);
     // 重画后控件全是新节点，监听要重新装一遍（理由见 _bindControls 的 JSDoc）
     _bindControls();
     _setStatus('locale-result', t('settings.langDone', { name: t(`settings.lang.${applied}`) }));
