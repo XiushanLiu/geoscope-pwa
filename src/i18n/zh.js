@@ -565,6 +565,11 @@ export const ZH = {
   'shell.upToDate': '已是最新',
   'shell.checkFailed': '检查失败：{msg}',
   'shell.fingerprint': '指纹 {fp}',
+  // 微信 / QQ 内置浏览器不运行 Service Worker：这不是「没更新」，是根本没壳可更新，必须说清楚
+  'shell.noSW': '这个浏览器不运行离线壳（微信、QQ 内置浏览器常见），换 Chrome / Edge / 360 打开才会自动更新。',
+  'shell.registered': '已注册离线壳，刷新一次页面后生效。',
+  'shell.onlineVersion': '线上最新：{v}',
+  'shell.localOlder': '本机 {local}，线上已是 {online}；已催更新，刷新页面即换新。',
   'shell.hint': '浏览器有时会继续用旧的那份离线壳，这里显示的就是本机实际在用的那一份。如果它比你以为的旧，说明缓存还没换过来 —— 点「检查更新」可以手动催一次。',
   // 全站提示条（src/ui/shellupdate.js）：新壳已装好、正等待接管时，任何页面顶部都会显示。
   // reloadBtn 只出现在提示条上，刷新**由用户点**，不自动刷（会把正在输入的搜索词冲掉）。

@@ -580,6 +580,10 @@ export const EN = {
   'shell.upToDate': 'Up to date',
   'shell.checkFailed': 'Check failed: {msg}',
   'shell.fingerprint': 'Fingerprint {fp}',
+  'shell.noSW': 'This browser does not run the offline shell (common in WeChat / QQ in-app browsers). Open in Chrome / Edge / 360 to get updates.',
+  'shell.registered': 'Offline shell registered — reload once to take effect.',
+  'shell.onlineVersion': 'Online latest: {v}',
+  'shell.localOlder': 'Local {local}, online is {online}; update requested, reload to switch.',
   'shell.hint': 'Browsers sometimes keep serving an older offline shell; what you see here is the copy this device is actually running. If it looks older than you expected, the cache has not swapped yet — use "Check for updates" to nudge it.',
   // Site-wide note (src/ui/shellupdate.js): shown at the top of any page when a new shell has
   // installed and is waiting to take over. reloadBtn only ever appears on that note — reloading

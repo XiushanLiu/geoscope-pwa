@@ -145,6 +145,9 @@ let _shellFingerprintBox = null;
 /** @type {HTMLElement|null} 壳版本卡的「检查更新」结果行。 */
 let _shellResultBox = null;
 
+/** SW 自己报回来的版本号（如 v85）；没问到就保持空串，绝不编。 */
+let _shellLocalVersion = '';
+
 /**
  * 向 SW 问版本号的最长等待（毫秒）。
  *
@@ -1057,78 +1060,127 @@ function _renderShellCard() {
 }
 
 /**
+ * 抓线上 sw.js 的版本号（如 v86），拿不到返回空串。
+ *
+ * ★为什么要它：微信 / QQ 内置浏览器不跑 Service Worker，本机永远问不到版本。
+ *   旧界面对这种情况只写「未知」，用户看到的就是「检测不到更新」。
+ *   直接读线上 sw.js 才能如实说出「线上已经是哪一版」。
+ *
+ * @returns {Promise<string>} 形如 v86 的版本号；失败返回 ''。
+ */
+async function _fetchOnlineShellVersion() {
+  try {
+    const res = await fetch(`sw.js?ts=${Date.now()}`, { cache: 'no-store' });
+    if (!res || !res.ok) return '';
+    const m = String(await res.text()).match(/geoscope-shell-v(\d+)/);
+    return m ? `v${m[1]}` : '';
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
+ * 向指定的 SW 实例问版本号（带超时）。
+ *
+ * @param {ServiceWorker} worker 要问的 SW（active / waiting / installing 任一）。
+ * @returns {Promise<{version:string,fingerprint:string}|null>} 回包；超时或畸形返回 null。
+ */
+function _askWorkerVersion(worker) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+
+    /**
+     * 收尾：落值并摘掉监听与定时器。
+     *
+     * @param {{version:string,fingerprint:string}|null} got 回包。
+     * @returns {void}
+     */
+    const finish = (got) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      if (typeof worker.removeEventListener === 'function') worker.removeEventListener('message', onMessage);
+      resolve(got);
+    };
+
+    /**
+     * 只认 shell-version 信封，其余消息不碰。
+     *
+     * @param {Object} event MessageEvent。
+     * @returns {void}
+     */
+    function onMessage(event) {
+      const data = event && event.data;
+      if (!data || typeof data !== 'object' || data.type !== 'shell-version') return;
+      // ★回包里没有版本号（旧 SW 不认这个信封）就判未知，不编
+      if (typeof data.version !== 'string' || !data.version) { finish(null); return; }
+      finish({ version: data.version, fingerprint: typeof data.fingerprint === 'string' ? data.fingerprint : '' });
+    }
+
+    if (typeof worker.addEventListener !== 'function') { finish(null); return; }
+    worker.addEventListener('message', onMessage);
+    timer = setTimeout(() => finish(null), SHELL_ASK_TIMEOUT_MS);
+    try { worker.postMessage({ type: 'shell-version' }); } catch (err) { finish(null); }
+  });
+}
+
+/**
  * 向正在运行的 SW 问一句「你是哪一份」，把版本号与指纹填进卡片。
  *
- * 只在 SW 存在时才发消息并挂超时；`navigator.serviceWorker` 不存在（file:// 或
- * 非安全上下文）时**同步**落一句「本环境不支持」—— 那种环境里连问都没处问，
- * 挂一个注定超时的定时器只会让卡片多 blank 一秒半。
+ * ★v86 起改问「注册里那个活着的 SW」，不再依赖 navigator.serviceWorker.controller：
+ *   微信 / QQ 内置浏览器不跑 SW，controller 恒为 null，旧写法只能显示「未知」，
+ *   界面看起来就是「检测不到更新」。现在分三种情况如实说话：
+ *   ① 环境本身不支持（非 https）→ 不支持；② 没注册 → 告知浏览器不跑壳 + 线上版本；
+ *   ③ 注册了但没回包 → 未知 + 线上版本（绝不编版本号）。
  *
- * @returns {void}
+ * @returns {Promise<void>} 永不 reject。
  */
-function _askShellVersion() {
+async function _askShellVersion() {
   const versionBox = _shellVersionBox;
   const fpBox = _shellFingerprintBox;
   if (!versionBox) return;
 
   const nav = typeof navigator !== 'undefined' && navigator ? navigator : null;
+  const secure = typeof location !== 'undefined' && location && /^https?:$/.test(location.protocol);
+
   if (!nav || !nav.serviceWorker) {
-    // ★如实说不支持，不许拿 SHELL_CACHE 之类的常量拼一个版本号出来（见本卡 JSDoc 第 1 条）
-    versionBox.textContent = t('shell.unsupported');
-    if (fpBox) fpBox.textContent = '';
-    return;
-  }
-
-  const sw = nav.serviceWorker;
-  const controller = sw.controller;
-
-  // 首次访问（本页还没被任何 SW 接管）时 controller 为 null：问了也没有人回，
-  // 直接判未知，不必白等满超时。
-  if (!controller || typeof controller.postMessage !== 'function') {
-    versionBox.textContent = t('shell.unknown');
-    if (fpBox) fpBox.textContent = '';
-    return;
-  }
-
-  let settled = false;
-  let timer = null;
-
-  /**
-   * 收尾：先落值，再把监听与定时器都摘掉。
-   *
-   * @param {string} versionText 版本号那一行要显示的文案。
-   * @param {string} fpText 指纹那一行要显示的文案。
-   * @returns {void}
-   */
-  const finish = (versionText, fpText) => {
-    if (settled) return;
-    settled = true;
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
+    // ★如实说不支持，不许拿 SHELL_CACHE 之类的常量拼一个版本号出来
+    if (!secure) {
+      versionBox.textContent = t('shell.unsupported');
+      if (fpBox) fpBox.textContent = '';
+      return;
     }
-    if (typeof sw.removeEventListener === 'function') sw.removeEventListener('message', onMessage);
-    versionBox.textContent = versionText;
-    if (fpBox) fpBox.textContent = fpText || '';
-  };
-
-  /**
-   * SW 回包处理：只认 shell-version 信封，其余消息（别的页面也可能在广播）不碰。
-   *
-   * @param {Object} event MessageEvent。
-   * @returns {void}
-   */
-  function onMessage(event) {
-    const data = event && event.data;
-    if (!data || typeof data !== 'object' || data.type !== 'shell-version') return;
-    // ★回包里没有版本号（比如跑的是一个不认这个信封的旧 SW）就判未知，不编。
-    const v = typeof data.version === 'string' && data.version ? data.version : t('shell.unknown');
-    const fp = typeof data.fingerprint === 'string' && data.fingerprint ? t('shell.fingerprint', { fp: data.fingerprint }) : '';
-    finish(v, fp);
+    versionBox.textContent = t('shell.noSW');
+    if (fpBox) fpBox.textContent = '';
+    const online = await _fetchOnlineShellVersion();
+    if (online) versionBox.textContent += ` · ${t('shell.onlineVersion', { v: online })}`;
+    return;
   }
 
-  if (typeof sw.addEventListener === 'function') sw.addEventListener('message', onMessage);
-  timer = setTimeout(() => finish(t('shell.unknown'), ''), SHELL_ASK_TIMEOUT_MS);
-  controller.postMessage({ type: 'shell-version' });
+  const reg = await nav.serviceWorker.getRegistration().catch(() => null);
+  if (!reg) {
+    // 有 SW API 但没注册：多见于内置浏览器拦截注册
+    versionBox.textContent = t('shell.noSW');
+    if (fpBox) fpBox.textContent = '';
+    const online = await _fetchOnlineShellVersion();
+    if (online) versionBox.textContent += ` · ${t('shell.onlineVersion', { v: online })}`;
+    return;
+  }
+
+  const worker = reg.active || reg.waiting || reg.installing;
+  const got = worker ? await _askWorkerVersion(worker) : null;
+  if (got) {
+    _shellLocalVersion = got.version;
+    versionBox.textContent = got.version;
+    if (fpBox) fpBox.textContent = got.fingerprint ? t('shell.fingerprint', { fp: got.fingerprint }) : '';
+    return;
+  }
+
+  versionBox.textContent = t('shell.unknown');
+  if (fpBox) fpBox.textContent = '';
+  const online = await _fetchOnlineShellVersion();
+  if (online) versionBox.textContent += ` · ${t('shell.onlineVersion', { v: online })}`;
 }
 
 /**
@@ -1161,10 +1213,18 @@ async function _onCheckUpdate() {
 
   set(t('shell.querying'));
   try {
-    const reg = await nav.serviceWorker.getRegistration();
+    let reg = await nav.serviceWorker.getRegistration();
+    let justRegistered = false;
     if (!reg) {
-      set(t('shell.unknown'));
-      return;
+      // 本页还没注册过壳（直接从别的页面切进来，或内置浏览器拦过一次）
+      try {
+        reg = await nav.serviceWorker.register('sw.js');
+        justRegistered = true;
+      } catch (err) {
+        // 微信 / QQ 内置浏览器在这里直接抛错 —— 如实说，别写成「已是最新」
+        set(t('shell.noSW'));
+        return;
+      }
     }
     await reg.update();
     // update() resolve 时新版可能还在 installing，等这一下才看得到 waiting（见常量注释）
@@ -1173,6 +1233,17 @@ async function _onCheckUpdate() {
     if (pending && typeof pending.postMessage === 'function') {
       set(t('shell.checking'));
       pending.postMessage({ type: 'skip-waiting' });
+      return;
+    }
+    // ★没有等待中的新壳时，再拿线上版本与本机版本对一次：
+    //   浏览器可能压根没去查更新，直接报「已是最新」就是假话。
+    const online = await _fetchOnlineShellVersion();
+    if (justRegistered) {
+      set(online ? `${t('shell.registered')} ${t('shell.onlineVersion', { v: online })}` : t('shell.registered'));
+      return;
+    }
+    if (online && _shellLocalVersion && online !== _shellLocalVersion) {
+      set(t('shell.localOlder', { local: _shellLocalVersion, online }));
       return;
     }
     set(t('shell.upToDate'));
