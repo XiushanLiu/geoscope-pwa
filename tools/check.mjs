@@ -2183,8 +2183,11 @@ async function main() {
     // ⚠️ 段内必须允许点号：第一版正则把段写成 `[A-Za-z0-9_-]+`，结果
     //    `tests/climate.test.mjs` 这类多段点号文件名被整条漏掉（实测少判 8 条）。
     //    （举例用的那个文件原本是自驾的测试，已随自驾删除，换成同样形态的存活文件。）
+    // ★扩展名 alternation 必须「长在前」：json 排在 js 前。`js|json` 的有序匹配会让
+    //    `search-alias.json` 先命中 `js`、把 `on` 甩在外面 —— 提取成 `search-alias.js`
+    //    误报断链（2026-11 实测，search-alias.json 三处引用全被截断）。
     const ANY_PATH_RE =
-      /(?<![A-Za-z0-9_.\/-])((?:\.{1,2}\/)?[A-Za-z0-9_*.-]+(?:\/[A-Za-z0-9_*.-]+)*\.(?:js|mjs|html|css|json|md|txt))/g;
+      /(?<![A-Za-z0-9_.\/-])((?:\.{1,2}\/)?[A-Za-z0-9_*.-]+(?:\/[A-Za-z0-9_*.-]+)*\.(?:json|js|mjs|html|css|md|txt))/g;
     const FULL_PREFIX = /^(src|tests|tools|styles|docs)\//;
     const GLOB_OR_TEMPLATE = /[*?]|\$\{|\{[A-Za-z]/;
 

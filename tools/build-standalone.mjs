@@ -67,6 +67,11 @@ const ORDER = [
   'src/core/store.js',
   'src/core/wmo.js',
   'src/core/http.js',
+  // 简繁转换与拼音映射：placesearch.js 的直接依赖（均无自身依赖），必须在它之前。
+  // zhvariant.js 是补登记 —— 存量漏登（placesearch.js 早在补「市」繁体那轮就 import 它），
+  // 期间没人重跑 build 所以一直没暴露，2026-11 v95 构建时才被闭包校验拦下。
+  'src/core/zhvariant.js',
+  'src/core/pinyin.js',
   'src/data/tiles.js',
   'src/data/openmeteo.js',
   'src/data/photon.js',
@@ -114,7 +119,13 @@ const ORDER = [
  *    不报错也不警告 —— 所以「多登记」只能靠人在改 ORDER 时把关。
  *
  * 2) **观察指标（不是闸）**：体积。
- *    ★★当前基线（2026-10-31 当场实测，不许抄旧数字）：
+ *    ★★当前基线（2026-11-07 当场实测，不许抄旧数字）：
+ *      v95（搜索增强：拼音/混合输入/外置别名表）— **26 模块 / 569,981 B（556.6 KiB）**
+ *      模块数 24 → 26：`src/core/zhvariant.js`（+14,821 B，补登记存量漏登）与
+ *      `src/core/pinyin.js`（+3,180 B，本轮新建）入闭包；其余增量为 v94 周期内
+ *      placesearch.js 别名表扩充 / 兜底链路 / i18n 文案的累计（该周期未重跑过 build，
+ *      基线一直停留在 2026-10-31，本轮是第一次当场实测）。
+ *    旧基线（2026-10-31 当场实测）：
  *      截至 HEAD `6719ccd` — **24 模块 / 498,075 B（486.4 KiB）**
  *      本轮（壳更新提示条，只挂四个 live 页面）之后 — **24 模块 / 498,781 B（487.1 KiB）**
  *      ⚠️ 这两个数都是**跑一次 `node tools/build-standalone.mjs` 当场读出来的**。

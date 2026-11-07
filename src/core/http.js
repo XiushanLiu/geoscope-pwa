@@ -427,7 +427,16 @@ async function _tryWithRetry(url, timeoutMs, retry, responseType, sourceId) {
     // 覆写 error.sourceId（_attempt 阶段尚不知具体源）
     last.error.sourceId = sourceId;
     if (!last.error.retriable) break;
-    log('retry', sourceId, 'attempt=' + attempts, last.error.code);
+
+    // 429 限流：指数退避（1s → 2s → 4s），避免立即重试再次触发 429
+    const isRateLimited = last.error.httpStatus === 429;
+    if (isRateLimited && i < maxAttempts - 1) {
+      const delayMs = 1000 * Math.pow(2, i);
+      log('retry-backoff', sourceId, 'attempt=' + attempts, 'delay=' + delayMs + 'ms');
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    } else {
+      log('retry', sourceId, 'attempt=' + attempts, last.error.code);
+    }
   }
 
   if (last && last.error) last.error.sourceId = sourceId;

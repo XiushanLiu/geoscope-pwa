@@ -22,6 +22,7 @@
 
 import { request } from '../core/http.js';
 import { toTraditional } from '../core/zhvariant.js';
+import { pinyinToChinese, chineseToPinyin, looksLikePinyin } from '../core/pinyin.js';
 import { t } from '../i18n/index.js';
 import { errorText } from './errtext.js';
 
@@ -230,8 +231,10 @@ export function createPlaceSearch(opts = {}) {
    *   Unihan 无映射）；`Vancouver` → 加拿大 + 美国两个。`洛杉矶` → 0；`洛杉磯` → 1。
    *   `LA` → 柬埔寨、`SF` → 0、`NYC` → New York。`首尔` → 0；`首爾` → 2。
    *   键必须小写；查表前先把输入 trim + 小写。
+   *
+   * ★外置说明：此表与 src/data/search-alias.json 同步，JSON 加载失败时回退到此内置表。
    */
-  const ALIAS_TABLE = {
+  const ALIAS_TABLE_BUILTIN = {
     // —— 城市缩写（用户最可能输入的）——
     'la': ['Los Angeles', '洛杉矶', '洛杉磯'],
     'l.a.': ['Los Angeles', '洛杉矶', '洛杉磯'],
@@ -278,10 +281,13 @@ export function createPlaceSearch(opts = {}) {
     '首爾': ['Seoul'],
   };
 
+  /** 运行时别名表：优先用外置 JSON，加载失败回退到内置表。 */
+  let ALIAS_TABLE = ALIAS_TABLE_BUILTIN;
+
   /**
-   * 空结果时的兜底关键词清单（去重、最多 5 个）。
+   * 空结果时的兜底关键词清单（去重、最多 6 个）。
    *
-   * 顺序：别名表（缩写/中文热门城市）→ 纯汉字的带「市」与繁体。
+   * 顺序：别名表（缩写/中文热门城市）→ 纯汉字的带「市」与繁体 → 拼音映射 → 混合输入拆解。
    * 与上游命中关系是「任何一个能出结果就算赢」，所以全并行，不讲究先后。
    *
    * @param {string} kw 原关键词（已 trim）。
@@ -316,9 +322,30 @@ export function createPlaceSearch(opts = {}) {
         const tradBare = toTraditional(bare);
         if (tradBare && tradBare !== bare && tradBare.length >= 2) push(tradBare);
       }
+
+      // ②d 中文 → 拼音（上游对拼音输入 0 条，但用户可能直接打拼音）
+      const py = chineseToPinyin(kw);
+      if (py) push(py);
     }
 
-    return words.slice(0, 5);
+    // ③ 拼音输入：映射回中文（如 wuzhen → 乌镇）
+    if (looksLikePinyin(kw)) {
+      const zh = pinyinToChinese(kw);
+      if (zh) push(zh);
+    }
+
+    // ④ 混合输入拆解（含空格或逗号）：如「New York 纽约」→ 拆成两个词并行搜
+    if (/[\s,，、]+/.test(kw)) {
+      const parts = kw.split(/[\s,，、]+/).filter((p) => p.length >= 2 && p !== kw);
+      for (const part of parts.slice(0, 2)) { // 最多拆 2 个，避免请求爆炸
+        push(part);
+        // 拆解后的词也走一遍别名表
+        const partAlias = ALIAS_TABLE[part.toLowerCase()];
+        if (partAlias) partAlias.forEach(push);
+      }
+    }
+
+    return words.slice(0, 6);
   }
 
   /**
@@ -346,21 +373,33 @@ export function createPlaceSearch(opts = {}) {
   }
 
   /**
-   * 合并候选的排序：城市（featureCode 以 PPL 开头）在前，非城市（岛 / 机场 / 区域）在后；
-   * 同档内按人口从高到低，人口缺失的排最后。
+   * 合并候选的排序：按行政层级分档，同档内按人口从高到低。
    *
-   * ★为什么按城市分档：`Vancouver` 上游同时回「Vancouver Island（岛，74.9 万人）」和
+   * 层级（featureCode 前缀）：
+   *   PPLA（首都/省会）> PPLC（首府）> PPL（城市）> ADM2（县）> ADM3（镇）> ADM4/PPLX（村/区）> 其他
+   *
+   * ★为什么按层级分档：`Vancouver` 上游同时回「Vancouver Island（岛，74.9 万人）」和
    *   「Vancouver（市，66.2 万人）」—— 单按人口岛会赢，但用户要的是市。
+   *   同理，县/镇/村要有区分，不然「乌镇镇」和「乌镇村」会混在一起。
    *
    * @param {Array<Object>} list 候选。
    * @returns {Array<Object>} 排序后的候选（新数组，不改原数组）。
    */
   function _rankMerged(list) {
-    const isCity = (p) => typeof p.featureCode === 'string' && p.featureCode.startsWith('PPL');
+    const rankOf = (p) => {
+      const fc = typeof p.featureCode === 'string' ? p.featureCode : '';
+      if (fc.startsWith('PPLA')) return 0; // 首都/省会
+      if (fc.startsWith('PPLC')) return 1; // 首府
+      if (fc.startsWith('PPL')) return 2;  // 城市
+      if (fc.startsWith('ADM2')) return 3; // 县
+      if (fc.startsWith('ADM3')) return 4; // 镇
+      if (fc.startsWith('ADM4') || fc.startsWith('PPLX')) return 5; // 村/区
+      return 6; // 其他（岛/机场/区域）
+    };
     return list.slice().sort((a, b) => {
-      const ca = isCity(a) ? 0 : 1;
-      const cb = isCity(b) ? 0 : 1;
-      if (ca !== cb) return ca - cb;
+      const ra = rankOf(a);
+      const rb = rankOf(b);
+      if (ra !== rb) return ra - rb;
       return (b.population || 0) - (a.population || 0);
     });
   }
@@ -581,6 +620,33 @@ export function createPlaceSearch(opts = {}) {
      */
     pick(place) {
       if (onPick) onPick(place);
+    },
+
+    /**
+     * 从外置 JSON 加载别名表（异步，不阻塞）。
+     *
+     * 加载成功后替换内置表；失败保持内置表。
+     *
+     * @param {string} [url] JSON 地址，默认 'src/data/search-alias.json'。
+     * @returns {Promise<boolean>} 是否加载成功。
+     */
+    async loadAliases(url = 'src/data/search-alias.json') {
+      // 离线短路：与 http.js 同口径，离线零请求（真机离线回退内置表，内容与 JSON 同步）
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return false;
+        // ★用 text()+JSON.parse 而不是 res.json()：harness 的假响应只实现 text()，
+        //   且解析失败与网络失败走同一条 catch，回退路径只有一条
+        const json = JSON.parse(await res.text());
+        if (json && json.aliases && typeof json.aliases === 'object') {
+          ALIAS_TABLE = { ...ALIAS_TABLE_BUILTIN, ...json.aliases };
+          return true;
+        }
+        return false;
+      } catch (err) {
+        return false;
+      }
     },
 
     /**

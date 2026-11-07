@@ -730,3 +730,154 @@ test('★不该补的场景：拼音 / 已带行政区划后缀 —— 一次都
   assert.equal(ctl.status, 'empty', '补了也 0 条，就该如实说没找到');
   ctl.dispose();
 });
+
+/* ------------------------------------------------------------------ */
+/* 8. 拼音搜索（2026-11 真机：wuzhen 这类拼音输入上游 0 条）              */
+/*                                                                      */
+/* 两条路都要钉：                                                        */
+/*   ① 用户打拼音 → 映射回中文再问（wuzhen → 乌镇）；                    */
+/*   ② 用户打中文、上游 0 条 → 补发拼音版本再问（乌镇 → wuzhen）。        */
+/* ------------------------------------------------------------------ */
+
+test('★拼音输入：「wuzhen」上游 0 条 → 映射回「乌镇」并命中', async () => {
+  const WUZHEN = {
+    name: '乌镇', lat: 30.7456, lon: 120.4908, country: '中国', admin1: '浙江', population: 60000,
+  };
+  const { calls, fetch } = keywordFetch({ wuzhen: [], 乌镇: [WUZHEN] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('wuzhen');
+
+  assert.equal(ctl.status, 'ok', `拼音必须搜得到，实际 ${ctl.status}`);
+  assert.equal(ctl.results[0].name, '乌镇');
+  assert.deepEqual(calls, ['wuzhen', '乌镇'], `拼音只映射回一个中文词，实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+test('★中文上游 0 条：补发拼音版本（「乌镇」0 条 → 「wuzhen」命中）', async () => {
+  const WUZHEN = {
+    name: '乌镇', lat: 30.7456, lon: 120.4908, country: '中国', admin1: '浙江', population: 60000,
+  };
+  // ★「乌镇」本身就以「镇」字结尾 → 被当作已带后缀：去后缀得「乌」（单字不放行），
+  //   补「市」/繁体分支都不进入 —— 拼音映射是这类地名唯一的兜底路。变异验证：去掉 ②d 这条会红
+  const { calls, fetch } = keywordFetch({ 乌镇: [], wuzhen: [WUZHEN] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('乌镇');
+
+  assert.equal(ctl.status, 'ok', `中文补拼音必须搜得到，实际 ${ctl.status}`);
+  assert.equal(ctl.results[0].name, '乌镇');
+  assert.deepEqual(
+    calls,
+    ['乌镇', 'wuzhen'],
+    `「镇」字结尾不许补市（「乌」单字也不许放行），只发拼音，实际：${calls.join(' → ')}`,
+  );
+  ctl.dispose();
+});
+
+/* ------------------------------------------------------------------ */
+/* 9. 混合输入拆解（含空格/逗号：拆词并行搜，拆出的词也走别名表）          */
+/* ------------------------------------------------------------------ */
+
+test('★混合输入「纽约， New York」：拆出「纽约」并命中其别名 New York City', async () => {
+  const { calls, fetch } = keywordFetch({
+    '纽约， New York': [], 纽约: [], 'New York City': [NEW_YORK_CITY], 纽约市: [], 紐約市: [], New: [],
+  });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('纽约， New York');
+
+  assert.equal(ctl.status, 'ok', `混合输入必须搜得到，实际 ${ctl.status}`);
+  assert.equal(ctl.results[0].name, '紐約市');
+  // ★诚实记账：整词 1 次 + 拆词兜底 5 次（「New」是拆出的碎词，无害但如实记录）
+  assert.deepEqual(
+    calls,
+    ['纽约， New York', '纽约', 'New York City', '纽约市', '紐約市', 'New'],
+    `实际：${calls.join(' → ')}`,
+  );
+  ctl.dispose();
+});
+
+/* ------------------------------------------------------------------ */
+/* 10. 合并排序：行政层级分档（PPLA > PPL > ADM2），人口只定同档先后      */
+/* ------------------------------------------------------------------ */
+
+test('★层级排序：ADM2 县人口再高也不得盖过 PPLA/PPL（镇/村级别标注）', async () => {
+  const LA_US = {
+    name: 'Los Angeles', lat: 34.05223, lon: -118.24368, country: '美国', admin1: '加州', featureCode: 'PPLA', population: 3971883,
+  };
+  const LA_GH = {
+    name: 'La', lat: 8.2, lon: -0.85, country: '加纳', admin1: 'Greater Accra', featureCode: 'PPL', population: null,
+  };
+  const LA_COUNTY = {
+    name: '洛杉矶县', lat: 34.3, lon: -118.2, country: '美国', admin1: '加州', featureCode: 'ADM2', population: 10000000,
+  };
+  // LA 有别名 → 必走合并排序；县人口（1000 万）是市（397 万）两倍多，仍必须排最后
+  const { calls, fetch } = keywordFetch({ LA: [LA_GH], 'Los Angeles': [LA_US], 洛杉矶: [LA_COUNTY], 洛杉磯: [] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('LA');
+
+  assert.equal(ctl.status, 'ok');
+  assert.deepEqual(
+    ctl.results.map((p) => p.name),
+    ['Los Angeles', 'La', '洛杉矶县'],
+    `PPLA > PPL > ADM2，实际：${ctl.results.map((p) => `${p.name}(${p.featureCode})`).join(' / ')}`,
+  );
+  assert.deepEqual(calls, ['LA', 'Los Angeles', '洛杉矶', '洛杉磯'], `实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+/* ------------------------------------------------------------------ */
+/* 11. 外置别名表（search-alias.json：新增地名免改代码）                  */
+/* ------------------------------------------------------------------ */
+
+test('★loadAliases 成功：外置别名立即生效，且与内置表合并（不丢内置）', async () => {
+  const BAR = { name: 'Bar City', lat: 1, lon: 2, country: 'X国', admin1: 'Y省' };
+  const { calls, fetch } = keywordFetch({ foo: [], 'Bar City': [BAR] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  fetchMock.setFallback({ status: 200, json: { version: 1, aliases: { foo: ['Bar City'] } } });
+  const loaded = await ctl.loadAliases('search-alias.json');
+  assert.equal(loaded, true, '合法的 JSON 必须加载成功');
+
+  await ctl.run('foo'); // 外置别名：foo → Bar City
+  assert.equal(ctl.status, 'ok');
+  assert.equal(ctl.results[0].name, 'Bar City');
+  assert.deepEqual(calls, ['foo', 'Bar City'], `外置别名必须走兜底并行，实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+test('★loadAliases 失败（404 / 坏 JSON）：回退内置表，内置别名照常工作', async () => {
+  const SF = {
+    name: 'San Francisco', lat: 37.77493, lon: -122.41942, country: '美国', admin1: '加州', population: 827526,
+  };
+
+  // 404：加载失败
+  const one = keywordFetch({ SF: [], 'San Francisco': [SF] });
+  const ctl1 = ps.createPlaceSearch({ fetch: one.fetch });
+  fetchMock.setFallback({ status: 404 });
+  assert.equal(await ctl1.loadAliases('missing.json'), false, '404 必须如实返回失败');
+
+  // 坏 JSON：解析失败与网络失败同一条回退路径
+  fetchMock.setFallback({ status: 200, body: 'not-json{' });
+  assert.equal(await ctl1.loadAliases('broken.json'), false, '坏 JSON 也必须回退而不是炸掉');
+
+  // 内置表没丢：SF 仍走内置别名命中
+  await ctl1.run('SF');
+  assert.equal(ctl1.status, 'ok');
+  assert.equal(ctl1.results[0].name, 'San Francisco');
+  assert.deepEqual(one.calls, ['SF', 'San Francisco', '旧金山', '舊金山'], `实际：${one.calls.join(' → ')}`);
+  ctl1.dispose();
+});
+
+test('★loadAliases 离线短路：onLine=false 时零请求直接回退内置表（与 http.js 同口径）', async () => {
+  const ctl = ps.createPlaceSearch({ fetch: async () => ({ ok: true, data: [] }) });
+  globalThis.navigator.onLine = false;
+
+  assert.equal(await ctl.loadAliases(), false, '离线必须如实回退');
+  assert.equal(fetchMock.count, 0, '★离线一个请求都不许发');
+
+  globalThis.navigator.onLine = true;
+  ctl.dispose();
+});

@@ -126,6 +126,27 @@ test('HTTP 语义：404 不重试 / 503 重试 / 429 视为可重试；状态透
   assert.equal(r429.meta.attempts, 2);
 });
 
+test('★429 限流：重试前必须指数退避约 1s，不许立即再打（立即重试只会再触发一次 429）', async () => {
+  fetchMock.setFallback({ status: 429, json: {} });
+  const t0 = Date.now();
+  const r = await http.requestRaw('https://example.invalid/rl', { timeoutMs: 300, retry: 1 });
+  const cost = Date.now() - t0;
+
+  assert.equal(r.meta.attempts, 2);
+  // ★变异验证：去掉 _tryWithRetry 里的 429 退避，这条会红（两次尝试紧贴，总耗时应远小于 1s）
+  assert.ok(cost >= 900, `429 重试前必须退避约 1s，实际总耗时 ${cost}ms`);
+});
+
+test('503 不是限流：重试前不退避（与 429 区分开，5xx 是上游故障不是配额）', async () => {
+  fetchMock.setFallback({ status: 503, json: {} });
+  const t0 = Date.now();
+  const r = await http.requestRaw('https://example.invalid/s5', { timeoutMs: 300, retry: 1 });
+  const cost = Date.now() - t0;
+
+  assert.equal(r.meta.attempts, 2);
+  assert.ok(cost < 500, `503 重试不许拖出 429 那种退避，实际总耗时 ${cost}ms`);
+});
+
 test('EMPTY / PARSE 均不可重试，且只尝试一次', async () => {
   fetchMock.setFallback({ status: 200, body: '   ' });
   const empty = await http.requestRaw('https://example.invalid/e', { timeoutMs: 300, retry: 1 });

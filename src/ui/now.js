@@ -416,6 +416,8 @@ function _search() {
     },
     onChange: () => _renderSearchBody(),
   });
+  // 外置别名表（新增地名免改代码）：异步加载，失败自动回退内置表，不阻塞首屏
+  _placeSearch.loadAliases();
   return _placeSearch;
 }
 
