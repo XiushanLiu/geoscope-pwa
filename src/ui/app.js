@@ -66,6 +66,7 @@ import {
   renderSnapshot,
   renderClimateCard,
   applyI18n,
+  announce,
   h,
 } from './now.js';
 // 时延格式化：boot 分段耗时那一行只插值数字，格式交给 fmt.latency()（'123 ms' / '—'）。
@@ -599,6 +600,10 @@ export async function boot() {
 
   const snapshot = _blankSnapshot(base);
   renderHeader(root, snapshot, { isDefaultPlace });
+  // 读屏播报：定位解析完成播一次；默认地点如实说明「未取得定位」，不谎报成真实位置
+  announce(isDefaultPlace
+    ? t('now.defaultPlaceNotice')
+    : t('a11y.located', { place: snapshot.placeName || fmt.coord(base.lat, base.lon) }));
   // 气候常态卡：骨架期就画成 **idle**（标题 + 如实标注 + 「查看月平均」按钮）。
   // ★不在这里取数 —— 30 年再分析是用户点按钮才发起的懒加载，见 _loadClimate。
   _renderClimate(root, snapshot);

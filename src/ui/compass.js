@@ -49,6 +49,8 @@ import {
   getThemeMode,
   getFontScale,
   getLocale,
+  getInstallHintSeen,
+  markInstallHintSeen,
   log,
 } from '../core/store.js';
 import { getCurrentPosition, parsePlaceParam, resolveCoord } from '../core/geo.js';
@@ -91,6 +93,7 @@ import {
   renderSearchPanel,
   searchButton,
   setSearchTarget,
+  announce,
 } from './now.js';
 export { declinationText };
 import { applyThemeMode, applyFontScale } from './theme.js';
@@ -1089,6 +1092,44 @@ export function createCompassRenderer(root, snapshot) {
 }
 
 /**
+ * 一次性安装提示：地理页首次访问时告诉用户「去设置页安装到桌面」。
+ *
+ * 触发条件：非 standalone（已经装好就不再劝装）且本机没看过标记。
+ * 关闭按钮与「去安装」链接都会落标记，同一次安装周期内不再出现。
+ *
+ * @returns {void}
+ */
+function _renderInstallHint() {
+  const box = typeof document !== 'undefined' && document ? document.getElementById('install-hint') : null;
+  if (!box) return;
+  const standalone = (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches)
+    || (typeof navigator !== 'undefined' && navigator.standalone === true);
+  if (standalone || getInstallHintSeen()) {
+    box.hidden = true;
+    return;
+  }
+  const link = h('a', { class: 'install-hint-link', href: 'settings.html#install-card', text: t('install.hintCta') });
+  link.addEventListener('click', () => markInstallHintSeen());
+  const close = h('button', {
+    class: 'install-hint-close',
+    type: 'button',
+    'aria-label': t('install.dismiss'),
+    text: '×',
+  });
+  close.addEventListener('click', () => {
+    markInstallHintSeen();
+    box.hidden = true;
+  });
+  box.textContent = '';
+  box.append(
+    h('span', { class: 'install-hint-text', text: t('install.hint') }),
+    link,
+    close,
+  );
+  box.hidden = false;
+}
+
+/**
  * 地理屏启动流程。
  *
  * 顺序（★不许调换，理由见每一步的注释）：
@@ -1119,6 +1160,7 @@ export async function boot() {
   renderSkeleton(root);
   renderMapSkeleton(root);
   renderHeader(root, snapshot);
+  _renderInstallHint(); // 一次性安装提示：不阻塞定位，先让用户看见入口
 
   // ② URL 指定地点（收藏跳转 / 搜索结果）优先：用户已经明确选了这个地点，再去要一次
   //    系统定位既慢（最多 8 s）又是和用户意图对着干。
@@ -1143,6 +1185,11 @@ export async function boot() {
 
   // ③ 除底图外的所有卡一次上屏（磁偏角那几块是本机算的，断网也有数）
   rerender();
+
+  // 读屏播报：定位解析完成播一次；默认地点如实说明，不谎报成真实位置
+  announce(isDefaultPlace
+    ? t('now.defaultPlaceNotice')
+    : t('a11y.located', { place: snapshot.placeName || fmt.coord(base.lat, base.lon) }));
 
   // ④ 底图首次上屏（渲染发生在探测**之前**：先按当前已知的三态出图，探测结论回来再重画）
   try {

@@ -39,7 +39,10 @@
   <!-- 顶部降级横幅：由 ui/now.js 填充，无降级时隐藏 -->
   <div id="banner" class="banner" hidden></div>
 
-  <main id="app" class="app" aria-live="polite">
+  <!-- 读屏播报区：只播报「定位/天气已更新」的短句，避免整页 live 逐字念 -->
+  <div id="live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <main id="app" class="app">
     <!-- 骨架屏在 app.js 挂载前由内联样式占位，避免白屏 -->
     <div class="skeleton-note" data-i18n="app.loading">正在装载…</div>
   </main>

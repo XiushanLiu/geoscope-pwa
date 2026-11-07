@@ -73,6 +73,26 @@ export function applyI18n(root) {
 }
 
 /**
+ * 向读屏播报一条短消息（#live 是 role="status" 的视觉隐藏区）。
+ *
+ * 先清空再写入：读屏只在文本变化时播报，连续两次同一句话若不清空会被吞掉。
+ * 页面没有 #live（例如自检页）时静默跳过，绝不抛异常。
+ *
+ * @param {string} text 播报文本。
+ * @returns {void}
+ */
+export function announce(text) {
+  if (!text || typeof document === 'undefined') return;
+  const el = document.getElementById('live');
+  if (!el) return;
+  el.textContent = '';
+  // rAF 让清空与写入分属两帧，确保辅助技术能感知到一次新的文本变化
+  const write = () => { el.textContent = String(text); };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(write);
+  else write();
+}
+
+/**
  * 极简 DOM 构造器（零依赖替代 JSX / 模板引擎）。
  *
  * @param {string} tag 标签名。
@@ -571,6 +591,17 @@ export function renderHeader(root, snapshot, opts = {}) {
   const placeName = snapshot.placeName || (snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.unknown'));
   const right = snapshot.atMs ? t('now.observeAt', { time: fmt.hhmm(snapshot.atMs, snapshot.weather && snapshot.weather.tzOffsetSec ? snapshot.weather.tzOffsetSec : 0) }) : t('app.loading');
 
+  // 缓存命中的年龄：取各源里**最旧**的一次命中（对用户最保守），只补一行，避免多源各报一遍
+  let cachedAgeMs = 0;
+  (snapshot.provenance || []).forEach((p) => {
+    if (!p || !p.fromCache) return;
+    const age = Number(p.cacheAgeMs);
+    if (Number.isFinite(age) && age > cachedAgeMs) cachedAgeMs = age;
+  });
+  const freshLine = cachedAgeMs > 0
+    ? h('p', { class: 'hd-fresh', text: t('prov.cachedAgo', { ago: tr(fmt.relativeTime(Date.now() - cachedAgeMs)) }) })
+    : null;
+
   _fill(hd, [
     h('div', {}, [
       // 地名与搜索入口同一行：地名本身的位置与层级不变，只是在它右侧多一颗按钮
@@ -592,7 +623,7 @@ export function renderHeader(root, snapshot, opts = {}) {
       // 传整个 snapshot 而不是算好的 place —— 名字要留到 click 那一刻才读。
       _favButton(snapshot),
     ]),
-    h('div', { class: 'hd-time', text: right }),
+    h('div', { class: 'hd-time' }, [right, freshLine]),
   ]);
   // 搜索面板不在 .hd 里：整槽重建会把它连根拔掉，所以挂到独立槽位上重画一次
   renderSearchPanel(root);
@@ -627,6 +658,9 @@ export function renderWeatherCard(root, snapshot) {
   const uvInfo = uv(w.uvMax);
 
   // 大数字走等宽数字，单位单独小字，避免「23°°C」重复单位
+  // 读屏播报：天气每次上屏/刷新都播一次「温度 + 天气」短句
+  announce(t('a11y.weather', { temp: fmt.tempC(w.tempC), desc: t(desc.key) }));
+
   const tempNode = h('div', { class: 'hero-temp' }, [
     fmt.num(w.tempC, 0),
     h('span', { class: 'unit', text: t('w.unitC') }),

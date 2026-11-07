@@ -70,6 +70,8 @@ export async function pullSource(snapshot, sourceId, ctx, apply, opts = {}) {
       latencyMs: fromCache ? null : res.meta ? res.meta.latencyMs : null,
       fromCache,
       fetchedAt: res.meta.finishedAt,
+      // 缓存条目年龄：fresh 命中时页头据此显示「x 分钟前更新」（未命中为 0）
+      cacheAgeMs: res.meta.cacheAgeMs || 0,
       state,
       attribution: spec ? spec.attribution : '',
     });

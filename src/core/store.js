@@ -35,6 +35,8 @@ const KEY_SNAPSHOT = makeKey('store', 'snapshot');
 // ★首屏分段耗时是**测量记录**，不是偏好：不进 _state、不进备份、resetStore 也不动它
 //   （它是「这台机器上一次首屏到底多慢」的事实，清偏好不该顺手抹掉证据）。
 const KEY_BOOT = makeKey('store', 'boot');
+// 地理页一次性安装提示的「已看过」标记：不是偏好，不进 _state / 备份 / resetStore
+const KEY_INSTALL_HINT = makeKey('store', 'installHint');
 
 /** store 条目 TTL：十年（等同长期有效；读用 get() 不做三态判定，故 TTL 无实际影响）。 */
 const PREFS_TTL_MS = 10 * 365 * 24 * 3600 * 1000;
@@ -510,6 +512,25 @@ export function removeFavorite(lat, lon) {
   _state.favorites = next;
   _persist();
   return true;
+}
+
+/**
+ * 地理页的「去设置页安装」提示是否已经看过（只看本机标记，不做网络判断）。
+ *
+ * @returns {boolean} 已看过 / 已关闭 / 已点过链接则为 true。
+ */
+export function getInstallHintSeen() {
+  const entry = get(KEY_INSTALL_HINT);
+  return !!(entry && entry.value && entry.value.seen === true);
+}
+
+/**
+ * 记下「安装提示已看过」：同一次安装周期内不再出现。
+ *
+ * @returns {void}
+ */
+export function markInstallHintSeen() {
+  set(KEY_INSTALL_HINT, { seen: true, atMs: Date.now() }, PREFS_TTL_MS);
 }
 
 /**

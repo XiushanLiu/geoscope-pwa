@@ -200,7 +200,7 @@ function _result(ok, sourceId, data, error, meta) {
  *
  * @returns {{attempts:number, latencyMs:number, queuedMs:number, startedAt:number, finishedAt:number,
  *            fromCache:boolean, cacheState:'fresh'|'stale'|'miss'|'n/a', staleAgeMs:number,
- *            requestUrl:string, httpStatus:number|null, bytes:number|null}} ResultMeta。
+ *            cacheAgeMs:number, requestUrl:string, httpStatus:number|null, bytes:number|null}} ResultMeta。
  */
 function _blankMeta() {
   const now = Date.now();
@@ -213,6 +213,8 @@ function _blankMeta() {
     fromCache: false,
     cacheState: 'miss',
     staleAgeMs: 0,
+    // 缓存条目自身的年龄（命中 fresh / stale / 离线兜底时写入）；未命中保持 0
+    cacheAgeMs: 0,
     requestUrl: '',
     httpStatus: null,
     bytes: null,
@@ -469,6 +471,7 @@ export async function request(sourceId, ctx = {}, opts = {}) {
     const cached = cacheable ? getWithState(key) : { state: 'n/a', value: null, ageMs: 0 };
     meta.cacheState = cacheable ? cached.state : 'n/a';
     meta.staleAgeMs = cached.state === 'stale' ? cached.ageMs : 0;
+    if (cacheable) meta.cacheAgeMs = cached.ageMs || 0;
     meta.finishedAt = Date.now();
     log('offline-shortcircuit', sourceId, cached.state);
     return _result(false, sourceId, null, makeError('OFFLINE', sourceId), meta);
@@ -482,6 +485,7 @@ export async function request(sourceId, ctx = {}, opts = {}) {
       meta.cacheState = 'fresh';
       meta.attempts = 0;
       meta.latencyMs = 0;
+      meta.cacheAgeMs = cached.ageMs || 0; // 供页头显示「x 分钟前更新」
       meta.finishedAt = Date.now();
       log('cache-fresh', sourceId);
       return _result(true, sourceId, cached.value, null, meta);
@@ -539,6 +543,7 @@ export async function request(sourceId, ctx = {}, opts = {}) {
         staleValue = cached.value;
         meta.cacheState = 'stale';
         meta.staleAgeMs = cached.ageMs;
+        meta.cacheAgeMs = cached.ageMs || 0;
       } else {
         meta.cacheState = 'miss';
       }

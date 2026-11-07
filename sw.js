@@ -1,17 +1,19 @@
 /**
  * Service Worker：离线壳
  *
- * 职责：只预缓存「静态壳」（HTML / CSS / JS / manifest 内联图标），让断网时应用外壳仍可打开。
+ * 职责：预缓存「静态壳」（HTML / CSS / JS / manifest 内联图标），并**限量**缓存已成功显示的
+ *       ArcGIS 底图瓦片，让断网时应用外壳与上一屏底图仍可打开。
  * 硬性边界：
  *   1) 绝不缓存任何 API 响应（天气 / 空气 / 地名 / 海拔 / 逆地理），业务数据一律走 core/cache.js 的 localStorage 快照；
- *   2) 绝不缓存瓦片字节（瓦片失败一次即切「无地图纯坐标模式」，不重试）；
- *   3) 跨域请求直接放行，不做任何代理或改写。
+ *   2) 瓦片只缓存 server.arcgisonline.com 的成功图片，上限 24 张，缓存名随壳版本失效
+ *      （残余风险：占位/过期瓦片也可能被存下，靠小上限 + 版本失效兜底，绝不无限增长）；
+ *   3) 除上面这条瓦片缓存外，其它跨域请求直接放行，不做任何代理或改写。
  *
  * 零依赖：无第三方库、无 CDN、无构建步骤。
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v81';
+const SHELL_CACHE = 'geoscope-shell-v82';
 
 /**
  * 壳资产指纹：SHELL_ASSETS 全部文件内容按清单顺序拼接后的 sha256 前 16 位（CRLF 已规范为 LF）。
@@ -20,7 +22,14 @@ const SHELL_CACHE = 'geoscope-shell-v81';
  *   真机会一直用旧壳 —— 而且**没有任何报错**。tools/check.mjs 第 22 节拿它重算比对，
  *   不一致就报红；改完壳资产跑一次 node tools/bump-shell.mjs 即可（本脚本自动维护它）。
  */
-const SHELL_FINGERPRINT = 'a61b99264c5dabd7';
+const SHELL_FINGERPRINT = '0364771698fdde1d';
+
+/** 瓦片缓存名：由壳版本派生，壳一升版旧瓦片缓存就在 activate 里被清掉。 */
+const TILE_CACHE = SHELL_CACHE.replace('shell', 'tiles');
+/** 只缓存这一台底图主机（与 src/data/tiles.js 的 TILE_BASE 同源）。 */
+const TILE_HOST = 'server.arcgisonline.com';
+/** 上限 24 张：够铺满一屏即可，不让离线缓存无限增长。 */
+const TILE_LIMIT = 24;
 
 const SHELL_ASSETS = [
   './',
@@ -100,7 +109,9 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const names = await caches.keys();
-      await Promise.all(names.filter((n) => n !== SHELL_CACHE).map((n) => caches.delete(n)));
+      // 保留当前壳与当前版本的瓦片缓存；旧版本 / 无关缓存一律删除
+      const keep = [SHELL_CACHE, TILE_CACHE];
+      await Promise.all(names.filter((n) => keep.indexOf(n) === -1).map((n) => caches.delete(n)));
       await self.clients.claim();
     })()
   );
@@ -148,6 +159,44 @@ self.addEventListener('message', (event) => {
   }
 });
 
+/**
+ * 取一张 ArcGIS 瓦片：先查瓦片缓存，未命中再回源。
+ *
+ * 只把「2xx + content-type 为 image/*」的响应写进缓存：错误页、HTML 占位、
+ * 空 body 一律不落盘，避免把一次坏请求固化成永久坏瓦片。
+ *
+ * @param {Request} request 瓦片请求。
+ * @returns {Promise<Response>} 瓦片响应；断网且无缓存时回 504。
+ */
+async function _tileResponse(request) {
+  try {
+    const cache = await caches.open(TILE_CACHE);
+    const hit = await cache.match(request);
+    if (hit) return hit;
+    const res = await fetch(request);
+    const type = (res.headers.get('content-type') || '').toLowerCase();
+    if (res.ok && type.indexOf('image/') === 0) {
+      cache.put(request, res.clone()).then(() => _trimTiles(cache)).catch(() => {});
+    }
+    return res;
+  } catch (err) {
+    return new Response('', { status: 504, statusText: 'offline' });
+  }
+}
+
+/**
+ * 把瓦片缓存裁剪到 TILE_LIMIT 张：按写入顺序删除最旧的条目。
+ *
+ * @param {Cache} cache 瓦片缓存。
+ * @returns {Promise<void>} 裁剪完成。
+ */
+async function _trimTiles(cache) {
+  const keys = await cache.keys();
+  if (keys.length <= TILE_LIMIT) return;
+  const stale = keys.slice(0, keys.length - TILE_LIMIT);
+  await Promise.all(stale.map((k) => cache.delete(k)));
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
 
@@ -156,7 +205,13 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // 跨域（六路数据源 / 瓦片）：直接放行，不拦截、不缓存
+  // ArcGIS 底图瓦片：cache-first 的限量缓存；断网时回放上一屏已成功显示的底图
+  if (url.hostname === TILE_HOST) {
+    event.respondWith(_tileResponse(request));
+    return;
+  }
+
+  // 其它跨域（六路数据源）：直接放行，不拦截、不缓存
   if (url.origin !== self.location.origin) return;
 
   // 同源静态资源：cache-first，命中即返回；未命中回源并把成功响应写回壳缓存

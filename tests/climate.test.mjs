@@ -162,16 +162,16 @@ test('①b CLIMATE_SOURCES.climate 契约值（timeoutMs / retry / ttlMs / cache
   assert.equal(s.id, 'climate');
   assert.equal(s.labelKey, 'source.climate');
   assert.equal(s.host, CLIMATE_HOST);
-  // 10000：分母只取 **gzip 样本**（真实使用条件，浏览器必带 Accept-Encoding: gzip）：
+  // 8000：分母只取 **gzip 样本**（真实使用条件，浏览器必带 Accept-Encoding: gzip）：
   //   0.993 s（广州）/ 2.585 s（北京），最大 2.585 s。
   //   ★不取未压缩那七样本的最大值 14.284 s —— `generationtime_ms` 实测 20.36 ms 证明
   //   算力不是瓶颈，那个数是 303 KB 纯传输造成的，而该条件（curl 未带 --compressed）
   //   在真实使用中**不发生**。（七样本仍留档：北京 5.062/11.714/9.417；广州 14.284/4.619/2.493/3.540。）
-  //   ★10 s 是 **n=2 样本下的保守取值**（62.7 KB 在 100 kbps 慢链上约 5 s + 余量），
+  //   ★8 s 是 **n=2 样本下的保守取值**（62.7 KB 在 100 kbps 慢链上约 5 s + ~60% 余量），
   //   **不是由样本严格推出的**。改这个值必须同步改上面那句「不是严格推出」的说明。
-  assert.equal(s.timeoutMs, 10000);
+  assert.equal(s.timeoutMs, 8000);
   // ★retry 0：62.7 KB 是天气源的 20~30 倍，能超时一次说明链路很差；失败态已有手动
-  //   重试按钮；且 http.js 全局并发 1，自动重试会让最坏队列占用翻倍（10 s → 20 s）
+  //   重试按钮；且 http.js 全局并发 1，自动重试会让最坏队列占用翻倍（8 s → 16 s）
   assert.equal(s.retry, 0);
   assert.equal(s.ttlMs, 2592000000); // 30 天
   assert.equal(s.cacheable, true);

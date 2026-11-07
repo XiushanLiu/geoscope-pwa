@@ -135,6 +135,8 @@ export const ZH = {
   'card.provenance': '数据来源',
   // ★「这一路命中了本地缓存」：没发请求，不许显示 0 ms。与 map.cacheHit 各用各的键，故意不互借。
   'prov.cacheHit': '缓存命中',
+  // 缓存命中时的数据年龄：只在这里补一句「多久前取的」，观测时刻仍以 now.observeAt 为准
+  'prov.cachedAgo': '缓存数据 · {ago}更新',
   'card.forecast': '今日与未来',
 
   'w.temp': '气温',
@@ -428,6 +430,10 @@ export const ZH = {
   'settings.title': '我的 · 设置',
   'settings.subtitle': '备份搬家与外观：整机数据不出设备，导出与导入都在本机完成。',
 
+  // 地理页一次性安装提示（compass.js 用）：只出现一次，链接到设置页的安装卡
+  'install.hint': '可添加到桌面，下次一键直达地理页。',
+  'install.hintCta': '去安装',
+  'install.dismiss': '关闭安装提示',
   // 添加到桌面 / 主屏幕（一次性动作，装完折叠成一行）
   'settings.installTitle': '添加到桌面或主屏幕',
   'settings.installHint': '装好之后从桌面或主屏幕的图标打开就是它：不显示地址栏，断网也能打开这一页。',
@@ -876,6 +882,8 @@ export const ZH = {
   'desc.geo': '地候 GeoScope —— 地理：海拔、坐标与地名，配底图、方位·磁偏角与完整罗盘。',
   'a11y.mainNav': '主导航',
   'a11y.checkParams': '自检参数',
+  'a11y.located': '位置已更新：{place}',
+  'a11y.weather': '天气已更新：{temp}，{desc}',
   // ---------- 界面语言 ----------
   // 切换器在「我的」页。★两档的显示名一律用**各自语言自己的写法**
   // （中文界面写「English」而不是「英文」）—— 用户看不懂当前界面语言时，

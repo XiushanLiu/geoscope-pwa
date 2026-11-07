@@ -3,8 +3,8 @@
  *
  * 背景：sw.js 是零依赖 PWA 的离线壳，头注释里写着三条硬性边界 ——
  *   1) 绝不缓存任何 API 响应（业务数据走 core/cache.js 的 localStorage 快照）；
- *   2) 绝不缓存瓦片字节；
- *   3) 跨域请求直接放行，不拦截、不改写。
+ *   2) 瓦片只缓存 ArcGIS 主机的成功图片，上限 24 张，缓存名随壳版本失效；
+ *   3) 除瓦片外的跨域请求直接放行，不拦截、不改写。
  *
  * 存在性测试（grep 一下 `caches.open` 就算过）证明不了任何一条：真正会回归的是
  * fetch 处理器的**分支走向**。其中最容易回归的一条是断网导航回退 ——
@@ -36,6 +36,10 @@ const BASE = `${ORIGIN}/`;
 
 /** 从 sw.js 源码解析常量，避免测试与实现漂移（与 static.test.mjs 同一手法）。 */
 const SHELL_CACHE = SW_SOURCE.match(/const SHELL_CACHE\s*=\s*'([^']+)';/)[1];
+/** 瓦片缓存名由壳版本派生（见 sw.js 的 TILE_CACHE）。 */
+const TILE_CACHE = SHELL_CACHE.replace('shell', 'tiles');
+/** ArcGIS 瓦片主机（见 sw.js 的 TILE_HOST）。 */
+const TILE_HOST = 'server.arcgisonline.com';
 const SHELL_FINGERPRINT = SW_SOURCE.match(/const SHELL_FINGERPRINT\s*=\s*'([^']+)';/)[1];
 const SHELL_ASSETS = (SW_SOURCE.match(/const SHELL_ASSETS = \[([\s\S]*?)\];/)[1]
   .match(/'([^']+)'/g) || [])
@@ -80,7 +84,7 @@ function makeResponse(tag, opts = {}) {
   const res = new Response(opts.body ?? tag, {
     status: opts.status ?? 200,
     statusText: opts.statusText ?? 'OK',
-    headers: { 'content-type': 'text/html; charset=utf-8', 'x-stub-tag': tag },
+    headers: { 'content-type': opts.contentType ?? 'text/html; charset=utf-8', 'x-stub-tag': tag },
   });
   Object.defineProperty(res, 'type', {
     value: opts.type ?? 'basic',
@@ -146,6 +150,10 @@ function createSandbox() {
       },
       async keys() {
         return [...store.keys()];
+      },
+      // 瓦片缓存裁剪依赖 Cache.delete；CacheStorage.delete 在下面的 caches 对象里
+      async delete(input) {
+        return store.delete(resolveUrl(input));
       },
     };
   }
@@ -383,10 +391,73 @@ describe('sw.js 离线壳行为', () => {
 
     const record = sb.dispatchFetch(req);
 
-    assert.equal(record.respondWithCount, 0, '瓦片字节绝不能被 SW 碰');
+    assert.equal(record.respondWithCount, 0, '非 ArcGIS 瓦片字节绝不能被 SW 碰');
     assert.equal(sb.state.fetchCalls.length, 0);
     assert.equal(sb.state.matchCalls.length, 0);
     assert.equal(sb.state.putCalls.length, 0);
+  });
+
+  /** ArcGIS 瓦片请求（主机与 data/tiles.js 的 TILE_BASE 一致）。 */
+  function tileRequest(path = '/ArcGIS/rest/services/World_Imagery/MapServer/tile/5/12/26') {
+    return new SWRequest(`https://${TILE_HOST}${path}`, { mode: 'cors' });
+  }
+
+  /** 让 put → trim 这条异步链跑完。 */
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  test('ArcGIS 瓦片未命中 + 在线：回源后写入瓦片缓存，不碰壳缓存', async () => {
+    const sb = createSandbox();
+    sb.setFetchImpl(() => makeResponse('TILE-NET', { contentType: 'image/png' }));
+    const req = tileRequest();
+
+    const record = sb.dispatchFetch(req);
+    const res = await sb.settle(record);
+    await tick();
+
+    assert.equal(tagOf(res), 'TILE-NET', '应返回网络瓦片');
+    assert.deepEqual(sb.state.fetchCalls, [req.url], '应恰好回源一次');
+    assert.ok(sb.stores.get(TILE_CACHE).has(req.url), '成功图片应落进瓦片缓存');
+    assert.ok(!sb.state.openCalls.includes(SHELL_CACHE), '不应打开壳缓存');
+  });
+
+  test('ArcGIS 瓦片命中缓存：直接返回，不再回源', async () => {
+    const sb = createSandbox();
+    const req = tileRequest();
+    sb.seed(TILE_CACHE, { [req.url]: 'TILE-CACHED' });
+
+    const record = sb.dispatchFetch(req);
+    const res = await sb.settle(record);
+
+    assert.equal(tagOf(res), 'TILE-CACHED');
+    assert.equal(sb.state.fetchCalls.length, 0, '命中后不该再回源');
+  });
+
+  test('ArcGIS 非图片 / 非 2xx 响应不写入瓦片缓存（错误页不落盘）', async () => {
+    const sb = createSandbox();
+    sb.setFetchImpl(() => makeResponse('HTML-ERR', { status: 404 }));
+
+    const record = sb.dispatchFetch(tileRequest());
+    await sb.settle(record);
+    await tick();
+
+    assert.equal(sb.state.putCalls.length, 0, '404 / HTML 一律不写瓦片缓存');
+  });
+
+  test('瓦片缓存上限 24 张：第 25 张写入后淘汰最旧的一张', async () => {
+    const sb = createSandbox();
+    const seeded = {};
+    for (let i = 0; i < 24; i += 1) seeded[`${BASE}tile/${i}.png`] = `OLD-${i}`;
+    sb.seed(TILE_CACHE, seeded);
+    sb.setFetchImpl(() => makeResponse('TILE-25', { contentType: 'image/png' }));
+    const req = tileRequest('/ArcGIS/rest/services/World_Imagery/MapServer/tile/5/1/1');
+
+    await sb.settle(sb.dispatchFetch(req));
+    await tick();
+
+    const store = sb.stores.get(TILE_CACHE);
+    assert.equal(store.size, 24, '缓存应稳定在 24 张');
+    assert.ok(!store.has(`${BASE}tile/0.png`), '最旧的一张应被淘汰');
+    assert.ok(store.has(req.url), '刚写入的那张应保留');
   });
 
   test('非 GET 不被拦截：不 respondWith、不发网络', async () => {

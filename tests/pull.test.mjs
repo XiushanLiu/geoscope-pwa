@@ -26,7 +26,7 @@ const health = await import('../src/data/health.js');
 const sources = await import('../src/data/sources.js');
 
 /**
- * 溯源气泡里那八项的**顺序**（渲染层按这个顺序读，改了要连带改 `now.js`）。
+ * 溯源气泡里那九项的**顺序**（渲染层按这个顺序读，改了要连带改 `now.js`）。
  *
  * ★2026-10 真机缺陷补的 `fromCache`：缓存命中那一路上屏显示「0 ms」，等于把
  *   「没测」说成「测到 0」。所以字段契约改成两条 —— `fromCache` 明说命中，
@@ -40,6 +40,7 @@ const PROVENANCE_KEYS = [
   'latencyMs',
   'fromCache',
   'fetchedAt',
+  'cacheAgeMs', // v82：缓存条目年龄，页头据此显示「x 分钟前更新」
   'state',
   'attribution',
 ];

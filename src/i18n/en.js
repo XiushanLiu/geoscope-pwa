@@ -134,6 +134,7 @@ export const EN = {
   'card.provenance': 'Sources',
   // "No request was sent" — must never render as 0 ms. Own key, not borrowed from map.cacheHit.
   'prov.cacheHit': 'Cache hit',
+  'prov.cachedAgo': 'Cached · updated {ago}',
   'card.forecast': 'Today & next days',
 
   'w.temp': 'Temperature',
@@ -439,6 +440,9 @@ export const EN = {
   'settings.subtitle': 'Backup and appearance: nothing leaves this device, both export and import happen locally.',
 
   // Add to desktop / home screen (a one-off action; it collapses to a single line once installed)
+  'install.hint': 'Add it to your desktop for one-tap access to the geography page.',
+  'install.hintCta': 'Install',
+  'install.dismiss': 'Dismiss install hint',
   'settings.installTitle': 'Add to desktop or home screen',
   'settings.installHint': 'Once added, open it from the icon on your desktop or home screen: no address bar, and it opens even when offline.',
   'settings.installBtn': 'Add to desktop',
@@ -908,6 +912,8 @@ export const EN = {
   'desc.geo': 'GeoScope — geo: elevation, coordinates and place name, with a basemap, bearing & magnetic declination, and the full compass.',
   'a11y.mainNav': 'Main navigation',
   'a11y.checkParams': 'Self-check parameters',
+  'a11y.located': 'Location updated: {place}',
+  'a11y.weather': 'Weather updated: {temp}, {desc}',
   // ---------- Interface language ----------
   // The switch lives on the Me screen. ★each option is written in ITS OWN language
   // (the Chinese screen shows "English", not an-English-word-for-Chinese) — when a user

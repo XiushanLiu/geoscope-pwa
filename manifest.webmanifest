@@ -2,7 +2,7 @@
   "name": "地候 GeoScope",
   "short_name": "地候",
   "description": "自用地理气象速览：此刻此地的一屏数据。无广告、无统计、无账号、无后端。",
-  "start_url": "index.html",
+  "start_url": "compass.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
