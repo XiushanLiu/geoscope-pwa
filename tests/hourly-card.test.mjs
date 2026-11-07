@@ -99,3 +99,22 @@ test('降水概率为 null 时不出柱（null 是「不知道」，不是 0%）
   renderHourlyCard(dom.byId.app, snap(T24, T24.map(() => null)));
   assert.equal(byClass('hourly-bar').length, 0, '概率缺失时不该出现任何柱');
 });
+
+test('★等温日：无障碍标签必须报真实极值，不能把留白算进去', () => {
+  dom.byId.app.textContent = '';
+  // 全天 20℃ 一个值 —— 走「近乎等温」分支（留白 ±1℃），旧代码会读成 19°/21°
+  renderHourlyCard(dom.byId.app, snap(Array(24).fill(20), Array(24).fill(0)));
+  const label = byClass('hourly-svg')[0].getAttribute('aria-label');
+  assert.ok(label.includes('20°'), `标签应报真实极值 20°，实际：${label}`);
+  assert.ok(!label.includes('19°') && !label.includes('21°'), `标签不得出现留白值，实际：${label}`);
+});
+
+test('两端小时的降水柱不被 viewBox 裁掉', () => {
+  dom.byId.app.textContent = '';
+  renderHourlyCard(dom.byId.app, snap(T24, Array(24).fill(50)));
+  const bars = byClass('hourly-bar');
+  assert.equal(bars.length, 24);
+  const xs = bars.map((b) => Number(b.getAttribute('x')));
+  assert.ok(Math.min(...xs) >= 0, `0 时的柱不得越出左边界：${Math.min(...xs)}`);
+  assert.ok(Math.max(...xs) + 6 <= 320, `23 时的柱不得越出右边界：${Math.max(...xs) + 6}`);
+});

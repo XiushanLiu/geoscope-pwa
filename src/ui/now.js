@@ -974,8 +974,10 @@ export function renderHourlyCard(root, snapshot) {
   const plotH = plotBottom - plotTop;
 
   // y 范围：真实极值上下各留 2℃；全天近乎等温时给 ±1℃，避免除零
-  let min = Math.min(...vals);
-  let max = Math.max(...vals);
+  const trueMin = Math.min(...vals);
+  const trueMax = Math.max(...vals);
+  let min = trueMin;
+  let max = trueMax;
   if (max - min < 0.5) {
     min -= 1;
     max += 1;
@@ -1010,7 +1012,8 @@ export function renderHourlyCard(root, snapshot) {
       if (p === null || p <= 0) return null;
       const hgt = Math.max(2, (Math.min(100, p) / 100) * 20);
       return _svg('rect', {
-        x: (xOf(i) - 3).toFixed(1),
+        // ★夹在 [0, W-6]：0 时与 23 时各在边缘，不夹会有一半柱宽被 viewBox 裁掉
+        x: Math.min(W - 6, Math.max(0, xOf(i) - 3)).toFixed(1),
         y: (barBase - hgt).toFixed(1),
         width: 6,
         height: hgt.toFixed(1),
@@ -1039,7 +1042,8 @@ export function renderHourlyCard(root, snapshot) {
       viewBox: `0 0 ${W} ${H}`,
       preserveAspectRatio: 'none',
       role: 'img',
-      'aria-label': t('hourly.a11y', { max: fmt.tempC(max - 2), min: fmt.tempC(min + 2) }),
+      // ★用真实极值，不能用加了留白的 min/max：等温分支留白是 ±1℃，减 2 会读成比实际低 1℃
+      'aria-label': t('hourly.a11y', { max: fmt.tempC(trueMax), min: fmt.tempC(trueMin) }),
     },
     [
       _svg('defs', {}, [
