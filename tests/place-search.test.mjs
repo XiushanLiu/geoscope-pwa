@@ -508,19 +508,28 @@ function keywordFetch(table, opts = {}) {
 /** 泉州（带「市」才有）—— 真机实测：泉州 0 条、泉州市 1 条。 */
 const QUANZHOU = { name: '泉州市', lat: 24.91389, lon: 118.58583, country: '中国', admin1: '福建省' };
 
-/** 纽约（繁体才有）—— 真机实测：纽约 0 条（zh / en 都是）、紐約 1 条。 */
-const NEW_YORK = { name: '紐約', lat: 40.71427, lon: -74.00597, country: '美国', admin1: '纽约州' };
+/** 纽约（繁体 + 「市」才有真·纽约市）—— 真机实测：
+ *  `纽约` 0 条、`纽约市` 0 条、`紐約` → 肯塔基州小镇、`紐約市` → 纽约市（880 万人）。 */
+const NEW_YORK_CITY = {
+  name: '紐約市', lat: 40.71427, lon: -74.00597, country: '美国', admin1: '纽约州', population: 8804190,
+};
+const NEW_YORK_TOWN = {
+  name: '紐約', lat: 36.98894, lon: -88.95256, country: '美国', admin1: '肯塔基州', population: null,
+};
 
-test('★中文搜国外城市：简体的「纽约」上游 0 条 → 转繁「紐約」再问一次并命中', async () => {
-  const { calls, fetch } = keywordFetch({ 纽约: [], 紐約: [NEW_YORK] });
+test('★中文搜国外城市：「纽约」转繁后带/不带「市」都问，按人口取纽约市而不是同名小镇', async () => {
+  const { calls, fetch } = keywordFetch({
+    纽约: [], 纽约市: [], 紐約: [NEW_YORK_TOWN], 紐約市: [NEW_YORK_CITY],
+  });
   const ctl = ps.createPlaceSearch({ fetch });
 
   await ctl.run('纽约');
 
-  assert.equal(ctl.status, 'ok', `★纽约必须搜得到（靠转繁那一次），实际 ${ctl.status}`);
-  assert.equal(ctl.results[0].name, '紐約');
-  // ★变异验证：去掉转繁这一步，这条会红（状态变 empty）
-  assert.deepEqual(calls, ['纽约', '纽约市', '紐約'], `必须恰好发三次（原词 → 补市 → 转繁），实际：${calls.join(' → ')}`);
+  assert.equal(ctl.status, 'ok', `★纽约必须搜得到，实际 ${ctl.status}`);
+  // ★变异验证：只问 `紐約`、或按返回先后取，这条会变成肯塔基小镇而红
+  assert.equal(ctl.results[0].name, '紐約市', `必须命中纽约市，实际 ${ctl.results[0].name}`);
+  assert.equal(ctl.results[0].population, 8804190);
+  assert.deepEqual(calls, ['纽约', '纽约市', '紐約', '紐約市'], `实际：${calls.join(' → ')}`);
   ctl.dispose();
 });
 
@@ -536,14 +545,14 @@ test('★已经是繁体、或转繁后与原词相同：不许多发请求', as
 });
 
 test('★转繁后仍 0 条：状态仍是 empty，不许说成网络错误', async () => {
-  const { calls, fetch } = keywordFetch({ 卢森堡: [], 盧森堡: [] });
+  const { calls, fetch } = keywordFetch({ 卢森堡: [], 卢森堡市: [], 盧森堡: [], 盧森堡市: [] });
   const ctl = ps.createPlaceSearch({ fetch });
 
   await ctl.run('卢森堡');
 
   assert.equal(ctl.status, 'empty');
   assert.equal(ctl.results.length, 0);
-  assert.deepEqual(calls, ['卢森堡', '卢森堡市', '盧森堡'], '补一次就停');
+  assert.deepEqual(calls, ['卢森堡', '卢森堡市', '盧森堡', '盧森堡市'], '补一次就停');
   ctl.dispose();
 });
 

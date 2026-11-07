@@ -223,6 +223,23 @@ export function createPlaceSearch(opts = {}) {
   }
 
   /**
+   * 一组候选里的最大人口（缺人口数据按 0 算）。
+   *
+   * ★用途：转繁兜底时「紐約」和「紐約市」会各回一份，必须按人口取，不能按先后。
+   *
+   * @param {Array<Object>} list 候选列表。
+   * @returns {number} 人口峰值。
+   */
+  function peak(list) {
+    let max = 0;
+    for (const p of list) {
+      const n = p && typeof p.population === 'number' ? p.population : 0;
+      if (n > max) max = n;
+    }
+    return max;
+  }
+
+  /**
    * 空结果时「补一次『市』」的重试词。
    *
    * ★为什么只补「市」这一条：真机实测（`geocoding-api.open-meteo.com` = GeoNames）
@@ -443,21 +460,25 @@ export function createPlaceSearch(opts = {}) {
         }
       }
 
-      // ★2026-11 真机缺陷：中文搜国外城市一律「没有找到」。地名库的中文别名以**繁体**登记：
-      //   `纽约` → 0 条，`紐約` → 1 条（同为 US）。所以仍为空时逐字转繁再问一次。
-      //   同样只补一次；转换失败/请求失败都保留「空」这个真实结果，不改写成网络错误。
+      // ★2026-11 真机缺陷：中文搜国外城市一律「没有找到」。地名库的中文别名以**繁体**登记，
+      //   而且带不带「市」命中完全不同：`紐約` → 肯塔基州小镇；`紐約市` → 纽约市（880 万人）。
+      //   所以仍为空时，把简体逐字转繁后，带「市」与不带「市」各问一次（并行），取人多的那份。
       if (list.length === 0) {
-        const tradKw = toTraditional(kw);
-        if (tradKw && tradKw !== kw) {
+        const trad = toTraditional(kw);
+        if (trad && trad !== kw) {
+          const words = trad.endsWith('市') ? [trad] : [trad, `${trad}市`];
           if (isStale()) return null;
-          try {
-            const res3 = await fetchFn('geocode', { keyword: tradKw, lang });
-            if (isStale()) return null;
-            if (res3 && res3.ok) {
-              list = _navigable(Array.isArray(res3.data) ? res3.data : []);
-            }
-          } catch (err) {
-            // 与「市」补请求同策：失败不动结论
+          const rs = await Promise.all(
+            words.map((w) => fetchFn('geocode', { keyword: w, lang }).catch(() => null)),
+          );
+          if (isStale()) return null;
+          const cands = rs
+            .filter((r) => r && r.ok && Array.isArray(r.data))
+            .map((r) => _navigable(r.data))
+            .filter((l) => l.length > 0);
+          if (cands.length > 0) {
+            // 取「人口最多」的那一份：避免把 880 万人的纽约市让给同名的肯塔基小镇
+            list = cands.reduce((best, cur) => (peak(cur) > peak(best) ? cur : best));
           }
         }
       }
