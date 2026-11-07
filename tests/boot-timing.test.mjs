@@ -28,6 +28,7 @@ const dom = createFakeDom(DOM_IDS);
 dom.document.readyState = 'loading'; // 不让入口模块自动 boot，改为用例里显式调用
 
 const app = await import('../src/ui/app.js');
+const store = await import('../src/core/store.js');
 const fmt = await import('../src/core/format.js');
 const { t } = await import('../src/i18n/index.js');
 
@@ -136,4 +137,43 @@ test('在线那一轮：五段全都跑到了，就都必须是数字（不许�
   }
   assert.ok(tm.total >= tm.geo + tm.weather + tm.air + tm.elevation, '合计必须覆盖各段（不是各段之外的某个片段）');
   globalThis.navigator.onLine = true;
+});
+
+test('★跑完整轮会落盘（自检页是另一个页面，不落盘就拿不到读数）', async () => {
+  globalThis.navigator.onLine = false; // 离线一轮：weather/air/elevation/background 没跑到
+  await app.boot();
+  globalThis.navigator.onLine = true;
+
+  const rec = store.getBootTimings();
+  assert.ok(rec, '★跑完整轮必须落盘，否则自检页导出的 read 永远是 null');
+  assert.equal(typeof rec.atMs, 'number', '落盘要带采样时间，否则读数无法对应到哪一版哪一次');
+  assert.equal(typeof rec.timings.total, 'number', '合计是墙钟，必须是数字');
+  assert.equal(typeof rec.timings.geo, 'number', '定位段跑到了，必须是数字');
+  // ★缺段仍是 null：落盘时把「没跑」写成 0，导出的 JSON 就会谎报「这一段 0 ms」
+  for (const k of ['weather', 'air', 'elevation', 'background']) {
+    assert.equal(rec.timings[k], null, `离线一轮的 ${k} 没跑到，落盘必须是 null`);
+  }
+});
+
+test('★残缺轮次不落盘：total 不是有限数就整条丢弃，不覆盖上一次的有效读数', () => {
+  const ok = store.setBootTimings({ geo: 10, weather: 20, air: 30, elevation: 40, background: 50, total: 120 });
+  assert.equal(ok, true, '前置：完整一轮可落盘');
+  const before = store.getBootTimings();
+  assert.equal(before.timings.total, 120);
+
+  assert.equal(store.setBootTimings({ geo: 999 }), false, '★没有 total 的残缺表必须拒收');
+  assert.equal(store.setBootTimings(null), false, '非对象必须拒收');
+  const after = store.getBootTimings();
+  assert.equal(after.timings.total, 120, '★拒收后不许覆盖上一次的有效读数');
+  assert.equal(after.atMs, before.atMs, '拒收的轮次不该刷新采样时间');
+});
+
+test('getBootTimings() 给的是副本：改返回值不许改到持久化记录', () => {
+  store.setBootTimings({ geo: 1, weather: 2, air: 3, elevation: 4, background: 5, total: 6 });
+  const a = store.getBootTimings();
+  a.timings.total = 999999;
+  a.atMs = 0;
+  const b = store.getBootTimings();
+  assert.equal(b.timings.total, 6, '★交出去的是副本，改它不许污染落盘记录');
+  assert.notEqual(b.atMs, 0, '★时间戳也必须是副本');
 });

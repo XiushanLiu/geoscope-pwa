@@ -522,6 +522,28 @@ test('自检页：瓦片指纹全同（占位图）时，集成链路必须判�
   }
 });
 
+test('回归锁：首屏分段耗时进完整版与精简版导出（真机读数回传通道）', async () => {
+  const store = await import('../src/core/store.js');
+  assert.equal(
+    store.setBootTimings({ geo: 120, weather: 300, air: 200, elevation: 80, background: 400, total: 1500 }),
+    true,
+    '前置：完整一轮可落盘'
+  );
+  routeFixture();
+  const report = await selfcheck.runSelfCheck({ samples: 1, networkType: 'wifi' });
+  assert.ok(report.boot, '★报告必须带此刻页上一轮首屏耗时，否则读数回传通道等于没接通');
+  assert.equal(report.boot.timings.total, 1500, '合计必须原样进报告');
+  assert.equal(report.boot.timings.geo, 120, '定位段必须原样进报告');
+  assert.equal(typeof report.boot.atMs, 'number', '采样时间必须进报告，读数才能对应到哪一次');
+
+  const compact = selfcheck.compactReport(report);
+  assert.equal(compact.boot.timings.total, 1500, '★精简版也必须带首屏耗时（微信回传走的是精简版）');
+
+  // 没有记录时必须是 null：不许编一份全 0 的表
+  const empty = selfcheck.compactReport({ app: 'geoscope', version: 't', generatedAt: 0, results: [], tiles: [], tileDedupe: null, boot: null, verdict: 'partial' });
+  assert.equal(empty.boot, null, '★没采过样就是 null，0 ms 会谎报「测到了」');
+});
+
 test('回归锁：占位图（全同指纹）必须把整轮结论降级为 partial，且 fake 结论上屏且进导出', async () => {
   routeFixture({ tile: 'fake' });
   const report = await selfcheck.runSelfCheck({ samples: 1, networkType: 'wifi' });

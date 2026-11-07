@@ -40,6 +40,7 @@ import {
   getLocale,
   log,
   APP_ID,
+  getBootTimings,
 } from '../core/store.js';
 import { stamp, latency as fmtLatency, bytes as fmtBytes } from '../core/format.js';
 import { h, applyI18n } from './now.js';
@@ -375,6 +376,10 @@ export async function runSelfCheck(opts = {}) {
     results: [],
     tiles: [],
     tileDedupe: null,
+    // ★此刻页（index.html）上一轮首屏分段耗时（由此刻页 boot() 落盘）。
+    //   本页是独立 HTML、不跑此刻页的 boot，只能从 store 取；从未跑过时为 null，
+    //   不编一份全 0 的表（与 bootTimings() 同一条纪律）。
+    boot: getBootTimings(),
     verdict: 'partial',
   };
 
@@ -636,6 +641,8 @@ export function compactReport(data) {
     tileDedupe: d.tileDedupe
       ? { total: d.tileDedupe.total, unique: d.tileDedupe.unique, verdict: d.tileDedupe.verdict, byStyle }
       : null,
+    // 首屏分段耗时是「这台机器上一次此刻页启动」的事实；没跑过就是 null，不省略占位。
+    boot: d.boot ? { atMs: d.boot.atMs, timings: d.boot.timings } : null,
     verdict: d.verdict,
   };
 }

@@ -25,6 +25,7 @@ import {
   getDefaultPlace,
   getLastSnapshot,
   setLastSnapshot,
+  setBootTimings,
   getThemeMode,
   getFontScale,
   getLocale,
@@ -136,6 +137,10 @@ function _blankTimings() {
 function _publishTimings(timings, bootStart) {
   timings.total = performance.now() - bootStart;
   _timings = timings;
+  // ★同时落盘：本页只在内存里留「上一轮」，一关标签页读数就没了；自检页是另一个页面，
+  //   没有持久化就拿不到本页的读数（README 9.1 第 4 条「读数未回传」正是卡在这里）。
+  //   只收跑完整轮的记录，残缺表由 store 侧直接丢弃。
+  setBootTimings(timings);
 }
 
 /**

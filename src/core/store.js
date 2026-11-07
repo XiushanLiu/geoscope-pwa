@@ -32,6 +32,9 @@ export const APP_ID = 'geoscope';
 /** 持久化键（store 视作一个伪 sourceId）。 */
 const KEY_PREFS = makeKey('store', 'prefs');
 const KEY_SNAPSHOT = makeKey('store', 'snapshot');
+// ★首屏分段耗时是**测量记录**，不是偏好：不进 _state、不进备份、resetStore 也不动它
+//   （它是「这台机器上一次首屏到底多慢」的事实，清偏好不该顺手抹掉证据）。
+const KEY_BOOT = makeKey('store', 'boot');
 
 /** store 条目 TTL：十年（等同长期有效；读用 get() 不做三态判定，故 TTL 无实际影响）。 */
 const PREFS_TTL_MS = 10 * 365 * 24 * 3600 * 1000;
@@ -367,6 +370,49 @@ export function setLastSnapshot(snapshot) {
 export function getLastSnapshot() {
   const entry = get(KEY_SNAPSHOT);
   return entry && entry.value ? entry.value : null;
+}
+
+/** 首屏分段耗时的六个字段（与 ui/app.js 的 _blankTimings() 同构）。 */
+const BOOT_KEYS = ['geo', 'weather', 'air', 'elevation', 'background', 'total'];
+
+/**
+ * 持久化上一轮首屏分段耗时（供自检页导出回传，见 README 9.1 第 4 条）。
+ *
+ * ★只收**跑完整轮**的记录：total 不是有限数就整条丢弃。半个轮次的残缺表落盘后，
+ *   下次导出会被当成「那一轮的真实读数」，比没有更坏。
+ * ★缺段存 null 而不是 0：0 会把「这一段没跑」说成「这一段耗时 0 ms」，与 bootTimings() 同一条纪律。
+ *
+ * @param {Object} timings 六段耗时表（允许字段缺失 / 为 null）。
+ * @returns {boolean} 是否落盘。
+ */
+export function setBootTimings(timings) {
+  if (!timings || typeof timings !== 'object') return false;
+  const out = {};
+  for (const k of BOOT_KEYS) {
+    const v = Number(timings[k]);
+    out[k] = timings[k] !== null && timings[k] !== undefined && Number.isFinite(v) && v >= 0 ? v : null;
+  }
+  if (out.total === null) return false; // 没跑完整轮：不落盘
+  set(KEY_BOOT, { atMs: Date.now(), timings: out }, PREFS_TTL_MS);
+  return true;
+}
+
+/**
+ * 读取上一轮首屏分段耗时（副本）。
+ *
+ * @returns {{atMs:number|null, timings:Object}|null} 记录或 null（从未跑完整轮）。
+ */
+export function getBootTimings() {
+  const entry = get(KEY_BOOT);
+  const v = entry && entry.value;
+  if (!v || typeof v !== 'object' || !v.timings || typeof v.timings !== 'object') return null;
+  const timings = {};
+  for (const k of BOOT_KEYS) {
+    const n = Number(v.timings[k]);
+    timings[k] = v.timings[k] !== null && Number.isFinite(n) ? n : null;
+  }
+  const atMs = Number(v.atMs);
+  return { atMs: Number.isFinite(atMs) ? atMs : null, timings };
 }
 
 /** @returns {boolean} debug 是否开启。 */
