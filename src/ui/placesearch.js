@@ -232,11 +232,36 @@ export function createPlaceSearch(opts = {}) {
    *   键必须小写；查表前先把输入 trim + 小写。
    */
   const ALIAS_TABLE = {
-    // —— 英文缩写（用户最可能输入的）——
+    // —— 城市缩写（用户最可能输入的）——
     'la': ['Los Angeles', '洛杉矶', '洛杉磯'],
     'l.a.': ['Los Angeles', '洛杉矶', '洛杉磯'],
     'sf': ['San Francisco', '旧金山', '舊金山'],
     'nyc': ['New York City', '纽约市', '紐約市'],
+
+    // —— 美国州两字母缩写 → 该州最大城市（上游几乎全废，必须兜底）——
+    //   实测：NY→比利时 Ny 村、CA→印尼、NJ→0 条、TX→0 条… 用户要的是州，
+    //   但 GeoNames 没建州索引；按「该州最大城市」返回，比空结果/外国小村诚实。
+    //   ★注意歧义：`la` 已被上面洛杉矶占用；`me`（缅因）、`in`（印第安纳）、`or`
+    //   （俄勒冈）同时是英文常用词，但城市人口会盖过同名词条，仍收录。
+    'ny': ['New York City'], 'ca': ['Los Angeles'], 'tx': ['Houston'], 'fl': ['Miami'],
+    'il': ['Chicago'], 'pa': ['Philadelphia'], 'oh': ['Columbus'], 'ga': ['Atlanta'],
+    'nc': ['Charlotte'], 'mi': ['Detroit'], 'nj': ['Newark'], 'va': ['Virginia Beach'],
+    'wa': ['Seattle'], 'az': ['Phoenix'], 'ma': ['Boston'], 'tn': ['Nashville'],
+    'mo': ['Kansas City'], 'md': ['Baltimore'], 'wi': ['Milwaukee'], 'co': ['Denver'],
+    'mn': ['Minneapolis'], 'sc': ['Charleston'], 'al': ['Birmingham'], 'ky': ['Louisville'],
+    'or': ['Portland'], 'ok': ['Oklahoma City'], 'ct': ['Hartford'], 'ut': ['Salt Lake City'],
+    'ia': ['Des Moines'], 'nv': ['Las Vegas'], 'ar': ['Little Rock'], 'ms': ['Jackson'],
+    'ks': ['Wichita'], 'nm': ['Albuquerque'], 'ne': ['Omaha'], 'id': ['Boise'],
+    'hi': ['Honolulu'], 'ri': ['Providence'], 'mt': ['Billings'], 'de': ['Wilmington'],
+    'sd': ['Sioux Falls'], 'nd': ['Fargo'], 'ak': ['Anchorage'], 'dc': ['Washington'],
+    'vt': ['Burlington'], 'wy': ['Cheyenne'], 'nh': ['Manchester'], 'wv': ['Charleston'],
+    'in': ['Indianapolis'],
+    'louisiana': ['New Orleans'], 'maine': ['Portland'],
+
+    // —— 加拿大省两字母缩写 → 该省最大城市 ——
+    'on': ['Toronto'], 'qc': ['Montreal'], 'bc': ['Vancouver'], 'ab': ['Calgary'],
+    'mb': ['Winnipeg'], 'sk': ['Saskatoon'], 'ns': ['Halifax'], 'nb': ['Moncton'],
+
     // —— 中文热门城市：简体/繁体上游都 0 条时，直接给英文全名 ——
     '纽约': ['New York City', '纽约市', '紐約市'],
     '紐約': ['New York City', '紐約市'],
@@ -272,13 +297,24 @@ export function createPlaceSearch(opts = {}) {
     const alias = ALIAS_TABLE[kw.toLowerCase()];
     if (alias) alias.forEach(push);
 
-    // ② 纯汉字：简体带「市」 + 繁体（原词与带「市」）——覆盖没进别名表的长尾城市
+    // ② 纯汉字：两条路
     if (/^[㐀-鿿]+$/.test(kw)) {
-      if (!/(市|区|县|镇|乡|村)$/.test(kw)) push(`${kw}市`);
-      const trad = toTraditional(kw);
-      if (trad && trad !== kw) {
-        push(trad);
-        if (!/(市|区|县|镇|乡|村)$/.test(trad)) push(`${trad}市`);
+      // ②a 已带后缀（乌镇镇/晋江市）→ 去掉后缀再试（上游只吃「乌镇」「晋江」，带后缀反而 0 条）
+      const bare = kw.replace(/(市|区|县|镇|乡|村)$/, '');
+      if (bare !== kw && bare.length >= 2) push(bare);
+
+      // ②b 没带后缀（纽约/温哥华）→ 补「市」+ 繁体（覆盖没进别名表的长尾）
+      if (!/(市|区|县|镇|乡|村)$/.test(kw)) {
+        push(`${kw}市`);
+        const trad = toTraditional(kw);
+        if (trad && trad !== kw) {
+          push(trad);
+          push(`${trad}市`);
+        }
+      } else {
+        // ②c 带后缀的也补一个繁体（「烏鎮鎮」→「烏鎮」）
+        const tradBare = toTraditional(bare);
+        if (tradBare && tradBare !== bare && tradBare.length >= 2) push(tradBare);
       }
     }
 

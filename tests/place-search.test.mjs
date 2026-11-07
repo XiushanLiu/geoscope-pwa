@@ -116,19 +116,21 @@ test('★防抖：连续输入三个字只发 1 次请求，且用最后一次�
   const ctl = ps.createPlaceSearch({
     fetch: async (id, ctx) => {
       calls.push({ id, kw: ctx.keyword, lang: ctx.lang });
-      return { ok: true, data: [] };
+      // ★必须返回非空：空结果会触发兜底（别名表/补后缀），那就不是「只发一次」了
+      // ★_navigable 期望 lat/lon，不是 latitude/longitude
+      return { ok: true, data: [{ name: '北京', lat: 39.9, lon: 116.4, country: '中国', admin1: '北京', population: 21890000 }] };
     },
     debounceMs: 40,
   });
 
+  // ★选「北京」是因为上游有结果、且不在别名表里 —— 不会触发兜底，才能验证「只发一次」
   ctl.input('北');
   ctl.input('北京');
-  ctl.input('北京市');
   await wait(40 + 90);
 
   assert.equal(calls.length, 1, `防抖后只应发 1 次请求，实际发了 ${calls.length} 次`);
   assert.equal(calls[0].id, 'geocode', '必须走已注册的 geocode 源');
-  assert.equal(calls[0].kw, '北京市', '必须是最后一次输入的完整关键词');
+  assert.equal(calls[0].kw, '北京', '必须是最后一次输入的完整关键词');
   assert.equal(calls[0].lang, 'zh');
   ctl.dispose();
 });
@@ -624,6 +626,35 @@ test('★中文「温哥华」：简体 0 条 → 繁体命中（加拿大 66 �
   ctl.dispose();
 });
 
+test('★县/镇/村去后缀：「乌镇镇」上游 0 条 → 去「镇」问「乌镇」并命中', async () => {
+  const WUZHEN = {
+    name: '乌镇', lat: 30.7456, lon: 120.4908, country: '中国', admin1: '浙江', population: 60000,
+  };
+  const { calls, fetch } = keywordFetch({ 乌镇镇: [], 乌镇: [WUZHEN] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('乌镇镇');
+
+  assert.equal(ctl.status, 'ok', `乌镇镇必须搜得到，实际 ${ctl.status}`);
+  assert.equal(ctl.results[0].name, '乌镇');
+  assert.deepEqual(calls, ['乌镇镇', '乌镇', '烏鎮'], `实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+test('★县/镇/村去后缀：「华西村」上游直接命中，不再多发请求', async () => {
+  const HUAXI = {
+    name: '华西村', lat: 31.826, lon: 120.36, country: '中国', admin1: '江苏', population: null,
+  };
+  const { calls, fetch } = keywordFetch({ 华西村: [HUAXI] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('华西村');
+
+  assert.equal(ctl.status, 'ok');
+  assert.deepEqual(calls, ['华西村'], `命中后不许补查，实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
 test('★中文地名补「市」：「泉州」上游 0 条 → 自动再问一次「泉州市」并命中', async () => {
   const { calls, fetch } = keywordFetch({ 泉州: [], 泉州市: [QUANZHOU] });
   const ctl = ps.createPlaceSearch({ fetch });
@@ -694,8 +725,8 @@ test('★不该补的场景：拼音 / 已带行政区划后缀 —— 一次都
   assert.deepEqual(calls, ['Quanzhou', '泉州市'], '已经带「市」就不许再加成「泉州市市」');
   assert.equal(ctl.status, 'ok');
 
-  await ctl.run('思明区'); // 已带区
-  assert.deepEqual(calls, ['Quanzhou', '泉州市', '思明区'], '已带「区」也不补');
-  assert.equal(ctl.status, 'empty', '补不了又不命中，就该如实说没找到');
+  await ctl.run('思明区'); // 已带区 → 补「思明」（去后缀），上游 0 条则 empty
+  assert.deepEqual(calls, ['Quanzhou', '泉州市', '思明区', '思明'], '已带「区」补去后缀');
+  assert.equal(ctl.status, 'empty', '补了也 0 条，就该如实说没找到');
   ctl.dispose();
 });
