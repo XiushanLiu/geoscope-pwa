@@ -166,6 +166,16 @@ const SHELL_ASK_TIMEOUT_MS = 1500;
 const SHELL_UPDATE_SETTLE_MS = 800;
 
 /**
+ * 冷启动时等「有 active SW」的上限（毫秒）。
+ *
+ * 2026-11 真机（v101 手机端）：卡片显示「未知（本环境没有离线壳）」，而本页明明就是
+ * 离线壳给的。原因是冷启动那一下 `reg.active` 还是 null（旧壳刚被回收 / 新壳还在
+ * installing），此时去问 waiting / installing 一律不回包。等一下 `serviceWorker.ready`
+ * （作用域内有 active 时会立即兑现）再问，就能拿到真在跑的那一份。
+ */
+const SHELL_READY_WAIT_MS = 800;
+
+/**
  * 取 DOM 元素（缺失返回 null，不抛）。
  *
  * @param {string} id 元素 id。
@@ -1126,6 +1136,27 @@ function _askWorkerVersion(worker) {
 }
 
 /**
+ * 等 `navigator.serviceWorker.ready` 给出一个 active SW（有上限，拿不到返回 null）。
+ *
+ * 只在 `reg.active` 为空时才调：`ready` 在作用域内已有 active 时会立即兑现，
+ * 所以正常情况下不会引入任何延迟；真没有 active 时最多等 SHELL_READY_WAIT_MS。
+ *
+ * @param {Navigator} nav 浏览器 navigator。
+ * @returns {Promise<ServiceWorker|null>} active SW 或 null。
+ */
+function _waitActiveWorker(nav) {
+  const sw = nav && nav.serviceWorker;
+  if (!sw || sw.ready === undefined || sw.ready === null) return Promise.resolve(null);
+  const ready = Promise.resolve(sw.ready)
+    .then((r) => (r && r.active) || null)
+    .catch(() => null);
+  const timeout = new Promise((resolve) => {
+    setTimeout(() => resolve(null), SHELL_READY_WAIT_MS);
+  });
+  return Promise.race([ready, timeout]);
+}
+
+/**
  * 向正在运行的 SW 问一句「你是哪一份」，把版本号与指纹填进卡片。
  *
  * ★v86 起改问「注册里那个活着的 SW」，不再依赖 navigator.serviceWorker.controller：
@@ -1168,7 +1199,7 @@ async function _askShellVersion() {
     return;
   }
 
-  const worker = reg.active || reg.waiting || reg.installing;
+  const worker = reg.active || (await _waitActiveWorker(nav)) || reg.waiting || reg.installing;
   const got = worker ? await _askWorkerVersion(worker) : null;
   if (got) {
     _shellLocalVersion = got.version;
@@ -1242,7 +1273,14 @@ async function _onCheckUpdate() {
       set(online ? `${t('shell.registered')} ${t('shell.onlineVersion', { v: online })}` : t('shell.registered'));
       return;
     }
-    if (online && _shellLocalVersion && online !== _shellLocalVersion) {
+    // ★2026-11 真机（v101 手机端）：本机版本没读到（上方一行是「未知」）时，
+    //   原来会一路落到「已是最新」—— 没拿到任何一边的版本号却宣布最新，正是本卡
+    //   JSDoc 第 3 条禁止的那种假话。比对不了就说比对不了。
+    if (!_shellLocalVersion || !online) {
+      set(t('shell.compareUnknown'));
+      return;
+    }
+    if (online !== _shellLocalVersion) {
       set(t('shell.localOlder', { local: _shellLocalVersion, online }));
       return;
     }

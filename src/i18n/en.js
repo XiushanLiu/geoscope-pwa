@@ -593,11 +593,12 @@ export const EN = {
   //   "unknown", because it makes you believe you are already on the new one.
   'shell.title': 'Offline shell',
   'shell.querying': 'Checking…',
-  'shell.unknown': 'Unknown (no offline shell in this environment)',
+  'shell.unknown': 'Unknown (could not read the local shell version)',
   'shell.unsupported': 'Offline shell unavailable here (needs https or localhost)',
   'shell.checkBtn': 'Check for updates',
   'shell.checking': 'New version found, applying…',
   'shell.upToDate': 'Up to date',
+  'shell.compareUnknown': 'Could not read the version needed for the comparison, so "up to date" cannot be confirmed; update requested — reload and check the version above.',
   'shell.checkFailed': 'Check failed: {msg}',
   'shell.fingerprint': 'Fingerprint {fp}',
   'shell.noSW': 'This browser does not run the offline shell (common in WeChat / QQ in-app browsers). Open in Chrome / Edge / 360 to get updates.',

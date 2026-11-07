@@ -348,8 +348,12 @@ export function resetSensor() {
  */
 function _attachSensor(onChange) {
   const handler = (ev) => {
-    const alpha = Number(ev && ev.alpha);
-    const compass = Number(ev && ev.webkitCompassHeading);
+    // ★不能直接 Number(ev.alpha)：alpha 缺失时浏览器给的常是 null，
+    //   而 Number(null) === 0 —— 那会被当成「正朝正北」画出一支真读数，
+    //   桌面 Chrome 只派发 alpha=null 的空事件，正好踩中这条（显示 0° 北 + 子山）。
+    const num = (v) => (v === null || v === undefined || v === '' || typeof v === 'boolean' ? NaN : Number(v));
+    const alpha = num(ev && ev.alpha);
+    const compass = num(ev && ev.webkitCompassHeading);
     // iOS 的 webkitCompassHeading 已经是磁方位；其余内核用 360 − alpha 折算
     const heading = Number.isFinite(compass) ? compass : Number.isFinite(alpha) ? 360 - alpha : NaN;
     if (!Number.isFinite(heading)) return;

@@ -245,6 +245,36 @@ test('有方向传感器：挂上监听并收到数据后才画指针盘（磁�
   }
 });
 
+test('★桌面 Chrome 的 alpha=null 空事件不得当成「正朝正北」', () => {
+  const listeners = new Map();
+  globalThis.window = {
+    DeviceOrientationEvent: function DeviceOrientationEvent() {},
+    addEventListener: (type, fn) => listeners.set(String(type), fn),
+    removeEventListener: () => {},
+  };
+  try {
+    assert.equal(compass.sensorSupport(), 'available');
+    compass.resetSensor();
+    compass.enableSensor();
+
+    const handler = listeners.get('deviceorientation');
+    assert.ok(handler, '必须挂上 deviceorientation 监听');
+    // 桌面 Chrome 会派发「事件来了但三个角都是 null」的空事件；Number(null) === 0
+    // 会被折算成 360 − 0 = 0°（正北），界面上就是一条凭空捏造的读数。
+    handler({ alpha: null, beta: null, gamma: null, absolute: false });
+    assert.equal(compass.sensorState().state, 'waiting', '空事件不能把状态推到 on');
+    assert.equal(compass.sensorState().headingMagDeg, null, '没角度就必须留 null，不能读成 0°');
+
+    // 微信内嵌等内核会给合法的绝对角，此时才应转为 on
+    handler({ alpha: 90, beta: 0, gamma: 0 });
+    assert.equal(compass.sensorState().state, 'on');
+    assert.equal(compass.sensorState().headingMagDeg, 270, '360 − 90 = 270°（磁西）');
+  } finally {
+    compass.resetSensor();
+    delete globalThis.window;
+  }
+});
+
 test('计算失败（越界纬度 / 非数字）：降级为「暂不可用」，不白屏不抛栈', () => {
   const bad = compass.computeAt({ lat: 120, lon: 116 }, { altitudeM: 0, atMs: AT_2025 });
   assert.equal(bad.mag, null);

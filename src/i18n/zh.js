@@ -576,11 +576,12 @@ export const ZH = {
   //   编出来的版本号比「未知」更糟，它会让人以为自己已经在跑新版。
   'shell.title': '离线壳版本',
   'shell.querying': '查询中…',
-  'shell.unknown': '未知（本环境没有离线壳）',
+  'shell.unknown': '未知（没读到本机离线壳的版本）',
   'shell.unsupported': '本环境不支持离线壳（需要 https 或 localhost）',
   'shell.checkBtn': '检查更新',
   'shell.checking': '发现新版本，正在应用…',
   'shell.upToDate': '已是最新',
+  'shell.compareUnknown': '没拿到要对比的版本号，无法确认是否最新；已催浏览器去查更新，刷新后再看上方版本号。',
   'shell.checkFailed': '检查失败：{msg}',
   'shell.fingerprint': '指纹 {fp}',
   // 微信 / QQ 内置浏览器不运行 Service Worker：这不是「没更新」，是根本没壳可更新，必须说清楚
