@@ -510,6 +510,20 @@ export function renderSearchPanel(root) {
   }
   slot.hidden = false;
 
+  // ★已经开着的面板不重建：整块重建会把正在输入的 <input> 换成新节点，
+  //   焦点丢失、手机输入法被迫中断 —— 用户感受就是「打字打着就卡死」。
+  //   标题区会随定位/取数反复重渲染（renderHeader → 这里），所以这条是必须的。
+  const live = slot.querySelector('.search-panel');
+  if (live) {
+    const inp = live.querySelector('.search-input');
+    if (inp) {
+      inp.setAttribute('placeholder', t('search.placeholder'));
+      inp.setAttribute('aria-label', t('search.open'));
+    }
+    _renderSearchBody();
+    return;
+  }
+
   const input = h('input', {
     class: 'search-input',
     type: 'search',
