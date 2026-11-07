@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 地点搜索控制器（纯逻辑层，不碰 DOM）
  *
  * 职责：把「用户输入 → 地名候选 → 选中跳转」这条链路的状态机收在一处 —— 防抖、
@@ -223,42 +223,112 @@ export function createPlaceSearch(opts = {}) {
   }
 
   /**
-   * 一组候选里的最大人口（缺人口数据按 0 算）。
+   * 中文/缩写 → 上游能命中的写法（多为英文全名 + 当地常用中文）。
    *
-   * ★用途：转繁兜底时「紐約」和「紐約市」会各回一份，必须按人口取，不能按先后。
-   *
-   * @param {Array<Object>} list 候选列表。
-   * @returns {number} 人口峰值。
+   * ★只放实测过的（本机实测 2026-11）：
+   *   `纽约` → 0；`紐約市` → 纽约市。`温哥华` → 0；`温哥華` → 0（「哥」繁简同形，
+   *   Unihan 无映射）；`Vancouver` → 加拿大 + 美国两个。`洛杉矶` → 0；`洛杉磯` → 1。
+   *   `LA` → 柬埔寨、`SF` → 0、`NYC` → New York。`首尔` → 0；`首爾` → 2。
+   *   键必须小写；查表前先把输入 trim + 小写。
    */
-  function peak(list) {
-    let max = 0;
-    for (const p of list) {
-      const n = p && typeof p.population === 'number' ? p.population : 0;
-      if (n > max) max = n;
+  const ALIAS_TABLE = {
+    // —— 英文缩写（用户最可能输入的）——
+    'la': ['Los Angeles', '洛杉矶', '洛杉磯'],
+    'l.a.': ['Los Angeles', '洛杉矶', '洛杉磯'],
+    'sf': ['San Francisco', '旧金山', '舊金山'],
+    'nyc': ['New York City', '纽约市', '紐約市'],
+    // —— 中文热门城市：简体/繁体上游都 0 条时，直接给英文全名 ——
+    '纽约': ['New York City', '纽约市', '紐約市'],
+    '紐約': ['New York City', '紐約市'],
+    '洛杉矶': ['Los Angeles', '洛杉磯'],
+    '洛杉磯': ['Los Angeles'],
+    '旧金山': ['San Francisco', '舊金山'],
+    '舊金山': ['San Francisco'],
+    '温哥华': ['Vancouver'],
+    '温哥華': ['Vancouver'],
+    '溫哥華': ['Vancouver'],
+    '西雅图': ['Seattle', '西雅圖'],
+    '西雅圖': ['Seattle'],
+    '首尔': ['Seoul', '首爾', '漢城'],
+    '首爾': ['Seoul'],
+  };
+
+  /**
+   * 空结果时的兜底关键词清单（去重、最多 5 个）。
+   *
+   * 顺序：别名表（缩写/中文热门城市）→ 纯汉字的带「市」与繁体。
+   * 与上游命中关系是「任何一个能出结果就算赢」，所以全并行，不讲究先后。
+   *
+   * @param {string} kw 原关键词（已 trim）。
+   * @returns {Array<string>} 兜底词（不含已查过的原词本身）。
+   */
+  function _fallbackKeywords(kw) {
+    const words = [];
+    const push = (w) => {
+      if (w && w !== kw && !words.includes(w)) words.push(w);
+    };
+
+    // ① 别名表：缩写（LA/SF/NYC…）和实测上游 0 条的中文热门城市，直接给出英文全名等写法
+    const alias = ALIAS_TABLE[kw.toLowerCase()];
+    if (alias) alias.forEach(push);
+
+    // ② 纯汉字：简体带「市」 + 繁体（原词与带「市」）——覆盖没进别名表的长尾城市
+    if (/^[㐀-鿿]+$/.test(kw)) {
+      if (!/(市|区|县|镇|乡|村)$/.test(kw)) push(`${kw}市`);
+      const trad = toTraditional(kw);
+      if (trad && trad !== kw) {
+        push(trad);
+        if (!/(市|区|县|镇|乡|村)$/.test(trad)) push(`${trad}市`);
+      }
     }
-    return max;
+
+    return words.slice(0, 5);
   }
 
   /**
-   * 空结果时「补一次『市』」的重试词。
+   * 按「同一地点」去重：同名 + 同州/省 + 同国，坐标四舍五入到 0.01°（约 1 km）。
    *
-   * ★为什么只补「市」这一条：真机实测（`geocoding-api.open-meteo.com` = GeoNames）
-   *   —— 泉州 0 条 / 泉州市 1 条、厦门 0 / 厦门市 1、温州 0 / 温州市 1，
-   *   而北京 / 上海 / 苏州 / 东莞 / 无锡 / 宁波 不带「市」就有。缺的是**带后缀的别名**，
-   *   不是这些城市本身。
-   *   ★也有补了仍为 0 的（晋江 / 晋江市 / 石狮市 实测都是 0）—— 那种是真没有，
-   *   照常说「没有找到这个地方」，不许继续加后缀去凑（补一次就停）。
-   *
-   * @param {string} kw 原关键词（已 trim）。
-   * @returns {string|null} 重试词；不该重试时返回 null。
+   * @param {Array<Object>} list 合并后的候选。
+   * @returns {Array<Object>} 去重后的候选（保留先出现的那份）。
    */
-  function _citySuffixKeyword(kw) {
-    // ① 纯汉字才补：拼音（Quanzhou）、含空格或英文的词补「市」只会更糟
-    if (!/^[\u3400-\u9fff]+$/.test(kw)) return null;
-    // ② 已经带了行政区划后缀就别再加（「泉州市市」不是地名）
-    if (/(市|区|县|镇|乡|村)$/.test(kw)) return null;
-    return `${kw}市`;
+  function _dedupeByPlace(list) {
+    const seen = new Set();
+    const out = [];
+    for (const p of list) {
+      const key = [
+        String(p.name || ''),
+        String(p.admin1 || ''),
+        String(p.country || ''),
+        Math.round(p.lat * 100) / 100,
+        Math.round(p.lon * 100) / 100,
+      ].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(p);
+    }
+    return out;
   }
+
+  /**
+   * 合并候选的排序：城市（featureCode 以 PPL 开头）在前，非城市（岛 / 机场 / 区域）在后；
+   * 同档内按人口从高到低，人口缺失的排最后。
+   *
+   * ★为什么按城市分档：`Vancouver` 上游同时回「Vancouver Island（岛，74.9 万人）」和
+   *   「Vancouver（市，66.2 万人）」—— 单按人口岛会赢，但用户要的是市。
+   *
+   * @param {Array<Object>} list 候选。
+   * @returns {Array<Object>} 排序后的候选（新数组，不改原数组）。
+   */
+  function _rankMerged(list) {
+    const isCity = (p) => typeof p.featureCode === 'string' && p.featureCode.startsWith('PPL');
+    return list.slice().sort((a, b) => {
+      const ca = isCity(a) ? 0 : 1;
+      const cb = isCity(b) ? 0 : 1;
+      if (ca !== cb) return ca - cb;
+      return (b.population || 0) - (a.population || 0);
+    });
+  }
+
 
   return {
     /** @returns {string} 当前结果态。 */
@@ -434,52 +504,28 @@ export function createPlaceSearch(opts = {}) {
 
       let list = _navigable(Array.isArray(res.data) ? res.data : []);
 
-      // ★2026-10 真机缺陷：中文地名搜不到（泉州 / 厦门 / 温州）。根因是**上游数据缺口**，
-      //   不是解析错 —— `geocoding-api.open-meteo.com`（= GeoNames）的中文别名索引只登记了
-      //   一部分城市的带「市」写法：泉州 → 0 条、泉州市 → 1 条；厦门 / 温州同理。
-      //   所以空结果时按规则补一次「市」再问一次（★只补一次，不许循环）。
-      //   ★补请求是**锦上添花**：它失败（抛异常 / !ok）时保留第一次的真实结果（空），
-      //   照常走 EMPTY —— 不许把「没找到」改写成「网络错误」（那正是 'search.failed' 与
-      //   'search.empty' 必须是两句话的原因）。
-      //   ★健康台账因此会记两次 geocode attempt：确实发了两次，诚实记录，不去抵消。
-      if (list.length === 0) {
-        const retryKw = _citySuffixKeyword(kw);
-        if (retryKw) {
-          // 竞态守卫：补请求**发出前**也要查一次，慢的旧响应不许覆盖用户的新输入
-          if (isStale()) return null;
-          try {
-            const res2 = await fetchFn('geocode', { keyword: retryKw, lang });
-            // 竞态守卫（另一半）：**拿到结果后**也要查一次
-            if (isStale()) return null;
-            if (res2 && res2.ok) {
-              list = _navigable(Array.isArray(res2.data) ? res2.data : []);
-            }
-          } catch (err) {
-            // 补请求抛异常：什么都不做 —— `list` 仍是第一次的真实结果（空）
-          }
-        }
-      }
-
-      // ★2026-11 真机缺陷：中文搜国外城市一律「没有找到」。地名库的中文别名以**繁体**登记，
-      //   而且带不带「市」命中完全不同：`紐約` → 肯塔基州小镇；`紐約市` → 纽约市（880 万人）。
-      //   所以仍为空时，把简体逐字转繁后，带「市」与不带「市」各问一次（并行），取人多的那份。
-      if (list.length === 0) {
-        const trad = toTraditional(kw);
-        if (trad && trad !== kw) {
-          const words = trad.endsWith('市') ? [trad] : [trad, `${trad}市`];
+      // ★2026-11 真机缺陷：中文搜国外城市找不到，或找到的是同名小地方；英文缩写也对不上
+      //   （`LA` 上游命中加纳的 La 村、`SF` 0 条）。地名库（GeoNames）的别名登得很不齐：
+      //   简体可能 0 条（温哥华 / 西雅图），繁体才查得到；带不带「市」也命中不同条目
+      //   （`紐約` 是肯塔基小镇、`紐約市` 才是 880 万人的纽约市）。
+      //   所以进入「别名兜底」：别名表里的缩写**直接**并行查（不等第一次失败 —— LA 第一次
+      //   就命中了加纳的 La，等失败就永远纠正不过来）；中文长尾则在原词为空时补「带市/繁体」。
+      //   合并去重后先按「城市 vs 非城市（岛/机场）」、再按人口排 —— 不让小镇盖过大城市。
+      const aliasWords = ALIAS_TABLE[kw.toLowerCase()];
+      const needFallback = list.length === 0 || (aliasWords && aliasWords.length > 0);
+      if (needFallback) {
+        const words = _fallbackKeywords(kw);
+        if (words.length > 0) {
           if (isStale()) return null;
           const rs = await Promise.all(
             words.map((w) => fetchFn('geocode', { keyword: w, lang }).catch(() => null)),
           );
           if (isStale()) return null;
-          const cands = rs
-            .filter((r) => r && r.ok && Array.isArray(r.data))
-            .map((r) => _navigable(r.data))
-            .filter((l) => l.length > 0);
-          if (cands.length > 0) {
-            // 取「人口最多」的那一份：避免把 880 万人的纽约市让给同名的肯塔基小镇
-            list = cands.reduce((best, cur) => (peak(cur) > peak(best) ? cur : best));
+          const merged = list.slice();
+          for (const r of rs) {
+            if (r && r.ok && Array.isArray(r.data)) merged.push(..._navigable(r.data));
           }
+          list = _rankMerged(_dedupeByPlace(merged));
         }
       }
 

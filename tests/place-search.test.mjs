@@ -529,7 +529,11 @@ test('★中文搜国外城市：「纽约」转繁后带/不带「市」都问�
   // ★变异验证：只问 `紐約`、或按返回先后取，这条会变成肯塔基小镇而红
   assert.equal(ctl.results[0].name, '紐約市', `必须命中纽约市，实际 ${ctl.results[0].name}`);
   assert.equal(ctl.results[0].population, 8804190);
-  assert.deepEqual(calls, ['纽约', '纽约市', '紐約', '紐約市'], `实际：${calls.join(' → ')}`);
+  assert.deepEqual(
+    calls,
+    ['纽约', 'New York City', '纽约市', '紐約市', '紐約'],
+    `实际：${calls.join(' → ')}`,
+  );
   ctl.dispose();
 });
 
@@ -553,6 +557,70 @@ test('★转繁后仍 0 条：状态仍是 empty，不许说成网络错误', as
   assert.equal(ctl.status, 'empty');
   assert.equal(ctl.results.length, 0);
   assert.deepEqual(calls, ['卢森堡', '卢森堡市', '盧森堡', '盧森堡市'], '补一次就停');
+  ctl.dispose();
+});
+
+test('★英文缩写「LA」：上游命中加纳的 La 村，也必须并行查别名并改按人口取洛杉矶', async () => {
+  const LA_US = {
+    name: 'Los Angeles', lat: 34.05223, lon: -118.24368, country: '美国', admin1: '加州', population: 3971883,
+  };
+  const LA_GH = {
+    name: 'La', lat: 8.2, lon: -0.85, country: '加纳', admin1: 'Greater Accra', population: null,
+  };
+  const { calls, fetch } = keywordFetch({ LA: [LA_GH], 'Los Angeles': [LA_US] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('LA');
+
+  assert.equal(ctl.status, 'ok');
+  // ★变异验证：若只在空结果时才兜底，这里会停留在加纳的 La 而红
+  assert.equal(ctl.results[0].name, 'Los Angeles', `首条必须是洛杉矶，实际 ${ctl.results[0].name}`);
+  assert.deepEqual(
+    calls,
+    ['LA', 'Los Angeles', '洛杉矶', '洛杉磯'],
+    `缩写必须总走别名并行，实际：${calls.join(' → ')}`,
+  );
+  ctl.dispose();
+});
+
+test('★英文缩写「SF」：上游 0 条 → 兜底并行查 San Francisco/旧金山/舊金山并命中', async () => {
+  const SF = {
+    name: 'San Francisco', lat: 37.77493, lon: -122.41942, country: '美国', admin1: '加州', population: 827526,
+  };
+  const { calls, fetch } = keywordFetch({ SF: [], 'San Francisco': [SF] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('SF');
+
+  assert.equal(ctl.status, 'ok', `SF 必须搜得到，实际 ${ctl.status}`);
+  assert.equal(ctl.results[0].name, 'San Francisco');
+  assert.equal(ctl.results[0].population, 827526);
+  assert.deepEqual(calls, ['SF', 'San Francisco', '旧金山', '舊金山'], `实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+test('★中文「温哥华」：简体 0 条 → 繁体命中（加拿大 66 万人 + 美国小城），按人口加拿大在前', async () => {
+  const VAN_CA = {
+    name: '溫哥華', lat: 49.28273, lon: -123.12074, country: '加拿大', admin1: '不列颠哥伦比亚', population: 662248,
+  };
+  const VAN_US = {
+    name: '溫哥華', lat: 45.63873, lon: -122.66149, country: '美国', admin1: '华盛顿州', population: 196442,
+  };
+  const { calls, fetch } = keywordFetch({ 温哥华: [], 温哥华市: [], 温哥華: [VAN_CA, VAN_US] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('温哥华');
+
+  assert.equal(ctl.status, 'ok');
+  assert.equal(ctl.results.length, 2, '两个同名温哥华都要在');
+  assert.equal(ctl.results[0].country, '加拿大', `人口多的加拿大温哥华必须排第一，实际第一=${ctl.results[0].country}`);
+  // ★「哥」的繁简同形，Unihan 无映射，所以兜底词是「温哥華」而非「溫哥華」；
+  //   但「温哥華」上游也是 0 条，真正命中靠别名表里的英文全名 Vancouver
+  assert.deepEqual(
+    calls,
+    ['温哥华', 'Vancouver', '温哥华市', '温哥華', '温哥華市'],
+    `实际：${calls.join(' → ')}`,
+  );
   ctl.dispose();
 });
 
