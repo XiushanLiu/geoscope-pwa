@@ -861,55 +861,44 @@ test('★层级排序：ADM2 县人口再高也不得盖过 PPLA/PPL（镇/村�
 });
 
 /* ------------------------------------------------------------------ */
-/* 11. 外置别名表（search-alias.json：新增地名免改代码）                  */
+/* 11. 别名表单一数据源（v99：删除 search-alias.json）                   */
 /* ------------------------------------------------------------------ */
 
-test('★loadAliases 成功：外置别名立即生效，且与内置表合并（不丢内置）', async () => {
-  const BAR = { name: 'Bar City', lat: 1, lon: 2, country: 'X国', admin1: 'Y省' };
-  const { calls, fetch } = keywordFetch({ foo: [], 'Bar City': [BAR] });
-  const ctl = ps.createPlaceSearch({ fetch });
+test('★别名表只有一份数据源：src/data/search-alias.js，JSON 已删除', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  assert.ok(fs.existsSync(path.join(ROOT, 'src/data/search-alias.js')), 'JS 数据源必须存在');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'src/data/search-alias.json')), 'JSON 副本必须删除（否则又是双份维护）');
 
-  fetchMock.setFallback({ status: 200, json: { version: 1, aliases: { foo: ['Bar City'] } } });
-  const loaded = await ctl.loadAliases('search-alias.json');
-  assert.equal(loaded, true, '合法的 JSON 必须加载成功');
-
-  await ctl.run('foo'); // 外置别名：foo → Bar City
-  assert.equal(ctl.status, 'ok');
-  assert.equal(ctl.results[0].name, 'Bar City');
-  assert.deepEqual(calls, ['foo', 'Bar City'], `外置别名必须走兜底并行，实际：${calls.join(' → ')}`);
-  ctl.dispose();
+  const mod = await import('../src/data/search-alias.js');
+  const table = mod.ALIAS_TABLE;
+  assert.ok(table && typeof table === 'object', '必须导出 ALIAS_TABLE');
+  for (const [key, val] of Object.entries(table)) {
+    assert.equal(key, key.toLowerCase(), `别名键必须小写：${key}`);
+    assert.ok(Array.isArray(val) && val.length > 0, `别名值必须是非空数组：${key}`);
+  }
+  // 关键条目抽查：缩写 / 州 / 中文热门城市各一
+  assert.deepEqual(table.la.slice(0, 1), ['Los Angeles']);
+  assert.deepEqual(table.ca, ['Los Angeles']);
+  assert.ok(table['纽约'].includes('New York City'));
 });
 
-test('★loadAliases 失败（404 / 坏 JSON）：回退内置表，内置别名照常工作', async () => {
+test('★搜索控制器不再请求别名表：一次搜索只发地名请求（零额外 fetch）', async () => {
   const SF = {
     name: 'San Francisco', lat: 37.77493, lon: -122.41942, country: '美国', admin1: '加州', population: 827526,
   };
+  const { calls, fetch } = keywordFetch({ SF: [], 'San Francisco': [SF] });
+  const before = fetchMock.count;
+  const ctl = ps.createPlaceSearch({ fetch });
 
-  // 404：加载失败
-  const one = keywordFetch({ SF: [], 'San Francisco': [SF] });
-  const ctl1 = ps.createPlaceSearch({ fetch: one.fetch });
-  fetchMock.setFallback({ status: 404 });
-  assert.equal(await ctl1.loadAliases('missing.json'), false, '404 必须如实返回失败');
+  assert.equal(typeof ctl.loadAliases, 'undefined', 'loadAliases 随 JSON 一起删除，不该再暴露');
 
-  // 坏 JSON：解析失败与网络失败同一条回退路径
-  fetchMock.setFallback({ status: 200, body: 'not-json{' });
-  assert.equal(await ctl1.loadAliases('broken.json'), false, '坏 JSON 也必须回退而不是炸掉');
-
-  // 内置表没丢：SF 仍走内置别名命中
-  await ctl1.run('SF');
-  assert.equal(ctl1.status, 'ok');
-  assert.equal(ctl1.results[0].name, 'San Francisco');
-  assert.deepEqual(one.calls, ['SF', 'San Francisco', '旧金山', '舊金山'], `实际：${one.calls.join(' → ')}`);
-  ctl1.dispose();
-});
-
-test('★loadAliases 离线短路：onLine=false 时零请求直接回退内置表（与 http.js 同口径）', async () => {
-  const ctl = ps.createPlaceSearch({ fetch: async () => ({ ok: true, data: [] }) });
-  globalThis.navigator.onLine = false;
-
-  assert.equal(await ctl.loadAliases(), false, '离线必须如实回退');
-  assert.equal(fetchMock.count, 0, '★离线一个请求都不许发');
-
-  globalThis.navigator.onLine = true;
+  await ctl.run('SF');
+  assert.equal(ctl.status, 'ok');
+  assert.equal(ctl.results[0].name, 'San Francisco', '内置（现唯一）别名表照常生效');
+  assert.deepEqual(calls, ['SF', 'San Francisco', '旧金山', '舊金山'], `实际：${calls.join(' → ')}`);
+  assert.equal(fetchMock.count - before, 0, '★别名表是模块常量，不许再发任何请求');
   ctl.dispose();
 });

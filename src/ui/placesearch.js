@@ -15,15 +15,19 @@
  * 令牌**（`seq`），与 ui/app.js 的 `_epoch` 守卫同一思路：每次发起前 `++seq` 并记下
  * 自己的号，响应回来后号对不上就整包丢弃。
  *
- * 依赖方向：ui → core（只 import http 的 request 与 i18n 的 t），不 import data 层 ——
- * geocode 源的解析器由 src/data/sources.js 在 app.js 里注入，本模块只认 'geocode' 这个
- * 源 id。测试里要跑真 `request` 时自己 import sources.js 装上解析器。
+ * 依赖方向：ui → core（http 的 request、i18n 的 t、拼音/简繁）与 data 的**纯数据**别名表
+ * （无副作用、无网络）；geocode 源的解析器仍由 src/data/sources.js 在 app.js 里注入，
+ * 本模块只认 'geocode' 这个源 id。测试里要跑真 `request` 时自己 import sources.js 装上解析器。
  */
 
 import { request } from '../core/http.js';
 import { toTraditional } from '../core/zhvariant.js';
 import { pinyinToChinese, chineseToPinyin, looksLikePinyin } from '../core/pinyin.js';
 import { t } from '../i18n/index.js';
+// ★别名表唯一数据源（v99）：此前 JS 内置表与 search-alias.json 两份同时维护，
+//   改一处忘另一处会让线上 / 离线给出不同的搜索结果。现在只有 data 层这一个模块，
+//   没有运行时 fetch、没有超时、没有"加载失败回退"分支。纯数据模块，无副作用。
+import { ALIAS_TABLE } from '../data/search-alias.js';
 import { errorText } from './errtext.js';
 
 /**
@@ -222,67 +226,6 @@ export function createPlaceSearch(opts = {}) {
       return _finiteCoord(c.lat) !== null && _finiteCoord(c.lon) !== null;
     });
   }
-
-  /**
-   * 中文/缩写 → 上游能命中的写法（多为英文全名 + 当地常用中文）。
-   *
-   * ★只放实测过的（本机实测 2026-11）：
-   *   `纽约` → 0；`紐約市` → 纽约市。`温哥华` → 0；`温哥華` → 0（「哥」繁简同形，
-   *   Unihan 无映射）；`Vancouver` → 加拿大 + 美国两个。`洛杉矶` → 0；`洛杉磯` → 1。
-   *   `LA` → 柬埔寨、`SF` → 0、`NYC` → New York。`首尔` → 0；`首爾` → 2。
-   *   键必须小写；查表前先把输入 trim + 小写。
-   *
-   * ★外置说明：此表与 src/data/search-alias.json 同步，JSON 加载失败时回退到此内置表。
-   */
-  const ALIAS_TABLE_BUILTIN = {
-    // —— 城市缩写（用户最可能输入的）——
-    'la': ['Los Angeles', '洛杉矶', '洛杉磯'],
-    'l.a.': ['Los Angeles', '洛杉矶', '洛杉磯'],
-    'sf': ['San Francisco', '旧金山', '舊金山'],
-    'nyc': ['New York City', '纽约市', '紐約市'],
-
-    // —— 美国州两字母缩写 → 该州最大城市（上游几乎全废，必须兜底）——
-    //   实测：NY→比利时 Ny 村、CA→印尼、NJ→0 条、TX→0 条… 用户要的是州，
-    //   但 GeoNames 没建州索引；按「该州最大城市」返回，比空结果/外国小村诚实。
-    //   ★注意歧义：`la` 已被上面洛杉矶占用；`me`（缅因）、`in`（印第安纳）、`or`
-    //   （俄勒冈）同时是英文常用词，但城市人口会盖过同名词条，仍收录。
-    'ny': ['New York City'], 'ca': ['Los Angeles'], 'tx': ['Houston'], 'fl': ['Miami'],
-    'il': ['Chicago'], 'pa': ['Philadelphia'], 'oh': ['Columbus'], 'ga': ['Atlanta'],
-    'nc': ['Charlotte'], 'mi': ['Detroit'], 'nj': ['Newark'], 'va': ['Virginia Beach'],
-    'wa': ['Seattle'], 'az': ['Phoenix'], 'ma': ['Boston'], 'tn': ['Nashville'],
-    'mo': ['Kansas City'], 'md': ['Baltimore'], 'wi': ['Milwaukee'], 'co': ['Denver'],
-    'mn': ['Minneapolis'], 'sc': ['Charleston'], 'al': ['Birmingham'], 'ky': ['Louisville'],
-    'or': ['Portland'], 'ok': ['Oklahoma City'], 'ct': ['Hartford'], 'ut': ['Salt Lake City'],
-    'ia': ['Des Moines'], 'nv': ['Las Vegas'], 'ar': ['Little Rock'], 'ms': ['Jackson'],
-    'ks': ['Wichita'], 'nm': ['Albuquerque'], 'ne': ['Omaha'], 'id': ['Boise'],
-    'hi': ['Honolulu'], 'ri': ['Providence'], 'mt': ['Billings'], 'de': ['Wilmington'],
-    'sd': ['Sioux Falls'], 'nd': ['Fargo'], 'ak': ['Anchorage'], 'dc': ['Washington'],
-    'vt': ['Burlington'], 'wy': ['Cheyenne'], 'nh': ['Manchester'], 'wv': ['Charleston'],
-    'in': ['Indianapolis'],
-    'louisiana': ['New Orleans'], 'maine': ['Portland'],
-
-    // —— 加拿大省两字母缩写 → 该省最大城市 ——
-    'on': ['Toronto'], 'qc': ['Montreal'], 'bc': ['Vancouver'], 'ab': ['Calgary'],
-    'mb': ['Winnipeg'], 'sk': ['Saskatoon'], 'ns': ['Halifax'], 'nb': ['Moncton'],
-
-    // —— 中文热门城市：简体/繁体上游都 0 条时，直接给英文全名 ——
-    '纽约': ['New York City', '纽约市', '紐約市'],
-    '紐約': ['New York City', '紐約市'],
-    '洛杉矶': ['Los Angeles', '洛杉磯'],
-    '洛杉磯': ['Los Angeles'],
-    '旧金山': ['San Francisco', '舊金山'],
-    '舊金山': ['San Francisco'],
-    '温哥华': ['Vancouver'],
-    '温哥華': ['Vancouver'],
-    '溫哥華': ['Vancouver'],
-    '西雅图': ['Seattle', '西雅圖'],
-    '西雅圖': ['Seattle'],
-    '首尔': ['Seoul', '首爾', '漢城'],
-    '首爾': ['Seoul'],
-  };
-
-  /** 运行时别名表：优先用外置 JSON，加载失败回退到内置表。 */
-  let ALIAS_TABLE = ALIAS_TABLE_BUILTIN;
 
   /**
    * 空结果时的兜底关键词清单（去重、最多 6 个）。
@@ -627,38 +570,6 @@ export function createPlaceSearch(opts = {}) {
      */
     pick(place) {
       if (onPick) onPick(place);
-    },
-
-    /**
-     * 从外置 JSON 加载别名表（异步，不阻塞）。
-     *
-     * 加载成功后替换内置表；失败保持内置表。
-     *
-     * @param {string} [url] JSON 地址，默认 'src/data/search-alias.json'。
-     * @returns {Promise<boolean>} 是否加载成功。
-     */
-    async loadAliases(url = 'src/data/search-alias.json') {
-      // 离线短路：与 http.js 同口径，离线零请求（真机离线回退内置表，内容与 JSON 同步）
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
-      // 弱网兜底：3 s 内拿不到就放弃（别名表是锦上添花，不能长期占着连接）
-      const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
-      const timer = ctrl ? setTimeout(() => ctrl.abort(), 3000) : null;
-      try {
-        const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
-        if (!res.ok) return false;
-        // ★用 text()+JSON.parse 而不是 res.json()：harness 的假响应只实现 text()，
-        //   且解析失败与网络失败走同一条 catch，回退路径只有一条
-        const json = JSON.parse(await res.text());
-        if (json && json.aliases && typeof json.aliases === 'object') {
-          ALIAS_TABLE = { ...ALIAS_TABLE_BUILTIN, ...json.aliases };
-          return true;
-        }
-        return false;
-      } catch (err) {
-        return false;
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
     },
 
     /**

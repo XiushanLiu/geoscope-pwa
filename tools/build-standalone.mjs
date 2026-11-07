@@ -86,6 +86,8 @@ const ORDER = [
   // 语言引导与错误文案：now.js / selfcheck.js 都 import 它们，必须先于两者。
   'src/ui/locale.js',
   'src/ui/errtext.js',
+  // 别名表（v99 收口为唯一数据源）：placesearch.js 直接 import，必须在它之前
+  'src/data/search-alias.js',
   'src/ui/placesearch.js',
   // 指标释义：now.js 在 renderSkeleton() 里建它的槽位，所以必须在 now.js **之前**。
   // 自检页本身不显示图例，但闭包校验是「import 了就必须在闭包内」，少登记会直接打包中止。

@@ -157,6 +157,8 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
     //   （2026-10-17 自驾下线：原「自驾模块（T01/T02）」那一组 10 项已整组删除。）
     'src/data/sources.js', 'src/data/openmeteo.js', 'src/data/photon.js', 'src/data/tiles.js', 'src/data/health.js',
     'src/data/wmm2025.js',
+    // v99：别名表收口为唯一 JS 数据源（原 search-alias.json 已删除）
+    'src/data/search-alias.js',
     'src/ui/app.js', 'src/ui/now.js', 'src/ui/selfcheck.js', 'src/ui/compass.js', 'src/ui/map.js',
     'src/ui/settings.js', 'src/ui/download.js', 'src/ui/pull.js',
   ];
