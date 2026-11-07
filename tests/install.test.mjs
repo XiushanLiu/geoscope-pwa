@@ -687,12 +687,13 @@ function installClipboard(opts = {}) {
  * @param {string|undefined} origin origin；undefined 表示「没有 location」。
  * @returns {() => void} 还原函数。
  */
-function installLocation(origin) {
+function installLocation(origin, href) {
   const saved = globalThis.location;
   if (origin === undefined) {
     Object.defineProperty(globalThis, 'location', { value: undefined, configurable: true, writable: true });
   } else {
-    Object.defineProperty(globalThis, 'location', { value: { origin }, configurable: true, writable: true });
+    const value = href === undefined ? { origin } : { origin, href };
+    Object.defineProperty(globalThis, 'location', { value, configurable: true, writable: true });
   }
   return () => {
     Object.defineProperty(globalThis, 'location', { value: saved, configurable: true, writable: true });
@@ -766,6 +767,40 @@ test('★installEntryUrl：origin + /index.html（不是当前页 href）', asyn
       'https://example.com/index.html',
       '★必须是入口页：这张卡在 settings.html 上，用 href 会复制出设置页，用户点开就直接进设置'
     );
+  } finally {
+    restore();
+  }
+});
+
+test('★installEntryUrl：子路径部署必须落在同目录（GitHub Pages 的 /geoscope-pwa/）', async () => {
+  const { installEntryUrl } = await freshModule();
+  const restore = installLocation('https://xiushanliu.github.io', 'https://xiushanliu.github.io/geoscope-pwa/settings.html');
+  try {
+    assert.equal(
+      installEntryUrl(),
+      'https://xiushanliu.github.io/geoscope-pwa/index.html',
+      '★不能用 origin 根：那会给出 https://xiushanliu.github.io/index.html（404），OPPO 的手动添加路径就废了'
+    );
+  } finally {
+    restore();
+  }
+});
+
+test('installEntryUrl：入口页在根目录时仍是 origin + /index.html', async () => {
+  const { installEntryUrl } = await freshModule();
+  const restore = installLocation('https://example.com', 'https://example.com/settings.html');
+  try {
+    assert.equal(installEntryUrl(), 'https://example.com/index.html');
+  } finally {
+    restore();
+  }
+});
+
+test('installEntryUrl：只有 origin 没有 href（老宿主）→ 退回 origin 根，不抛', async () => {
+  const { installEntryUrl } = await freshModule();
+  const restore = installLocation('https://example.com');
+  try {
+    assert.equal(installEntryUrl(), 'https://example.com/index.html');
   } finally {
     restore();
   }

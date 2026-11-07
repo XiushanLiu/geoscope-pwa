@@ -286,6 +286,18 @@ export function installEntryUrl() {
   if (typeof location === 'undefined' || !location) return '';
   const origin = typeof location.origin === 'string' ? location.origin : '';
   if (!origin || origin === 'null') return '';
+  // ★按「当前页所在目录」解析，不能拼 origin 根：站点可能部署在子路径
+  //   （GitHub Pages 就是 /geoscope-pwa/），拼 origin + '/index.html' 会指到域根，
+  //   用户复制出来的「网站快捷方式」直接 404 —— OPPO 那种
+  //   「复制网址 → 书签 → 添加到桌面」的手动路径正是废在这一步。
+  const href = typeof location.href === 'string' ? location.href : '';
+  if (href) {
+    try {
+      return new URL('index.html', href).href;
+    } catch (err) {
+      // href 不是绝对地址（异常宿主）→ 退回 origin 根，聊胜于无
+    }
+  }
   return `${origin}/index.html`;
 }
 
