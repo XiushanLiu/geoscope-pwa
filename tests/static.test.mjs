@@ -153,6 +153,8 @@ test('实际文件 → sw.js 预缓存清单：仓库里每个运行时静态资
     'src/core/mag.js', 'src/core/backup.js', 'src/core/csv.js',
     // 二十四山表：地理页 compass.js 的静态依赖（不在 selfcheck 闭包内，故不进 ORDER）
     'src/core/shan24.js',
+    // 分享海报绘制：气候页 now.js 的静态依赖（在 selfcheck 闭包内，ORDER 也必须登记）
+    'src/core/poster.js',
     // ★新增 src 模块要同步三处清单 —— sw.js 的 SHELL_ASSETS、
     //   tools/build-standalone.mjs 的 ORDER、以及这里。漏任何一处都会在**不同的地方**红：
     //   sw 漏 → check.mjs 第 6 节报红；ORDER 漏 → 打包直接中止；这里漏 → 新模块没人守。

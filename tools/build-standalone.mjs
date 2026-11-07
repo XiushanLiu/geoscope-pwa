@@ -92,6 +92,8 @@ const ORDER = [
   // 指标释义：now.js 在 renderSkeleton() 里建它的槽位，所以必须在 now.js **之前**。
   // 自检页本身不显示图例，但闭包校验是「import 了就必须在闭包内」，少登记会直接打包中止。
   'src/ui/legend.js',
+  // 分享海报绘制：now.js 直接 import，必须先于它；模块本身零依赖，只有绘制代码。
+  'src/core/poster.js',
   'src/ui/now.js',
   // ★ `src/ui/map.js` **故意不登记在 ORDER 里**：2026-10-17 导航重构后它只被地理页入口
   //   `src/ui/compass.js` import（气候页入口 `src/ui/app.js` 在 T04 瘦身后已不再用它，
@@ -127,6 +129,12 @@ const ORDER = [
  *      `src/core/pinyin.js`（+3,180 B，本轮新建）入闭包；其余增量为 v94 周期内
  *      placesearch.js 别名表扩充 / 兜底链路 / i18n 文案的累计（该周期未重跑过 build，
  *      基线一直停留在 2026-10-31，本轮是第一次当场实测）。
+ *      v101（二十四山）— **27 模块 / 584,984 B（571.3 KiB）**
+ *      v102（分享海报）— **28 模块 / 598,457 B（584.4 KiB）**
+ *      100% 归因（源码字节均为当场实测的 HEAD 与工作区之差）：新建 `src/core/poster.js`
+ *      +5,901 B、`src/ui/now.js` +5,916 B（海报数据组装 / 分享与下载兜底）、
+ *      `zh.js` +427 B、`en.js` +492 B；余下约 737 B 是新增模块在 ORDER 清单与
+ *      Blob 包装里的固定开销。海报按钮样式在 styles/app.css，不进本产物，故不计入。
  *    旧基线（2026-10-31 当场实测）：
  *      截至 HEAD `6719ccd` — **24 模块 / 498,075 B（486.4 KiB）**
  *      本轮（壳更新提示条，只挂四个 live 页面）之后 — **24 模块 / 498,781 B（487.1 KiB）**

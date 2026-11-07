@@ -31,6 +31,8 @@ import {
 // 指标释义（图例）：静态内容，不依赖任何数据源，所以骨架期就建槽上屏 ——
 // 离线 / 取数失败时它也必须在，释义不是「有数据才配看」的东西。
 import { renderLegend } from './legend.js';
+// 分享海报：纯绘制函数（零依赖），文案在这里按当前语言组装好再交给它画
+import { drawPoster, POSTER_W, POSTER_H } from '../core/poster.js';
 
 /** 收藏反馈文案的停留时长（毫秒）：给一眼就够，不长驻、不挡内容。 */
 const FAV_HINT_MS = 2000;
@@ -720,8 +722,175 @@ export function renderWeatherCard(root, snapshot) {
         ]),
       ]),
       kvGrid,
+      // 海报入口：Canvas 2D 不可用时返回 null，卡片保持原样（不出现点不动的废键）
+      _posterButton(snapshot),
     ]),
   ]);
+}
+
+/* ------------------------------------------------------------------ */
+/* 分享海报（阶段二）                                                    */
+/* ------------------------------------------------------------------ */
+
+/** 能力探测结果缓存：每页只需探一次，避免每次重绘都新建 canvas。 */
+let _canvasOk = null;
+
+/**
+ * 探测本浏览器能否画 Canvas 2D。
+ *
+ * @returns {boolean} 可用为 true。
+ */
+function _canvasSupported() {
+  if (_canvasOk !== null) return _canvasOk;
+  try {
+    const c = document.createElement('canvas');
+    _canvasOk = !!(c && typeof c.getContext === 'function' && c.getContext('2d'));
+  } catch (err) {
+    _canvasOk = false;
+  }
+  return _canvasOk;
+}
+
+/**
+ * 组装海报数据：所有文案在渲染层按当前语言定好，绘制层不认识任何 i18n 键。
+ *
+ * @param {Object} snapshot NowSnapshot。
+ * @returns {Object} drawPoster 需要的数据。
+ */
+function _posterModel(snapshot) {
+  const w = (snapshot && snapshot.weather) || {};
+  const tz = Number(w.tzOffsetSec) || 0;
+  const atMs = Number(snapshot && snapshot.atMs) || Number(w.atMs) || Date.now();
+  const day = snapshot && snapshot.atMs
+    ? isDaylight(snapshot.atMs, snapshot.coord || { lat: 0, lon: 0 })
+    : true;
+  const desc = wmo(w.wmoCode, day);
+  const placeName = (snapshot && snapshot.placeName)
+    || (snapshot && snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.unknown'));
+  return {
+    brand: t('poster.brand'),
+    place: fmt.placeTitle(placeName),
+    coord: snapshot && snapshot.coord ? fmt.coord(snapshot.coord.lat, snapshot.coord.lon) : t('app.dash'),
+    temp: fmt.num(w.tempC, 0),
+    unit: t('w.unitC'),
+    desc: `${desc.icon} ${t(desc.key)}`,
+    feels: `${t('w.feels')} ${fmt.tempC(w.feelsC)}`,
+    stats: [
+      { label: t('w.todayMax'), value: fmt.tempC(w.todayMaxC) },
+      { label: t('w.todayMin'), value: fmt.tempC(w.todayMinC) },
+      { label: t('w.pop'), value: fmt.percent(w.popNowPct) },
+      { label: t('w.humidity'), value: fmt.humidity(w.humidityPct) },
+    ],
+    date: fmt.mdHm(atMs, tz),
+    footer: t('poster.footer'),
+  };
+}
+
+/**
+ * 把 canvas 转成 PNG Blob（toBlob 是异步的，包一层 Promise）。
+ *
+ * @param {HTMLCanvasElement} canvas 画布。
+ * @returns {Promise<Blob|null>} 失败或浏览器不支持时返回 null。
+ */
+function _toBlob(canvas) {
+  return new Promise((resolve) => {
+    if (!canvas || typeof canvas.toBlob !== 'function') {
+      resolve(null);
+      return;
+    }
+    try {
+      canvas.toBlob((b) => resolve(b || null), 'image/png');
+    } catch (err) {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * 生成海报并分享 / 下载。
+ *
+ * 优先级：系统分享（带文件）→ 直接下载 PNG。用户取消分享（AbortError）
+ * 不算失败，不播报错误；任何一步出问题都只播报一句提示，不抛异常。
+ *
+ * @param {Object} snapshot NowSnapshot。
+ * @param {HTMLButtonElement} btn 触发按钮（期间禁用，防连点）。
+ * @returns {Promise<void>}
+ */
+async function _sharePoster(snapshot, btn) {
+  const model = _posterModel(snapshot);
+  btn.disabled = true;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = POSTER_W;
+    canvas.height = POSTER_H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !drawPoster(ctx, model)) {
+      announce(t('poster.fail'));
+      return;
+    }
+
+    const name = `geoscope-${new Date().getTime()}.png`;
+    const blob = await _toBlob(canvas);
+    if (!blob) {
+      announce(t('poster.fail'));
+      return;
+    }
+
+    // 系统分享：桌面浏览器基本没有，移动端 Safari / Chrome 有
+    if (typeof File === 'function' && typeof navigator !== 'undefined'
+      && typeof navigator.canShare === 'function' && typeof navigator.share === 'function') {
+      try {
+        const file = new File([blob], name, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: t('poster.shareTitle', { place: model.place }) });
+          announce(t('poster.shared'));
+          return;
+        }
+      } catch (err) {
+        // 用户取消分享：静默返回，不提示「生成失败」
+        if (err && err.name === 'AbortError') return;
+        // 其他异常继续走下载兜底
+      }
+    }
+
+    const url = typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function'
+      ? URL.createObjectURL(blob)
+      : canvas.toDataURL('image/png');
+    if (!url) {
+      announce(t('poster.fail'));
+      return;
+    }
+    const a = h('a', { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // 延迟释放：立刻 revoke 会让部分浏览器还没读到数据就断链
+    setTimeout(() => {
+      if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function' && url.indexOf('blob:') === 0) {
+        URL.revokeObjectURL(url);
+      }
+    }, 10000);
+    announce(t('poster.saved'));
+  } catch (err) {
+    announce(t('poster.fail'));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/**
+ * 天气卡里的「生成海报」按钮。
+ *
+ * @param {Object} snapshot NowSnapshot。
+ * @returns {HTMLElement|null} 操作行；浏览器不支持 Canvas 时为 null。
+ */
+function _posterButton(snapshot) {
+  if (!_canvasSupported()) return null;
+  const btn = h('button', { class: 'btn', type: 'button', text: t('poster.make') });
+  btn.addEventListener('click', () => {
+    _sharePoster(snapshot, btn);
+  });
+  return h('div', { class: 'card-actions' }, [btn]);
 }
 
 /* ------------------------------------------------------------------ */

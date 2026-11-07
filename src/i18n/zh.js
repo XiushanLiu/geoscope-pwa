@@ -133,6 +133,14 @@ export const ZH = {
   'hourly.at': '{hour} 时',
   'hourly.nowLabel': '现在',
   'hourly.a11y': '今日逐时温度曲线，最高 {max}，最低 {min}',
+  // 分享海报：只补按钮与结果播报；海报内的指标名沿用 w.* 既有键，不另造一套词
+  'poster.make': '生成海报',
+  'poster.shareTitle': '{place} 天气',
+  'poster.shared': '海报已分享',
+  'poster.saved': '海报已保存为图片',
+  'poster.fail': '海报生成失败，请重试',
+  'poster.brand': '地候 GeoScope',
+  'poster.footer': '数据来源 Open-Meteo · 仅供出行参考',
   'card.air': '空气',
   // ★2026-10 真机：空气卡上的数取自 `european_aqi`（欧洲 AQI，档位 20/40/60/80/100），
   //   等级词却和国标用同一套字 —— 中国用户会把 EAQI 74 读成国标的「良」（51–100），

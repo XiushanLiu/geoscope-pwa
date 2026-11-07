@@ -235,7 +235,7 @@ docs/stage1-architecture.md 架构与接口契约
 | POI（Overpass） | ⛔ **已下线** | 2026-10-17 自驾两路（路线规划 / POI 候选）从全量表摘除时一并删除，**无** `src/data/overpass.js`。恢复需重新设计源与限流 |
 | 多地点对比 | ✅ **已落地** | `src/ui/compare.js` + `compare.html`（串行取数、单点失败就地标注、不带 tabbar） |
 | 图表交互（24h 温度 / 降水概率） | ✅ **已落地**（2026-11-07） | `src/ui/now.js` 的 `renderHourlyCard()`：24h 温度折线（空缺断开、不铺面积）+ 降水概率柱；指针拖动/触摸查看逐时数值，样式见 `styles/app.css` 的 `.card--hourly` |
-| 分享海报 | ❌ **未做** | 无 `src/core/share.js` |
+| 分享海报 | ✅ **已落地**（2026-11-07） | `src/core/poster.js` 的 `drawPoster(ctx, model)`（纯绘制、零依赖，750×1000）+ `src/ui/now.js` 天气卡「生成海报」按钮：优先 `navigator.share({files})`，不支持则 `<a download>` 存 PNG；无 Canvas 2D 时按钮不出现 |
 | 导出 CSV | ✅**已落地**：`src/core/csv.js`（RFC 4180 转义 + UTF-8 BOM + CRLF），入口在「我的」页 |
 | 英文包 | ✅ **已落地** | `src/i18n/en.js`（与 `zh.js` **逐键同构**，`tools/check.mjs` 第 14 节双向校验）；切换入口在「我的」页 |
 | 磁偏角 WMM2025 | ✅**已落地**：`src/core/mag.js`（通用球谐算法）+ `src/data/wmm2025.js`（该版本系数）；UI 见 `compass.html` + `src/ui/compass.js` |

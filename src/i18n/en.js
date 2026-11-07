@@ -133,6 +133,15 @@ export const EN = {
   'hourly.at': '{hour}:00',
   'hourly.nowLabel': 'Now',
   'hourly.a11y': 'Hourly temperature today, high {max}, low {min}',
+  // Share poster: button and result announcements only — the stat labels inside the
+  // poster reuse the existing w.* keys instead of growing a second vocabulary.
+  'poster.make': 'Make poster',
+  'poster.shareTitle': 'Weather in {place}',
+  'poster.shared': 'Poster shared',
+  'poster.saved': 'Poster saved as an image',
+  'poster.fail': 'Could not create the poster, please try again',
+  'poster.brand': 'GeoScope',
+  'poster.footer': 'Source: Open-Meteo · For travel reference only',
   'card.air': 'Air',
   // ★2026-10 device: the number comes from `european_aqi` (bands 20/40/60/80/100), while the
   //   level words read like China's national standard — a Chinese user reads EAQI 74 as "良"

@@ -435,6 +435,15 @@ body[data-page="compare"] {
   justify-content: space-between;
 }
 
+/* 卡内操作行（目前只有「生成海报」）：右对齐，与上方数值网格拉开一点间距。
+   只写布局与背景，不写 color（文字色沿用 .btn 的 --c-text-1，已过对比度审计）。 */
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
 /* 天气英雄区 */
 .hero {
   display: flex;
