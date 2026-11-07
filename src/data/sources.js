@@ -141,6 +141,9 @@ export const SOURCES = {
     host: GEOCODE_HOST,
     timeoutMs: 6000,
     retry: 1,
+    // ★搜索是用户正在等的操作，必须插队直发：排在后台 6~7 路取数后面时，
+    //   弱网下要等几十秒，界面表现就是「搜城市卡死」（见 http.js 的 exec/skipQueue）。
+    skipQueue: true,
     ttlMs: 86400000,
     cacheable: true,
     critical: false,

@@ -492,9 +492,10 @@ export async function request(sourceId, ctx = {}, opts = {}) {
     }
   }
 
-  // 3) 串行队列内执行
+  // 3) 执行：默认串行队列；★用户主动触发的搜索（spec.skipQueue）直发、不排队 ——
+  //    弱网下它排在 6~7 路后台取数之后要等几十秒，界面表现就是「搜城市卡死」。
   const enqueuedAt = Date.now();
-  return enqueue(async () => {
+  const exec = async () => {
     const startedAt = Date.now();
     meta.queuedMs = startedAt - enqueuedAt;
     meta.startedAt = startedAt;
@@ -549,7 +550,11 @@ export async function request(sourceId, ctx = {}, opts = {}) {
       }
     }
     return _result(false, sourceId, staleValue, res.error, meta);
-  }, { name: sourceId });
+  };
+
+  // 搜索这类用户等待中的请求不排队；后台取数照旧排队，避免弱网互相拖死
+  if (spec.skipQueue) return exec();
+  return enqueue(exec, { name: sourceId });
 }
 
 /**

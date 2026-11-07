@@ -13,7 +13,7 @@
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v86';
+const SHELL_CACHE = 'geoscope-shell-v88';
 
 /**
  * 壳资产指纹：SHELL_ASSETS 全部文件内容按清单顺序拼接后的 sha256 前 16 位（CRLF 已规范为 LF）。
@@ -22,7 +22,7 @@ const SHELL_CACHE = 'geoscope-shell-v86';
  *   真机会一直用旧壳 —— 而且**没有任何报错**。tools/check.mjs 第 22 节拿它重算比对，
  *   不一致就报红；改完壳资产跑一次 node tools/bump-shell.mjs 即可（本脚本自动维护它）。
  */
-const SHELL_FINGERPRINT = 'f2e8c20854cbf4e4';
+const SHELL_FINGERPRINT = 'eea4ad7f7f224887';
 
 /** 瓦片缓存名：由壳版本派生，壳一升版旧瓦片缓存就在 activate 里被清掉。 */
 const TILE_CACHE = SHELL_CACHE.replace('shell', 'tiles');
@@ -218,12 +218,17 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     (async () => {
       const cache = await caches.open(SHELL_CACHE);
-      const hit = await cache.match(request, { ignoreSearch: false });
+      // ★导航请求忽略查询串：搜索结果跳转是 `compass.html?lat=..&lon=..&name=..`，
+      //   精确匹配必然 miss → 每次都回源，弱网下页面长时间空白，看着就是「卡死」。
+      const isNav = request.mode === 'navigate';
+      const hit = await cache.match(request, { ignoreSearch: isNav });
       if (hit) return hit;
       try {
         const res = await fetch(request);
         if (res && res.ok && res.type === 'basic') {
-          cache.put(request, res.clone()).catch(() => {});
+          // 导航按「去掉查询串」的地址落盘：同一页面只有一份壳，缓存不会被每搜一次撑大
+          const putReq = isNav ? new Request(new URL(url.pathname, url.origin).href) : request;
+          cache.put(putReq, res.clone()).catch(() => {});
         }
         return res;
       } catch (err) {
