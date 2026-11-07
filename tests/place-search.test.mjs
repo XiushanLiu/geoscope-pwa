@@ -508,6 +508,45 @@ function keywordFetch(table, opts = {}) {
 /** 泉州（带「市」才有）—— 真机实测：泉州 0 条、泉州市 1 条。 */
 const QUANZHOU = { name: '泉州市', lat: 24.91389, lon: 118.58583, country: '中国', admin1: '福建省' };
 
+/** 纽约（繁体才有）—— 真机实测：纽约 0 条（zh / en 都是）、紐約 1 条。 */
+const NEW_YORK = { name: '紐約', lat: 40.71427, lon: -74.00597, country: '美国', admin1: '纽约州' };
+
+test('★中文搜国外城市：简体的「纽约」上游 0 条 → 转繁「紐約」再问一次并命中', async () => {
+  const { calls, fetch } = keywordFetch({ 纽约: [], 紐約: [NEW_YORK] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('纽约');
+
+  assert.equal(ctl.status, 'ok', `★纽约必须搜得到（靠转繁那一次），实际 ${ctl.status}`);
+  assert.equal(ctl.results[0].name, '紐約');
+  // ★变异验证：去掉转繁这一步，这条会红（状态变 empty）
+  assert.deepEqual(calls, ['纽约', '纽约市', '紐約'], `必须恰好发三次（原词 → 补市 → 转繁），实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+test('★已经是繁体、或转繁后与原词相同：不许多发请求', async () => {
+  const { calls, fetch } = keywordFetch({ 北京: [BJ] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('北京');
+
+  assert.equal(ctl.status, 'ok');
+  assert.deepEqual(calls, ['北京'], `无转换可做时只许发一次，实际：${calls.join(' → ')}`);
+  ctl.dispose();
+});
+
+test('★转繁后仍 0 条：状态仍是 empty，不许说成网络错误', async () => {
+  const { calls, fetch } = keywordFetch({ 卢森堡: [], 盧森堡: [] });
+  const ctl = ps.createPlaceSearch({ fetch });
+
+  await ctl.run('卢森堡');
+
+  assert.equal(ctl.status, 'empty');
+  assert.equal(ctl.results.length, 0);
+  assert.deepEqual(calls, ['卢森堡', '卢森堡市', '盧森堡'], '补一次就停');
+  ctl.dispose();
+});
+
 test('★中文地名补「市」：「泉州」上游 0 条 → 自动再问一次「泉州市」并命中', async () => {
   const { calls, fetch } = keywordFetch({ 泉州: [], 泉州市: [QUANZHOU] });
   const ctl = ps.createPlaceSearch({ fetch });

@@ -21,6 +21,7 @@
  */
 
 import { request } from '../core/http.js';
+import { toTraditional } from '../core/zhvariant.js';
 import { t } from '../i18n/index.js';
 import { errorText } from './errtext.js';
 
@@ -438,6 +439,25 @@ export function createPlaceSearch(opts = {}) {
             }
           } catch (err) {
             // 补请求抛异常：什么都不做 —— `list` 仍是第一次的真实结果（空）
+          }
+        }
+      }
+
+      // ★2026-11 真机缺陷：中文搜国外城市一律「没有找到」。地名库的中文别名以**繁体**登记：
+      //   `纽约` → 0 条，`紐約` → 1 条（同为 US）。所以仍为空时逐字转繁再问一次。
+      //   同样只补一次；转换失败/请求失败都保留「空」这个真实结果，不改写成网络错误。
+      if (list.length === 0) {
+        const tradKw = toTraditional(kw);
+        if (tradKw && tradKw !== kw) {
+          if (isStale()) return null;
+          try {
+            const res3 = await fetchFn('geocode', { keyword: tradKw, lang });
+            if (isStale()) return null;
+            if (res3 && res3.ok) {
+              list = _navigable(Array.isArray(res3.data) ? res3.data : []);
+            }
+          } catch (err) {
+            // 与「市」补请求同策：失败不动结论
           }
         }
       }
