@@ -535,12 +535,13 @@ function _fillInstallCard(card) {
 
   card.appendChild(h('p', { class: 'card-note', id: 'install-note', text: note }));
 
-  // 网址行 + 「复制网址」按钮：只在**手动步骤**那三档出现。
+  // 网址行 + 「复制网址」按钮：在**手动步骤**那四档出现。
+  // ★OPPO 那档也要给：它的唯一出路是复制网址换 360 / Chrome 打开，没有现成地址就无路可走。
   // ★为什么给按钮而不只是写一行网址：兜底那条路要用户把网址填进系统弹窗，
   //   一长串英文靠手打必错；而 URL 行本身留着，是为了按钮失效（不少浏览器
   //   不给网页剪贴板权限）时还能长按手动选中。
   // ★url 为空时整块不显示：没东西可复制，按钮就是个点了没反应的按钮。
-  if (url && (mode === 'manual-ios' || mode === 'manual-android' || mode === 'manual-other')) {
+  if (url && (mode === 'manual-ios' || mode === 'manual-android' || mode === 'manual-other' || mode === 'manual-oppo')) {
     card.appendChild(h('p', { class: 'card-note', id: 'install-url', text: url }));
     const copyBtn = h('button', { class: 'btn', type: 'button', id: 'btn-copy-url', text: t('settings.installCopyUrl') });
     copyBtn.addEventListener('click', _onCopyUrlClick);

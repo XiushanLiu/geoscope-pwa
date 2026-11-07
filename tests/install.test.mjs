@@ -758,13 +758,13 @@ test('copyText：navigator 不存在 → false 且不抛', async () => {
   }
 });
 
-test('★installEntryUrl：origin + /index.html（不是当前页 href）', async () => {
+test('★installEntryUrl：origin + /compass.html（不是当前页 href）', async () => {
   const { installEntryUrl } = await freshModule();
   const restore = installLocation('https://example.com');
   try {
     assert.equal(
       installEntryUrl(),
-      'https://example.com/index.html',
+      'https://example.com/compass.html',
       '★必须是入口页：这张卡在 settings.html 上，用 href 会复制出设置页，用户点开就直接进设置'
     );
   } finally {
@@ -778,19 +778,19 @@ test('★installEntryUrl：子路径部署必须落在同目录（GitHub Pages �
   try {
     assert.equal(
       installEntryUrl(),
-      'https://xiushanliu.github.io/geoscope-pwa/index.html',
-      '★不能用 origin 根：那会给出 https://xiushanliu.github.io/index.html（404），OPPO 的手动添加路径就废了'
+      'https://xiushanliu.github.io/geoscope-pwa/compass.html',
+      '★不能用 origin 根：那会给出 https://xiushanliu.github.io/compass.html（404），OPPO 的手动添加路径就废了'
     );
   } finally {
     restore();
   }
 });
 
-test('installEntryUrl：入口页在根目录时仍是 origin + /index.html', async () => {
+test('installEntryUrl：入口页在根目录时仍是 origin + /compass.html', async () => {
   const { installEntryUrl } = await freshModule();
   const restore = installLocation('https://example.com', 'https://example.com/settings.html');
   try {
-    assert.equal(installEntryUrl(), 'https://example.com/index.html');
+    assert.equal(installEntryUrl(), 'https://example.com/compass.html');
   } finally {
     restore();
   }
@@ -800,7 +800,7 @@ test('installEntryUrl：只有 origin 没有 href（老宿主）→ 退回 origi
   const { installEntryUrl } = await freshModule();
   const restore = installLocation('https://example.com');
   try {
-    assert.equal(installEntryUrl(), 'https://example.com/index.html');
+    assert.equal(installEntryUrl(), 'https://example.com/compass.html');
   } finally {
     restore();
   }

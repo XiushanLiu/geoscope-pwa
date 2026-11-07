@@ -80,8 +80,9 @@ function _nav() {
  *   - `'oppo'`（**有真机 UA 佐证**，本项目第一条）：UA 含 `HeyTapBrowser`。这是 OPPO
  *     自带浏览器（ColorOS）的专有 token。真机日志：机型 PKC110 / Android 17，
  *     UA 尾巴 `... Mobile Safari/537.36 HeyTapBrowser/40.10.24.1`。
- *     它**不是容器**（能装东西），只是入口藏在两跳里（底部三道横线 → 添加收藏 →
- *     书签收藏 → 长按书签 → 添加到桌面），所以给的是步骤而不是「装不了」。
+ *     它**不是容器**（能装东西），但真机核对过：菜单与书签长按里**都没有**「添加到桌面」，
+ *     加收藏只会留在「书签收藏」列表；能装成的路径是换 360 浏览器 / Chrome 打开后
+ *     「添加到桌面」。所以给的是「换浏览器」步骤，而不是一条并不存在的书签路径。
  *     必须排在 android 之前 —— 它的 UA 里同样带 `Android`。
  *   - `'ios'`：UA 含 `iPhone` / `iPad` / `iPod`，**或** UA 含 `Macintosh` 且
  *     `navigator.maxTouchPoints > 1`。后半条是 iPadOS 13+ 的坑：iPad 上 Safari 默认
@@ -271,10 +272,10 @@ export async function promptInstall() {
 /**
  * 本站在**入口页**上的绝对网址（用户粘到「网站快捷方式」里用的就是它）。
  *
- * ★必须是 `origin + '/index.html'` 而不是 `location.href`：`manifest.webmanifest` 的
- *   `start_url` 就是 index.html，那是用户点开 App 的**正门**；而这张卡在 settings.html
- *   上，用 href 会复制出一个设置页地址 —— 用户在桌面上点开就直接进设置，且地址栏
- *   显示的是那一页，等于把人带错门。
+ * ★必须是入口页 `compass.html` 而不是 `location.href`：`manifest.webmanifest` 的
+ *   `start_url` 自 v82 起就是 compass.html，那是用户点开 App 的**正门**；而这张卡在
+ *   settings.html 上，用 href 会复制出一个设置页地址 —— 用户在桌面上点开就直接进设置，
+ *   等于把人带错门。
  *
  * 拿不到 location（Node 侧）或 origin 为空 / 为字符串 'null'（file:// 下就是它）
  * → 返回空串。★空串是「没有这个事实」，调用方**不许**把它塞进带占位符的模板 ——
@@ -288,17 +289,17 @@ export function installEntryUrl() {
   if (!origin || origin === 'null') return '';
   // ★按「当前页所在目录」解析，不能拼 origin 根：站点可能部署在子路径
   //   （GitHub Pages 就是 /geoscope-pwa/），拼 origin + '/index.html' 会指到域根，
-  //   用户复制出来的「网站快捷方式」直接 404 —— OPPO 那种
-  //   「复制网址 → 书签 → 添加到桌面」的手动路径正是废在这一步。
+  //   用户复制出来的「网站快捷方式」直接 404 —— OPPO 的「复制网址 → 换 360 浏览器」
+  //   手动路径正是废在这一步。
   const href = typeof location.href === 'string' ? location.href : '';
   if (href) {
     try {
-      return new URL('index.html', href).href;
+      return new URL('compass.html', href).href;
     } catch (err) {
       // href 不是绝对地址（异常宿主）→ 退回 origin 根，聊胜于无
     }
   }
-  return `${origin}/index.html`;
+  return `${origin}/compass.html`;
 }
 
 /**
