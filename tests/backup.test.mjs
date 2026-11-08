@@ -275,7 +275,29 @@ test('导入失败时状态完全不变（逐字段比对）', () => {
   assert.deepEqual(after.snapshot, before.snapshot);
 });
 
+test('配额满：偏好没落盘时必须报失败，不许弹「导入成功」', () => {
+  // 只让偏好键写失败（快照键照常写），复现「配额被别的数据占满」这一种最可能发生的情形
+  const quota = new FakeStorage({ failOn: (key) => key === 'gs:v1:store:prefs' });
+  const before = [store.getDefaultPlace(), store.getFavorites()];
+  globalThis.localStorage = quota;
+  try {
+    const res = backup.importBackup(makePayload({ defaultPlace: { lat: 31.2304, lon: 121.4737, name: '上海' } }));
+    assert.equal(res.ok, false, '偏好写不进 localStorage 时绝不能返回 ok:true');
+    assert.equal(res.reasonKey, 'backup.writeFailed', '必须走「写入失败」这条既有文案键');
+    // ★内存里的 _state 已经换成新值（set 的既有语义），所以 getState() 读起来「像成功了」——
+    //   正因为如此，applyBackup 只能看 isPersisted()，不能看返回值
+    assert.equal(store.getDefaultPlace().name, '上海');
+    assert.equal(store.isPersisted(), false, 'isPersisted() 必须如实报「没落盘」');
+  } finally {
+    globalThis.localStorage = new FakeStorage();
+    store.resetStore();
+    if (before[0]) store.setDefaultPlace(before[0]);
+  }
+});
+
 test('入参是字符串与对象两种形态行为完全一致', () => {
+
+
   const payload = makePayload({
     defaultPlace: { lat: 45, lon: 9, name: '米兰' },
     unitSystem: 'imperial',

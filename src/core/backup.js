@@ -29,7 +29,7 @@
  */
 
 // APP_ID 住在 store.js（单一来源、且在单文件产物的闭包内），这里只是转出以便调用方就近取用。
-import { getState, getLastSnapshot, replaceState, setLastSnapshot, isDebug, APP_ID } from './store.js';
+import { getState, getLastSnapshot, replaceState, setLastSnapshot, isPersisted, isDebug, APP_ID } from './store.js';
 export { APP_ID };
 // 文件名时间戳复用 core/format.js 的导出文件名时间戳（其导出名为 stamp：'YYYYMMDD-HHmm'，
 // 本地时区）。这里用别名是为了让调用处读起来就是「导出文件名时间戳」，避免重复实现一份。
@@ -309,9 +309,16 @@ export function applyBackup(plan) {
   /* ---------- 一次性写入（原子） ---------- */
   try {
     replaceState({ defaultPlace, unitSystem, networkType, debug, favorites });
+    // ★偏好写盘结果要看 isPersisted()，不能看 replaceState 的返回值：
+    //   配额满时 _state 已经换成新值（读起来「成功」），但 localStorage 一个字节都没写进去，
+    //   用户重启后会看到旧收藏 —— 必须如实报失败，不能弹「导入成功」。
+    const prefsOk = isPersisted();
     // 快照整体覆盖：备份里没有快照时也要把旧的清掉，否则会残留「上一台机器」的天气数据，
     // 用户看到的是一份自己从没去过的地点的天气 —— 比没有更糟。
-    setLastSnapshot(snapshot);
+    const snapOk = setLastSnapshot(snapshot);
+    if (!prefsOk || !snapOk) {
+      return { ok: false, reasonKey: 'backup.writeFailed', reasonParams: { msg: 'QuotaExceededError' } };
+    }
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
     return { ok: false, reasonKey: 'backup.writeFailed', reasonParams: { msg } };

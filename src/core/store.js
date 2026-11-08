@@ -120,13 +120,21 @@ function _load() {
   }
 }
 
+/** @type {boolean} 最近一次 `_persist()` 是否真的落盘（配额满时为 false）。 */
+let _persistOk = true;
+
 /**
- * 持久化偏好（失败静默）。
+ * 持久化偏好。
  *
- * @returns {void}
+ * ★失败不再「静默」：`set()` 在配额满、淘汰后仍写不进时返回 false，这里把结果记下来，
+ *   由 `isPersisted()` 交给调用方（导入备份）如实告知用户 —— 否则界面显示「导入成功」，
+ *   用户重启后却发现收藏还是旧的（内存里的 `_state` 已经换过，读起来像成功了）。
+ *
+ * @returns {boolean} 是否落盘成功。
  */
 function _persist() {
-  set(KEY_PREFS, _state, PREFS_TTL_MS);
+  _persistOk = set(KEY_PREFS, _state, PREFS_TTL_MS) !== false;
+  return _persistOk;
 }
 
 /**
@@ -206,6 +214,18 @@ export function replaceState(next) {
   };
   _persist();
   return getState();
+}
+
+/**
+ * 最近一次偏好写入是否真的落盘。
+ *
+ * ★只对「刚刚那次 `replaceState()`」有效（每次写入都会刷新）。配额满时内存已改、磁盘没改，
+ *   调用方必须据此提示「未保存」，不能因为 `getState()` 已经是新值就报成功。
+ *
+ * @returns {boolean} true = 已落盘；false = 只在内存里。
+ */
+export function isPersisted() {
+  return _persistOk;
 }
 
 /**
@@ -357,11 +377,12 @@ export function getNetworkType() {
  * 写入最近一次快照（离线冷启动的降级底座）。
  *
  * @param {Object} snapshot NowSnapshot。
- * @returns {void}
+ * @returns {boolean} 是否落盘成功。
  */
 export function setLastSnapshot(snapshot) {
   _load();
-  set(KEY_SNAPSHOT, snapshot, PREFS_TTL_MS);
+  // 返回落盘结果：导入备份时要据此判断「快照到底写没写进去」，不能一律当成功
+  return set(KEY_SNAPSHOT, snapshot, PREFS_TTL_MS) !== false;
 }
 
 /**
