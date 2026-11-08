@@ -13,7 +13,7 @@
  */
 
 /** 预缓存清单：必须与仓库实际文件一一对应，缺一个都会导致 install 失败。 */
-const SHELL_CACHE = 'geoscope-shell-v105';
+const SHELL_CACHE = 'geoscope-shell-v106';
 
 /**
  * 壳资产指纹：SHELL_ASSETS 全部文件内容按清单顺序拼接后的 sha256 前 16 位（CRLF 已规范为 LF）。
@@ -222,6 +222,14 @@ self.addEventListener('fetch', (event) => {
 
   // 其它跨域（六路数据源）：直接放行，不拦截、不缓存
   if (url.origin !== self.location.origin) return;
+
+  // ★sw.js 本身不许经本 SW 拦截 / 缓存：
+  //   ① 浏览器注册 SW 时会自带旁路，但「我的」页检查更新是手动 fetch('sw.js?ts=..')，
+  //      这一类**会**走进来——若按带查询串的 URL 写缓存，每次点「检查更新」就多存一份
+  //      `sw.js?ts=随机数`，壳缓存无界膨胀。
+  //   ② sw.js 的更新由浏览器按字节比对独立管理，不该被壳缓存污染；放行走网络才拿得到
+  //      真正的线上版本。
+  if (url.pathname.endsWith('/sw.js')) return;
 
   // 同源静态资源：cache-first，命中即返回；未命中回源并把成功响应写回壳缓存
   event.respondWith(

@@ -479,6 +479,19 @@ describe('sw.js 离线壳行为', () => {
     assert.equal(sb.state.matchCalls.length, 0);
   });
 
+  test('sw.js 请求不被拦截：放行走网络、不查缓存、不写缓存（避免壳缓存无界膨胀）', async () => {
+    const sb = createSandbox();
+    // 带查询串：这正是「我的」页检查更新的实际请求形态
+    const req = assetRequest('/sw.js?ts=12345');
+
+    const record = sb.dispatchFetch(req);
+
+    assert.equal(record.respondWithCount, 0, 'sw.js 绝不能被 respondWith 接管');
+    assert.equal(sb.state.fetchCalls.length, 0, 'SW 不得代发 sw.js 请求（浏览器自己走网络）');
+    assert.equal(sb.state.matchCalls.length, 0, 'SW 不得为 sw.js 查缓存');
+    assert.equal(sb.state.putCalls.length, 0, 'SW 不得把 sw.js 写进壳缓存');
+  });
+
   test('同源命中缓存：直接返回缓存里的响应，且不发起网络请求', async () => {
     const sb = createSandbox();
     sb.seed(SHELL_CACHE, { './index.html': 'INDEX-SHELL' });
