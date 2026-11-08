@@ -77,6 +77,9 @@ function _at(arr, i = 0) {
  * @returns {number|null} 数字或 null。
  */
 function _n(v) {
+  // ★null / 空串不是 0：Number(null)===0 会把「数据源没给」谎报成「真实取到 0」，
+  //   是本仓在气候/罗盘等处处处踩过的坑。缺失必须保持 null，界面才显示占位符「—」。
+  if (v === null || v === undefined || v === '') return null;
   const num = Number(v);
   return Number.isFinite(num) ? num : null;
 }

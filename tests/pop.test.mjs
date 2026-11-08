@@ -129,6 +129,29 @@ test('④ 数据源没给概率 → popNowPct 为 null（★不是 0）', () => 
   assert.equal(parsed.popNowPct, null, '没有序列时必须是 null，绝不能是 0');
 });
 
+test('④b 序列存在、但当前时次那个点是 null → popNowPct 为 null（★不是 0）', () => {
+  // 只把第 14 小时（观测时刻）挖成 null，其余保留 0：
+  //  这是「源数据有洞」和「没给序列」不同的真实场景，此前 _n(null)===0 会把洞读成 0%。
+  const json = weatherJson({ pop: null });
+  assert.equal(json.hourly.precipitation_probability[14], null, '第 14 小时必须真是 null');
+  assert.equal(json.hourly.precipitation_probability[0], 0, '其余小时仍是真实的 0%');
+  const parsed = om.parseWeather(json, { lat: 39.9087, lon: 116.3975 });
+  assert.equal(parsed.popNowPct, null, '源数据在该点是 null，绝不能读成 0%');
+  assert.equal(parsed.hourlyPopPct[14], null, '逐时序列里该点也必须是 null');
+  assert.equal(parsed.hourlyPopPct[0], 0, '其余点的真实 0% 不许被抹成 null');
+});
+
+test('④c 温/湿/风等标量字段为 null → 对应字段是 null（★不是 0）', () => {
+  const json = weatherJson({});
+  json.current.visibility = null;      // 能见度缺测
+  json.current.surface_pressure = null; // 气压缺测
+  json.daily.uv_index_max = [null];     // 当日紫外线极值缺测
+  const parsed = om.parseWeather(json, { lat: 39.9087, lon: 116.3975 });
+  assert.equal(parsed.visibilityM, null, '能见度缺测必须是 null，不能读成 0 m');
+  assert.equal(parsed.pressureHpa, null, '气压缺测必须是 null，不能读成 0 hPa');
+  assert.equal(parsed.uvMax, null, '紫外线极值缺测必须是 null，不能读成 0');
+});
+
 test('⑤ format.percent：有值出百分比，缺失出占位符', () => {
   assert.equal(fmt.percent(37), '37%');
   assert.equal(fmt.percent(0), '0%', '真实取到的 0% 就该显示 0%（那是「确定不下」，不是缺失）');
