@@ -301,3 +301,12 @@ test('静态服务安全：路径穿越被拒绝（用裸 HTTP 报文，避免�
   assert.equal(await raw('/nope.js'), 404, '不存在的资源应返回 404');
   assert.equal(await raw('/index.html'), 200, '正常资源必须 200');
 });
+
+test('原生 file 控件不得裸露在界面上（其文案跟浏览器语言走，英文界面会露中文）', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'src', 'ui', 'settings.js'), 'utf8');
+  const visible = html.match(/class:\s*'btn[^']*',\s*type:\s*'file'/g) || [];
+  assert.equal(visible.length, 0, '原生 type=file 不许带 .btn 直接显示：改用 .sr-only 隐藏 + 自绘按钮触发');
+  assert.ok(/class:\s*'sr-only',\s*type:\s*'file'/.test(html), '原生 file 控件必须用 .sr-only 隐藏');
+  assert.ok(html.includes("id: 'btn-pick-backup'"), '必须有自绘的「选择文件」按钮代触发');
+  assert.ok(html.includes("t('settings.pickFileSelected'"), '选定后必须用本站文案回显文件名');
+});

@@ -1381,7 +1381,13 @@ function _renderPage() {
       h('p', { class: 'card-title', text: t('settings.importTitle') }),
       h('p', { class: 'card-note', text: t('settings.importHint') }),
       h('p', { class: 'card-note', text: t('settings.importPick') }),
-      h('input', { class: 'btn', type: 'file', id: 'file-backup', accept: 'application/json,.json' }),
+      // ★原生 file 控件上的「选择文件 / 未选择文件」跟的是**浏览器 UI 语言**，页面切英文时照样露中文，
+      //   所以把原生控件收进 .sr-only，用自绘按钮触发，文件名回显也改由本站文案控制
+      h('input', { class: 'sr-only', type: 'file', id: 'file-backup', accept: 'application/json,.json' }),
+      h('div', { class: 'field field--row' }, [
+        h('button', { class: 'btn', type: 'button', id: 'btn-pick-backup', text: t('settings.pickFileBtn') }),
+        h('span', { class: 'card-note', id: 'picked-name', text: t('settings.pickFileNone') }),
+      ]),
       h('div', { id: 'import-preview' }),
       h('div', { class: 'field field--row' }, [
         h('button', { class: 'btn btn--primary', type: 'button', id: 'btn-confirm', disabled: true, text: t('settings.confirmBtn') }),
@@ -1482,6 +1488,9 @@ async function _onFilePicked() {
     _setStatus('import-result', t('settings.readFail', { message: _errMsg(err) }));
     return;
   }
+  // 文件名回显（替代原生控件那行「未选择文件」）
+  const picked = _el('picked-name');
+  if (picked) picked.textContent = t('settings.pickFileSelected', { name: fileName });
   if (!String(text).trim()) {
     _setStatus('import-result', t('settings.readEmpty'));
     return;
@@ -1630,6 +1639,15 @@ function _bindControls() {
 
   const fileInput = _el('file-backup');
   if (fileInput) fileInput.addEventListener('change', () => _onFilePicked());
+
+  // 自绘的「选择文件」按钮：原生控件已隐藏，需由它代触发文件选择框
+  const pickBtn = _el('btn-pick-backup');
+  if (pickBtn) {
+    pickBtn.addEventListener('click', () => {
+      const input = _el('file-backup');
+      if (input) input.click();
+    });
+  }
 
   const confirmBtn = _el('btn-confirm');
   if (confirmBtn) confirmBtn.addEventListener('click', _onConfirm);
